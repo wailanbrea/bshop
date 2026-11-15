@@ -2119,3 +2119,13 @@ Guía CONCURRENCIA_FINANCIERA, compensación, QA y ESTADO actualizados.53/69 pun
 estimación aproximadamente75% conservada. Pendiente carga sostenida, carreras
 específicas semanales/enlaces/vencimientos, comisiones, módulos restantes, tablet
 física y entrega. Harness sin HTTP/PDF/proveedores ni uso de VPS/producción.
+
+### Resultado remoto de concurrencia
+
+7923cc9 publicado en origin/develop. CI43719059152 aprobado completo:
+application, financial-concurrency y seis perfiles browser. Informe MySQL del runner
+B6ED2E775727:22/22, ambos órdenes mixtos, cero fallos, fixtures archivados y filas
+previas preservadas. Artefacto financial-concurrency-evidence-1 descargado a
+.runtime/ci-43719059152-financial para inspección. Bootstrap/guardia/Docker y subida
+selectiva de evidencia pasaron en Linux. Regresión browser completa718/718 aprobada.
+Ejecución: https://github.com/wailanbrea/bshop/actions/runs/43719059152

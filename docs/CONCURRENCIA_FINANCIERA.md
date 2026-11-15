@@ -91,6 +91,11 @@ migra sin refresh e instala un único negocio sintético. Ejecuta dos rondas y p
 sólo report/overlap/out/err, excluyendo copia íntegra y credenciales. El contenedor
 propio se detiene al terminar. La primera ejecución remota se registra en PROGRESO.
 
+Primera ejecución comprobada: [CI43719059152](https://github.com/wailanbrea/bshop/actions/runs/43719059152),
+commit7923cc9. Application, financial-concurrency y seis perfiles browser aprobados.
+Informe del runner `B6ED2E775727`:22/22, cobertura de ambos órdenes y filas previas
+preservadas. Evidencia descargada e inspeccionada localmente;718/718 browser aprobados.
+
 ## Alcance pendiente
 
 Estas son carreras sintéticas acotadas de servicios financieros, no un benchmark de

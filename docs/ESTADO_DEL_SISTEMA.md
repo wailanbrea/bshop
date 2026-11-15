@@ -64,6 +64,7 @@ El hito cubre carreras acotadas de servicios, no carga sostenida ni aceptación 
 - Corregida lectura obsoleta InnoDB en subconsultas de exclusión al escribir.
 - 258 pruebas PHP/3.490 aserciones, build/Pint y verificación nativa DECIMAL aprobados.
   Demo conciliada sólo lectura; CI incorpora MySQL aislado y evidencia de solapamiento.
+- Commit7923cc9:CI43719059152 completo aprobado, incluidos22 casos MySQL y718 browser.
 - Detalles, artefactos y límites en `CONCURRENCIA_FINANCIERA.md` y PROGRESO.
 
 ### Entrega anterior: compensación/versiones de ajustes
