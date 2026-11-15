@@ -2056,3 +2056,14 @@ Demo SQLite:
 Guía COMPENSACION_AJUSTES y README/API/QA/ESTADO actualizados.52/68; aproximadamente75%
 de planificación conservado. Pendientes: concurrencia/carga MySQL, comisiones y módulos
 comerciales restantes, tablet física y entrega operativa.
+
+### Seguimiento CI del hito de ajustes
+
+569e60c publicado en origin/develop. CI43692872524 aprobó backend y cuatro perfiles,
+pero ambos iPad fallaron en un caso previo de visibilidad del error de sucursales;
+los casos financieros nuevos pasaron. Se añadió a AppDialog un slot notice fuera
+del cuerpo desplazable y se trasladó el error de ubicación a esa zona fija. Se
+mantiene foco sin scroll automático y la prueba original no se relajó.
+`npm run build` aprobado (entrada505,96kB/gzip152,14); focalizado
+`BSHOP_BROWSER_OFFLINE=1 npm run test:tablet -- tablet.spec.ts --grep "validation keeps the draft" --reporter=dot`:
+4/4,4,6s. Se publica corrección separada y se verifica la regresión/CI nuevamente.

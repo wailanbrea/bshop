@@ -42,6 +42,10 @@ No acredita módulos pendientes ni aceptación en hardware físico.
 permiso y bloqueo, re-conciliación con nuevo ID y descarga del PDF compensado. Ejecución
 focalizada30/30,27,4s. Dinero/historia verificados también en PHP y MySQL nativo;
 la emulación no sustituye aceptación física ni carreras reales.
+El CI del commit569e60c detectó el aviso de validación de sucursales fuera del área
+visible en ambos iPad. Se agregó un slot `notice` fijo a AppDialog y se movió allí
+ese aviso, sin depender del scroll del formulario. Focalizado original4/4,4,6s;
+se conservó la aserción estricta de visibilidad y el control de doble envío.
 
 Última regresión de correcciones de reembolsos: **688/688**, seis perfiles,6,2 minutos.
 Treinta casos nuevos: confirmación obligatoria de no entrega de dinero, motivo/casilla

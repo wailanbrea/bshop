@@ -45,8 +45,10 @@ onUnmounted(() => { dialog.value?.close(); release(); });
                 <h2 :id="titleId" ref="heading" tabindex="-1">{{ title }}</h2>
                 <button type="button" class="icon-button" aria-label="Cerrar formulario" :disabled="busy" @click="emit('close')">×</button>
             </header>
+            <div v-if="$slots.notice" class="dialog-notice"><slot name="notice" /></div>
             <div class="dialog-content"><slot /></div>
             <footer v-if="$slots.footer" class="dialog-actions"><slot name="footer" /></footer>
         </dialog>
     </Teleport>
 </template>
+<style scoped>.dialog-notice{flex-shrink:0;min-width:0;padding:0 24px;max-height:30dvh;overflow-y:auto}.dialog-notice :deep(.notice){margin:12px 0;overflow-wrap:anywhere}</style>

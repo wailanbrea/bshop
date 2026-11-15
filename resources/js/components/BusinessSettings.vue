@@ -38,7 +38,7 @@ async function save() {
     } catch (e) { error.value = errorMessage(e); }
     finally {
         busy.value = false;
-        if(error.value){await nextTick();errorNotice.value?.focus({preventScroll:true});errorNotice.value?.scrollIntoView({block:'nearest',behavior:'instant'});}
+        if(error.value){await nextTick();errorNotice.value?.focus({preventScroll:true});}
     }
 }
 async function saveBusiness() {
@@ -81,8 +81,8 @@ async function saveBusiness() {
                     <p class="muted">Al seleccionar un principal, el anterior pasa a ser un almacén adicional.</p>
                 </template>
             </fieldset>
-            <p v-if="error" id="location-error" ref="errorNotice" tabindex="-1" class="notice error" role="alert">{{ error }}</p>
         </form>
+        <template v-if="error" #notice><p id="location-error" ref="errorNotice" tabindex="-1" class="notice error" role="alert">{{ error }}</p></template>
         <template #footer>
             <button type="button" class="button secondary" @click="modal = null" :disabled="busy">Cancelar</button>
             <button type="submit" form="location-form" class="button primary" :disabled="busy">{{ busy ? 'Guardando…' : 'Guardar cambios' }}</button>
