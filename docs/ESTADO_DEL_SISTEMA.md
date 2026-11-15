@@ -1,4 +1,4 @@
-# Avance del sistema — 14 de noviembre de 2026
+# Avance del sistema — 15 de noviembre de 2026
 
 ## Estimación global: aproximadamente 75%
 
@@ -54,7 +54,19 @@ Los puntos tienen tamaños distintos: cuentas semanales o devoluciones represent
 mucho más trabajo que un ajuste de interfaz. Por eso el porcentaje global se basa
 en el alcance ponderado y conserva los módulos grandes pendientes.
 
-## Entrega de esta iteración: compensación/versiones de ajustes
+Concurrencia financiera multiproceso:53/69 puntos; se conserva aproximadamente75%.
+El hito cubre carreras acotadas de servicios, no carga sostenida ni aceptación final.
+
+## Entrega de esta iteración: concurrencia financiera MySQL
+
+- 22 carreras reales por ejecución, dos rondas y ambos órdenes de los escenarios
+  mixtos. Una escritura por conflicto, replay idéntico y conservación exacta.
+- Corregida lectura obsoleta InnoDB en subconsultas de exclusión al escribir.
+- 258 pruebas PHP/3.490 aserciones, build/Pint y verificación nativa DECIMAL aprobados.
+  Demo conciliada sólo lectura; CI incorpora MySQL aislado y evidencia de solapamiento.
+- Detalles, artefactos y límites en `CONCURRENCIA_FINANCIERA.md` y PROGRESO.
+
+### Entrega anterior: compensación/versiones de ajustes
 
 - Compensación LIFO sin consumos pendientes, restauración de deuda/asignaciones,
   recepción retenida y nueva revisión con otro ID sin perder PDF original.
@@ -152,9 +164,9 @@ en el alcance ponderado y conserva los módulos grandes pendientes.
 ## Trabajo principal restante
 
 1. Política global de corte/automatización semanal y QA MySQL de los cierres nuevos.
-2. Compensaciones y documentos de ajuste/crédito descargables.
+2. Carga sostenida financiera y conciliación avanzada con comisiones.
 3. Vendedores, comisiones y remuneraciones.
-4. Edición pública de pedidos ya guardados y QA de concurrencia MySQL de los flujos nuevos.
+4. Edición pública de pedidos ya guardados y QA de concurrencia MySQL de enlaces/vencimientos.
 5. Reportes restantes, PWA y pruebas de aceptación con la tablet física.
 6. Respaldo/restauración comprobados, programador persistente y despliegue autorizado.
    SMTP/R2/WhatsApp reales requieren su configuración y validación cuando se activen.

@@ -65,7 +65,12 @@ final class SalesReturnReceipts
             $tracked = (bool) $variant?->product?->track_stock;
             $delivered = $tracked ? $this->delivered($order, $item, $locked) : '0.0000';
             $returns = DB::table('sales_return_items')->where('invoice_item_id', $item->id)->orderBy('id');
-            $returns->whereNotExists(fn ($q) => $q->selectRaw('1')->from('return_receipt_reversals as v')->whereColumn('v.sales_return_id', 'sales_return_items.sales_return_id'));
+            $returns->whereNotExists(function ($q) use ($locked) {
+                $q->selectRaw('1')->from('return_receipt_reversals as v')->whereColumn('v.sales_return_id', 'sales_return_items.sales_return_id');
+                if ($locked) {
+                    $q->lockForUpdate();
+                }
+            });
             if ($locked) {
                 $returns->lockForUpdate();
             }

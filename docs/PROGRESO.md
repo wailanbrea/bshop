@@ -2067,3 +2067,55 @@ mantiene foco sin scroll automático y la prueba original no se relajó.
 `npm run build` aprobado (entrada505,96kB/gzip152,14); focalizado
 `BSHOP_BROWSER_OFFLINE=1 npm run test:tablet -- tablet.spec.ts --grep "validation keeps the draft" --reporter=dot`:
 4/4,4,6s. Se publica corrección separada y se verifica la regresión/CI nuevamente.
+
+9b70244 publicado; CI43694069582 aprobó application y los seis perfiles browser.
+
+## 2026-11-15 — Carreras financieras MySQL y lecturas actuales InnoDB
+
+Se incorporaron harness, protocolo/worker multiproceso e inicializador CI restringido
+a esquema QA vacío. Once escenarios/dos rondas con procesos y conexiones distintos;
+el padre retiene producto y exige observar consultas SQL simultáneas antes de liberar.
+Para los tres escenarios mixtos se invierte la cola y se exige ambos ganadores.
+Incluye UUID idéntico/replay, actores distintos y cuatro consumidores del mismo saldo.
+
+La ejecución716E42DF4819 detectó un defecto real: compensación primero y aplicación
+después podían confirmar ambas. La subconsulta NOT EXISTS de compensaciones seguía
+leyendo un snapshot previo, aunque el SELECT exterior tuviera FOR UPDATE. Se propaga
+el bloqueo a las subconsultas en escritores de AdjustmentState/RefundState/CreditPools,
+OrderSettlement y flujos de recepciones/ajustes/reversiones. Sin migración ni cambio
+de aislamiento global. Referencia MySQL8.4 Locking Reads en CONCURRENCIA_FINANCIERA.
+
+Verificación desde C:/xampp/php/www/BShop:
+- Antes de SQL:testing/mysql/127.0.0.1:33078/bshop_testing_single; MySQL8.4.13,
+  bind127.0.0.1/datadir .runtime/mysql-data verificados por guardia. Preflight:PASS.
+- Copia íntegra schema+rows de82 tablas y SHA-256 verificados antes de fixtures;
+  sólo sucursal/almacén/producto/usuario/clientes sintéticos exclusivos de cada run.
+- `PHP83 scripts/verify-financial-concurrency-mysql.php --rounds=2`:AF1CBE7E4A53,
+  22/22; revalidación CF387AFF4AF6 también22/22. Ambos ganadores en escenarios mixtos,
+  replay único200/200; cuatro consumidores200/409/409/409; resto200/409.
+  Conservación por pago/pedido, dinero solicitado, originales/snapshots/facturas/stock
+  verificados. Fixtures archivados, stock compensado/conciliado y todas filas previas
+  conservadas. Evidencia privada .runtime/financial-race-CF387AFF4AF6/report.json.
+- `PHP83 artisan test`:258 pruebas/3.490 aserciones,52,93s; destino forzado
+  testing/sqlite/:memory: validado por TestCase. Siete tests nuevos del protocolo
+  Windows/Linux y rechazo de resultados inválidos/ambiguos o rutas ajenas.
+- `PHP83 scripts/verify-adjustment-reversals-mysql.php`:PASS, ajuste/versiones,
+  corrección de reembolso y DECIMAL extremo; fixtures/perfil revertidos por transacción.
+- `PHP83 scripts/verify-demo.php`:local/sqlite/database/bshop-business.sqlite,
+  sólo lectura;PASS98/8/90 stock y480=257+223 USD;2 facturas/5 pagos intactos.
+- `npm run build`:PASS,796 módulos; entrada505,96kB/gzip152,14 y gráficos diferidos
+  608,86kB/gzip210,38. Aviso chunks>500kB permanece registrado.
+- Pint requirió segunda pasada en harness; `--test` con caché nueva
+  .runtime/pint-finance-20261115-d.cache:PASS.
+
+Nuevo job financial-concurrency de GitHub Actions:MySQL8.4 Docker desechable,
+credenciales aleatorias enmascaradas, guardia de destino común, bootstrap sólo base
+QA vacía, dos rondas y artifacts report/overlap/out/err sin backup ni credenciales.
+Se comprobará la primera ejecución remota y la matriz de seis perfiles tras publicar.
+No se repite suite browser local: sin cambios UI; se conserva718/718 del hito previo
+y se ejecuta matriz completa en CI del nuevo commit.
+
+Guía CONCURRENCIA_FINANCIERA, compensación, QA y ESTADO actualizados.53/69 puntos,
+estimación aproximadamente75% conservada. Pendiente carga sostenida, carreras
+específicas semanales/enlaces/vencimientos, comisiones, módulos restantes, tablet
+física y entrega. Harness sin HTTP/PDF/proveedores ni uso de VPS/producción.

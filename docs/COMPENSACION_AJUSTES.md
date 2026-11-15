@@ -87,5 +87,9 @@ Textos UI en `resources/js/locales/es/adjustmentReversal.ts`; errores nuevos en
   corrección de reembolso, asignaciones/stock intactos e importe DECIMAL extremo
   199999999999999,98. Fixtures/perfil revertidos por transacción; sin HTTP/PDF/banco.
 
-Concurrencia MySQL, rendimiento bajo carga, conciliación con comisiones y aceptación
-en tablet física siguen pendientes. La prueba nativa de este hito no simula carreras.
+Verificación posterior:22 carreras MySQL multiproceso por ejecución, dos rondas con
+ambos órdenes de aplicación/compensación, aplicación/reembolso y pago/compensación.
+Una escritura por conflicto y un replay para actor/UUID idénticos; conservación exacta.
+Se corrigió lectura obsoleta en subconsultas InnoDB al escribir. Detalles y límites en
+`CONCURRENCIA_FINANCIERA.md`. Suite actual258 PHP/3.490 aserciones.
+Rendimiento bajo carga, conciliación con comisiones y aceptación física siguen pendientes.

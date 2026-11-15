@@ -75,7 +75,7 @@ final class ReturnSettlements
             abort_unless(isset($entitlements[$line->invoice_item_id]), 409, 'La recepción contiene un artículo ajeno a este pedido.');
             $original = $entitlements[$line->invoice_item_id];
             $item = $original['item'];
-            $settled = OrderSettlement::total(AdjustmentState::effective(DB::table('return_adjustment_revision_items as ri')->join('return_adjustments as a', 'a.id', '=', 'ri.adjustment_id')->where('ri.invoice_item_id', $item->id)->orderBy('ri.adjustment_id')->orderBy('ri.sales_return_item_id'), 'a'), 'ri.quantity', $lock);
+            $settled = OrderSettlement::total(AdjustmentState::effective(DB::table('return_adjustment_revision_items as ri')->join('return_adjustments as a', 'a.id', '=', 'ri.adjustment_id')->where('ri.invoice_item_id', $item->id)->orderBy('ri.adjustment_id')->orderBy('ri.sales_return_item_id'), 'a', $lock), 'ri.quantity', $lock);
             $after = bcadd($settled, (string) $line->quantity, 4);
             abort_unless(bccomp((string) $item->quantity, '0', 4) > 0 && bccomp($after, (string) $item->quantity, 4) <= 0, 409, 'Las cantidades económicas exceden el artículo facturado.');
             $beforeAmount = Money::round(bcdiv(bcmul($original['amount'], $settled, 12), (string) $item->quantity, 12));
@@ -85,7 +85,7 @@ final class ReturnSettlements
             $details[] = ['sales_return_item_id' => (int) $line->id, 'invoice_item_id' => (int) $item->id, 'name' => $item->description, 'quantity' => bcadd((string) $line->quantity, '0', 4), 'credit_amount' => $amount, 'item_entitlement' => $original['amount']];
         }
         abort_unless(count($details) > 0, 422, 'La recepción no contiene artículos.');
-        $priorShipping = OrderSettlement::total(AdjustmentState::effective(DB::table('return_adjustments')->where('order_id', $order->id)->orderBy('id')), 'shipping_credit', $lock);
+        $priorShipping = OrderSettlement::total(AdjustmentState::effective(DB::table('return_adjustments')->where('order_id', $order->id)->orderBy('id'), 'return_adjustments', $lock), 'shipping_credit', $lock);
         $shippingAvailable = bcsub($order->shipping_total, $priorShipping, 4);
         if (bccomp($shipping, $shippingAvailable, 4) > 0) {
             throw ValidationException::withMessages(['shipping_credit' => 'El envío a acreditar excede el envío original pendiente.']);
@@ -100,7 +100,7 @@ final class ReturnSettlements
         }abort_if(bccomp($needed, $amount, 4) > 0, 409, 'Las asignaciones previas requieren conciliación.');
         $release = [];
         $remaining = $needed;
-        $q = CreditPools::allocations($order->id, $invoice->id)->orderByDesc('p.id')->orderByDesc('a.id');
+        $q = CreditPools::allocations($order->id, $invoice->id, $lock)->orderByDesc('p.id')->orderByDesc('a.id');
         if ($lock) {
             $q->lockForUpdate();
         }
@@ -110,7 +110,7 @@ final class ReturnSettlements
             if (bccomp($remaining, '0', 4) <= 0) {
                 continue;
             }
-            $prior = OrderSettlement::total(AdjustmentState::releases(DB::table('payment_allocation_releases')->where('payment_allocation_id', $allocation->id)->orderBy('id')), 'amount', $lock);
+            $prior = OrderSettlement::total(AdjustmentState::releases(DB::table('payment_allocation_releases')->where('payment_allocation_id', $allocation->id)->orderBy('id'), 'payment_allocation_releases', $lock), 'amount', $lock);
             $available = bcsub((string) $allocation->amount, $prior, 4);
             abort_if(bccomp($available, '0', 4) < 0, 409, 'Una asignación tiene liberaciones inconsistentes.');
             $take = bccomp($available, $remaining, 4) > 0 ? $remaining : $available;
@@ -265,7 +265,7 @@ final class ReturnSettlements
             abort_unless(bccomp($fund['available'], '0', 4) >= 0 && bccomp($fund['released'], $fund['allocated'], 4) <= 0 && bccomp(bcadd(bcadd($fund['allocated'], $fund['legacy_credit'], 4), $fund['historical_refunded'], 4), (string) $fund['payment']->amount, 4) === 0, 409, 'El crédito del pago no está conciliado.');
             abort_if(DB::table('refunds')->where('original_payment_id', $data['payment_id'])->where('status', 'pending')->lockForUpdate()->first(), 409, 'Hay un reembolso sin resultado confirmado.');
             $released = OrderSettlement::total(DB::table('payment_allocation_releases')->where('adjustment_id', $adjustment->id)->where('payment_id', $data['payment_id'])->orderBy('id'), 'amount', true);
-            $refunded = OrderSettlement::total(RefundState::effective(DB::table('refunds')->where('sales_return_id', $returnId)->where('original_payment_id', $data['payment_id'])->where('status', 'confirmed')->orderBy('id')), 'amount', true);
+            $refunded = OrderSettlement::total(RefundState::effective(DB::table('refunds')->where('sales_return_id', $returnId)->where('original_payment_id', $data['payment_id'])->where('status', 'confirmed')->orderBy('id'), 'refunds', true), 'amount', true);
             $spent = '0.0000';
             foreach (CreditPools::rows($data['payment_id'], true) as $pool) {
                 if ($pool['adjustment_id'] === (int) $adjustment->id) {

@@ -19,6 +19,61 @@ jobs:
       - run: php artisan test
       - run: npm ci
       - run: npm run build
+  financial-concurrency:
+    needs: application
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      APP_ENV: testing
+      APP_KEY: base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      BCRYPT_ROUNDS: '4'
+      CACHE_STORE: array
+      SESSION_DRIVER: array
+      QUEUE_CONNECTION: sync
+      MAIL_MAILER: array
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: bcmath, pdo_mysql, gd, exif
+          coverage: none
+      - run: composer install --no-interaction --prefer-dist
+      - name: Start isolated MySQL 8.4
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/.runtime/mysql-data"
+          data_dir="$(realpath "$GITHUB_WORKSPACE/.runtime/mysql-data")"
+          root_password="$(openssl rand -hex 24)"
+          qa_password="$(openssl rand -hex 24)"
+          echo "::add-mask::$root_password"
+          echo "::add-mask::$qa_password"
+          echo "BSHOP_MYSQL_CI_USER=bshop_ci" >> "$GITHUB_ENV"
+          echo "BSHOP_MYSQL_CI_PASSWORD=$qa_password" >> "$GITHUB_ENV"
+          docker run -d --rm --name bshop-financial-qa --network host \
+            -e MYSQL_ROOT_PASSWORD="$root_password" -e MYSQL_DATABASE=bshop_testing_single \
+            -e MYSQL_USER=bshop_ci -e MYSQL_PASSWORD="$qa_password" \
+            --mount "type=bind,source=$data_dir,target=$data_dir" \
+            mysql:8.4 --port=33078 --bind-address=127.0.0.1 --mysqlx=OFF \
+            --datadir="$data_dir" --innodb-buffer-pool-size=128M
+      - name: Wait for protected test connection
+        run: |
+          php -r '$u=getenv("BSHOP_MYSQL_CI_USER");$p=getenv("BSHOP_MYSQL_CI_PASSWORD");if(!$u||!$p)throw new RuntimeException("Missing CI QA credentials");file_put_contents(".runtime/mysql-test-credentials.json",json_encode(["user"=>$u,"password"=>$p],JSON_THROW_ON_ERROR));$end=microtime(true)+90;do{try{$db=new PDO("mysql:host=127.0.0.1;port=33078;dbname=bshop_testing_single;charset=utf8mb4",$u,$p);echo "Ready: testing/mysql/127.0.0.1:33078/bshop_testing_single\n";exit(0);}catch(PDOException $e){usleep(500000);}}while(microtime(true)<$end);throw new RuntimeException("Isolated MySQL startup timed out");'
+      - run: php scripts/bootstrap-financial-concurrency-ci.php
+      - run: php scripts/verify-financial-concurrency-mysql.php --rounds=2
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: financial-concurrency-evidence-${{ github.run_attempt }}
+          path: |
+            .runtime/financial-race-*/report.json
+            .runtime/financial-race-*/*.overlap.json
+            .runtime/financial-race-*/*.out
+            .runtime/financial-race-*/*.err
+          include-hidden-files: true
+          if-no-files-found: ignore
+      - name: Stop owned QA container
+        if: always()
+        run: docker stop bshop-financial-qa || true
   browsers:
     needs: application
     runs-on: ubuntu-latest

@@ -42,7 +42,7 @@ Decisión vigente: una instalación para KeylaShop y sus sucursales. Ver
 - [x] Facturación individual idempotente, snapshots y PDF privado; compartir manualmente.
 - [x] Abonos, asignación a la factura y crédito vinculado al pedido, sin sobreabonos ni duplicados.
 - [x] Cuentas por cobrar por sucursal: saldos decimales, filtros, resumen por moneda, CSV y acceso al cobro existente.
-- [x] PDF e imágenes por streaming; errores de descarga y reintentos sin duplicar ventas. Suite PHP actual: 251 pruebas / 3.482 aserciones.
+- [x] PDF e imágenes por streaming; errores de descarga y reintentos sin duplicar ventas. Suite PHP actual: 258 pruebas / 3.490 aserciones.
 - [x] Demo USD coherente creada mediante formularios; conciliación de stock/dinero/PDF y recorridos reales.
 - [x] F5.07: diagnóstico de inventario por almacén en pantalla/API/CLI, comparando saldos, reservas y kardex sin escrituras; programación horaria declarada.
 - [ ] Instalar/verificar programador de reconciliación en el destino y validar la nueva revisión con concurrencia y rango extremo en MySQL aislado.
@@ -66,7 +66,8 @@ Decisión vigente: una instalación para KeylaShop y sus sucursales. Ver
 - [x] Anulación compensatoria de recepciones físicas pendientes, stock inverso trazado, cupo restaurado y retención de factura semanal coherente; dinero/PDF preservados.
 - [x] Corrección compensatoria de reembolsos registrados por error y sin entrega real de dinero, confirmación explícita, saldo efectivo/restauración/procedencia y recuperación; sin ingresos ficticios.
 - [x] Compensación completa de ajustes económicos, revisión LIFO/consumos, recepción retenida, re-conciliación versionada y PDF/historia preservados; esquema y flujo nativos MySQL con DECIMAL extremo verificados.
-- [ ] Concurrencia/carga MySQL de los flujos financieros nuevos y conciliación avanzada con comisiones.
+- [x] Carreras financieras MySQL multiproceso:22 casos/dos rondas, ambos órdenes mixtos, idempotencia y conservación; corrección de lecturas obsoletas InnoDB. Ver docs/CONCURRENCIA_FINANCIERA.md.
+- [ ] Carga sostenida MySQL de los flujos financieros y conciliación avanzada con comisiones.
 - [x] Tablero Apartados único (grid/detalle), edición con depósitos, alias y estados separados.
 - [x] Selector 2×2/4×4/6×6 persistente, páginas de 4/16/36 y adaptación al giro conservando selección/borradores.
 - [x] Integración opcional Meta WhatsApp con PDF privado, claves cifradas y webhook; sin reenvío ciego de resultados desconocidos.

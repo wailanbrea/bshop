@@ -46,7 +46,7 @@ final class ReturnAdjustmentReversals
         if ($lock) {
             $q->lockForUpdate();
         }$reversed = (bool) $q->first();
-        $q = AdjustmentState::effective(DB::table('return_adjustments')->where('order_id', $order->id)->where('id', '>', $adjustment->id));
+        $q = AdjustmentState::effective(DB::table('return_adjustments')->where('order_id', $order->id)->where('id', '>', $adjustment->id), 'return_adjustments', $lock);
         if ($lock) {
             $q->lockForUpdate();
         }$later = (bool) $q->first();
@@ -58,7 +58,7 @@ final class ReturnAdjustmentReversals
         if ($lock) {
             $q->lockForUpdate();
         }$commissions = (bool) $q->first();
-        $q = RefundState::effective(DB::table('refunds')->where('sales_return_id', $receipt->sales_return_id)->whereIn('status', ['pending', 'confirmed']));
+        $q = RefundState::effective(DB::table('refunds')->where('sales_return_id', $receipt->sales_return_id)->whereIn('status', ['pending', 'confirmed']), 'refunds', $lock);
         if ($lock) {
             $q->lockForUpdate();
         }$refunded = (bool) $q->first();
