@@ -1,0 +1,45 @@
+{
+    "server": "8.4.13",
+    "schema": "bshop_testing_f2_verified",
+    "verified_definitions": {
+        "tables": 44,
+        "columns": 515,
+        "foreign_keys": 102,
+        "indexes": 240,
+        "checks": 58
+    },
+    "plans": {
+        "variant_sku": [
+            {
+                "type": "const",
+                "key": "uq_var_sku",
+                "rows": 1,
+                "extra": "Using index"
+            }
+        ],
+        "stock_balance": [
+            {
+                "type": "const",
+                "key": "PRIMARY",
+                "rows": 1,
+                "extra": null
+            }
+        ],
+        "customer_phone": [
+            {
+                "type": "ref",
+                "key": "idx_customers_phone",
+                "rows": 1,
+                "extra": "Using index"
+            }
+        ],
+        "customer_orders": [
+            {
+                "type": "ref",
+                "key": "uq_order_context",
+                "rows": 1,
+                "extra": "Using index condition; Using where"
+            }
+        ]
+    }
+}

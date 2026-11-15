@@ -1,0 +1,34 @@
+name: BShop checks
+on: [push, pull_request]
+jobs:
+  application:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: bcmath, pdo_sqlite, gd
+          coverage: none
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: composer install --no-interaction --prefer-dist
+      - run: php vendor/bin/pint --test
+      - run: php artisan test
+      - run: npm ci
+      - run: npm run build
+      - name: Install tablet browser engines
+        run: npx playwright install --with-deps chromium webkit
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: .runtime/playwright-browsers
+      - run: npm run test:tablet
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: tablet-browser-evidence
+          path: |
+            playwright-report
+            test-results/tablet
+          if-no-files-found: ignore

@@ -1,0 +1,180 @@
+<?php
+
+use App\Http\Controllers\Api\V1\AuthController;
+use App\Http\Controllers\Api\V1\BasketController;
+use App\Http\Controllers\Api\V1\BusinessInvitationController;
+use App\Http\Controllers\Api\V1\BusinessTeamController;
+use App\Http\Controllers\Api\V1\CatalogController;
+use App\Http\Controllers\Api\V1\CatalogImportController;
+use App\Http\Controllers\Api\V1\CatalogLookupController;
+use App\Http\Controllers\Api\V1\CreditApplicationController;
+use App\Http\Controllers\Api\V1\CustomerController;
+use App\Http\Controllers\Api\V1\FinancialDocumentController;
+use App\Http\Controllers\Api\V1\InventoryController;
+use App\Http\Controllers\Api\V1\InvoiceDocumentController;
+use App\Http\Controllers\Api\V1\MediaController;
+use App\Http\Controllers\Api\V1\OrderRequestLinkController;
+use App\Http\Controllers\Api\V1\OrderViewLinkController;
+use App\Http\Controllers\Api\V1\PaymentReversalController;
+use App\Http\Controllers\Api\V1\ReceivablesController;
+use App\Http\Controllers\Api\V1\ReservationSettingsController;
+use App\Http\Controllers\Api\V1\ReturnSettlementController;
+use App\Http\Controllers\Api\V1\SalesControlController;
+use App\Http\Controllers\Api\V1\SalesController;
+use App\Http\Controllers\Api\V1\SalesReturnReceiptController;
+use App\Http\Controllers\Api\V1\StoreController;
+use App\Http\Controllers\Api\V1\WarehouseController;
+use App\Http\Controllers\Api\V1\WeeklyAccountController;
+use App\Http\Controllers\Api\V1\WhatsAppInvoiceController;
+use App\Http\Controllers\Api\V1\WhatsAppSettingsController;
+use App\Http\Controllers\Api\V1\WorkspaceController;
+use App\Http\Middleware\ProtectPublicOrder;
+use Illuminate\Support\Facades\Route;
+
+// Loaded under the web middleware group: session + CSRF on every same-origin mutation.
+Route::prefix('order-requests/{token}')->where(['token' => '[a-f0-9]{64}'])->middleware([ProtectPublicOrder::class, 'throttle:public-order-requests'])->group(function () {
+    Route::get('/', [OrderRequestLinkController::class, 'info']);
+    Route::get('/catalog', [OrderRequestLinkController::class, 'catalog']);
+    Route::post('/quote', [OrderRequestLinkController::class, 'quote']);
+    Route::post('/confirm', [OrderRequestLinkController::class, 'confirm'])->middleware('throttle:public-order-confirm');
+});
+Route::post('login', [AuthController::class, 'login'])->middleware('throttle:login');
+Route::post('forgot-password', [AuthController::class, 'forgotPassword'])->middleware('throttle:recovery');
+Route::post('reset-password', [AuthController::class, 'resetPassword'])->middleware('throttle:recovery');
+Route::get('invitations/{token}', [BusinessInvitationController::class, 'show'])->where('token', '[A-Za-z0-9]{64}')->middleware('throttle:invitations');
+Route::post('invitations/{token}/accept', [BusinessInvitationController::class, 'accept'])->where('token', '[A-Za-z0-9]{64}')->middleware(['throttle:invitations', 'auth.session']);
+Route::post('logout', [AuthController::class, 'logout'])->middleware(['auth:sanctum', 'auth.session']);
+
+Route::middleware(['auth:sanctum', 'active', 'auth.session'])->group(function () {
+    Route::get('session', [WorkspaceController::class, 'session']);
+    Route::prefix('business')->group(function () {
+        Route::get('integrations/whatsapp/status', [WhatsAppSettingsController::class, 'status'])->middleware('can:sales.view');
+        Route::get('integrations/whatsapp', [WhatsAppSettingsController::class, 'show'])->middleware('can:business.manage');
+        Route::patch('integrations/whatsapp', [WhatsAppSettingsController::class, 'update'])->middleware('can:business.manage');
+        Route::middleware('can:catalog.view')->group(function () {
+            Route::get('catalog/options', [CatalogLookupController::class, 'options']);
+            Route::get('products', [CatalogController::class, 'index']);
+            Route::get('products/{product}', [CatalogController::class, 'show'])->whereNumber('product');
+            Route::get('products/{product}/images', [MediaController::class, 'gallery'])->whereNumber('product');
+        });
+        Route::middleware('can:catalog.manage')->group(function () {
+            Route::post('products/{product}/images', [MediaController::class, 'upload'])->whereNumber('product')->middleware('throttle:20,1');
+            Route::get('products/{product}/uploads/{key}', [MediaController::class, 'status'])->whereNumber('product')->whereUuid('key');
+            Route::patch('products/{product}/images', [MediaController::class, 'update'])->whereNumber('product');
+            Route::delete('products/{product}/images/{image}', [MediaController::class, 'remove'])->whereNumber(['product', 'image']);
+            Route::get('catalog/imports/template', [CatalogImportController::class, 'template']);
+            Route::get('catalog/imports', [CatalogImportController::class, 'index']);
+            Route::post('catalog/imports/preview', [CatalogImportController::class, 'preview'])->middleware('throttle:catalog-imports');
+            Route::prefix('catalog/imports/{import}')->whereUlid('import')->group(function () {
+                Route::get('/', [CatalogImportController::class, 'show']);
+                Route::get('errors', [CatalogImportController::class, 'errors']);
+                Route::post('revalidate', [CatalogImportController::class, 'revalidate']);
+                Route::post('confirm', [CatalogImportController::class, 'confirm']);
+                Route::post('revert', [CatalogImportController::class, 'revert']);
+            });
+            Route::post('products', [CatalogController::class, 'create']);
+            Route::patch('products/{product}', [CatalogController::class, 'update'])->whereNumber('product');
+            Route::post('products/{product}/variants', [CatalogController::class, 'addVariant'])->whereNumber('product');
+            Route::patch('products/{product}/variants/{variant}', [CatalogController::class, 'updateVariant'])->whereNumber(['product', 'variant']);
+            Route::post('catalog/{kind}', [CatalogLookupController::class, 'create'])->where('kind', 'categories|brands|attributes|values');
+            Route::patch('catalog/{kind}/{record}', [CatalogLookupController::class, 'update'])->where('kind', 'categories|brands|attributes|values')->whereNumber('record');
+        });
+        Route::get('reservations/settings', [ReservationSettingsController::class, 'show'])->middleware('can:business.manage');
+        Route::patch('reservations/settings', [ReservationSettingsController::class, 'update'])->middleware('can:business.manage');
+        Route::get('workspace', [WorkspaceController::class, 'show']);
+        Route::patch('/', [WorkspaceController::class, 'update'])->middleware('can:business.manage');
+        Route::post('stores', [StoreController::class, 'create'])->middleware('can:stores.manage');
+        Route::middleware('can:members.manage')->group(function () {
+            Route::get('team', [BusinessTeamController::class, 'index']);
+            Route::post('invitations', [BusinessTeamController::class, 'invite'])->middleware('throttle:10,1');
+            Route::post('invitations/{invitation}/revoke', [BusinessTeamController::class, 'revoke'])->whereNumber('invitation');
+            Route::patch('users/{user}', [BusinessTeamController::class, 'update'])->whereNumber('user');
+        });
+        Route::prefix('stores/{store}')->whereNumber('store')->middleware('store')->group(function () {
+            Route::get('sales/control', [SalesControlController::class, 'index'])->middleware('can:sales.view');
+            Route::get('sales/control/export', [SalesControlController::class, 'export'])->middleware(['can:sales.view', 'throttle:sales-control-export']);
+            Route::get('sales/orders/{order}/activity', [SalesControlController::class, 'activity'])->whereNumber('order')->middleware('can:sales.view');
+            Route::get('sales/orders/{order}/documents/{kind}/{record}', [FinancialDocumentController::class, 'download'])->whereNumber(['order', 'record'])->where('kind', 'adjustment|credit')->middleware(['can:sales.view', 'can:invoices.view']);
+            Route::post('sales/orders/{order}/documents/{kind}/{record}', [FinancialDocumentController::class, 'prepare'])->whereNumber(['order', 'record'])->where('kind', 'adjustment|credit')->middleware(['can:sales.view', 'can:invoices.view', 'throttle:financial-documents']);
+            Route::get('sales/orders/{order}/credits', [CreditApplicationController::class, 'show'])->whereNumber('order')->middleware('can:sales.view');
+            Route::get('sales/orders/{order}/credits/{application}/reversal', [CreditApplicationController::class, 'reversalInfo'])->whereNumber(['order', 'application'])->middleware('can:sales.view');
+            Route::post('sales/orders/{order}/credits/{application}/reversal', [CreditApplicationController::class, 'reverse'])->whereNumber(['order', 'application'])->middleware(['can:sales.view', 'can:credits.reverse', 'throttle:credits-reverse']);
+            Route::get('sales/orders/{order}/credits/{application}/reversal/requests/{key}', [CreditApplicationController::class, 'reversalRecovery'])->whereNumber(['order', 'application'])->whereUuid('key')->middleware('can:sales.view');
+            Route::get('sales/orders/{order}/credits/requests/{key}', [CreditApplicationController::class, 'recovery'])->whereNumber('order')->whereUuid('key')->middleware('can:sales.view');
+            Route::post('sales/orders/{order}/credits', [CreditApplicationController::class, 'apply'])->whereNumber('order')->middleware(['can:sales.view', 'can:credits.apply', 'throttle:credits-apply']);
+            Route::get('sales/orders/{order}/returns/{receipt}/financial', [ReturnSettlementController::class, 'show'])->whereNumber(['order', 'receipt'])->middleware('can:sales.view');
+            Route::get('sales/orders/{order}/returns/{receipt}/financial/requests/{key}', [ReturnSettlementController::class, 'recovery'])->whereNumber(['order', 'receipt'])->whereUuid('key')->middleware('can:sales.view');
+            Route::post('sales/orders/{order}/returns/{receipt}/adjust', [ReturnSettlementController::class, 'adjust'])->whereNumber(['order', 'receipt'])->middleware(['can:sales.view', 'can:returns.adjust', 'throttle:returns-finance']);
+            Route::post('sales/orders/{order}/returns/{receipt}/refund', [ReturnSettlementController::class, 'refund'])->whereNumber(['order', 'receipt'])->middleware(['can:sales.view', 'can:refunds.record', 'throttle:returns-finance']);
+            Route::get('sales/orders/{order}/returns', [SalesReturnReceiptController::class, 'show'])->whereNumber('order')->middleware('can:sales.view');
+            Route::get('sales/orders/{order}/returns/requests/{key}', [SalesReturnReceiptController::class, 'recovery'])->whereNumber('order')->whereUuid('key')->middleware('can:sales.view');
+            Route::post('sales/orders/{order}/returns', [SalesReturnReceiptController::class, 'receive'])->whereNumber('order')->middleware(['can:sales.view', 'can:returns.receive', 'throttle:returns-receive']);
+            Route::get('sales/orders/{order}/payments', [PaymentReversalController::class, 'index'])->whereNumber('order')->middleware('can:sales.view');
+            Route::get('sales/orders/{order}/payments/requests/{key}', [PaymentReversalController::class, 'recovery'])->whereNumber('order')->whereUuid('key')->middleware('can:sales.view');
+            Route::post('sales/orders/{order}/payments/{payment}/reverse', [PaymentReversalController::class, 'reverse'])->whereNumber(['order', 'payment'])->middleware(['can:sales.view', 'can:payments.reverse', 'throttle:payments-reverse']);
+            Route::prefix('weekly-accounts')->middleware(['can:sales.view', 'can:customers.view'])->group(function () {
+                Route::get('/requests/{key}', [WeeklyAccountController::class, 'recovery'])->whereUuid('key');
+                Route::get('/', [WeeklyAccountController::class, 'index']);
+                Route::get('/{account}', [WeeklyAccountController::class, 'show'])->whereNumber('account');
+                Route::get('/{account}/candidates', [WeeklyAccountController::class, 'candidates'])->whereNumber('account');
+                Route::post('/', [WeeklyAccountController::class, 'create'])->middleware('can:sales.create');
+                Route::post('/{account}/orders/{action}', [WeeklyAccountController::class, 'membership'])->whereNumber('account')->where('action', 'attach|detach')->middleware('can:sales.create');
+                Route::post('/{account}/close', [WeeklyAccountController::class, 'close'])->whereNumber('account')->middleware(['can:sales.create', 'can:invoices.view']);
+                Route::post('/{account}/cancel', [WeeklyAccountController::class, 'cancel'])->whereNumber('account')->middleware('can:sales.create');
+            });
+            Route::get('order-request-links', [OrderRequestLinkController::class, 'index'])->middleware(['can:sales.view', 'can:customers.view']);
+            Route::post('order-request-links', [OrderRequestLinkController::class, 'create'])->middleware(['can:sales.create', 'throttle:order-view-manage']);
+            Route::post('order-request-links/{link}/revoke', [OrderRequestLinkController::class, 'revoke'])->whereNumber('link')->middleware('can:sales.create');
+            Route::get('receivables', [ReceivablesController::class, 'index'])->middleware(['can:sales.view', 'can:customers.view']);
+            Route::get('receivables/export', [ReceivablesController::class, 'export'])->middleware(['can:sales.view', 'can:customers.view', 'throttle:10,1']);
+            Route::post('invoices/{invoice}/whatsapp', [WhatsAppInvoiceController::class, 'send'])->whereNumber('invoice')->middleware(['can:invoices.view', 'can:sales.create', 'throttle:10,1']);
+            Route::get('baskets', [BasketController::class, 'index'])->middleware('can:sales.view');
+            Route::get('baskets/{order}/view-links', [OrderViewLinkController::class, 'index'])->whereNumber('order')->middleware('can:sales.view');
+            Route::post('baskets/{order}/view-links', [OrderViewLinkController::class, 'create'])->whereNumber('order')->middleware(['can:sales.create', 'throttle:order-view-manage']);
+            Route::post('baskets/{order}/view-links/{link}/revoke', [OrderViewLinkController::class, 'revoke'])->whereNumber(['order', 'link'])->middleware(['can:sales.create', 'throttle:30,1']);
+            Route::get('baskets/requests/{key}', [BasketController::class, 'recovery'])->whereUuid('key')->middleware('can:sales.view');
+            Route::middleware('can:sales.create')->group(function () {
+                Route::post('baskets', [BasketController::class, 'create']);
+                Route::post('baskets/{order}/preview', [BasketController::class, 'preview'])->whereNumber('order');
+                Route::patch('baskets/{order}', [BasketController::class, 'save'])->whereNumber('order');
+                Route::post('baskets/{order}/number', [BasketController::class, 'number'])->whereNumber('order');
+                Route::post('baskets/{order}/dispatch', [BasketController::class, 'dispatch'])->whereNumber('order');
+            });
+            Route::get('customers/{customer}', [CustomerController::class, 'show'])->whereNumber('customer')->middleware('can:customers.view');
+            Route::patch('customers/{customer}/status', [CustomerController::class, 'status'])->whereNumber('customer')->middleware('can:customers.manage');
+            Route::patch('customers/{customer}', [CustomerController::class, 'update'])->whereNumber('customer')->middleware('can:customers.manage');
+            Route::get('invoices', [InvoiceDocumentController::class, 'index'])->middleware('can:invoices.view');
+            Route::get('invoices/{invoice}/document', [InvoiceDocumentController::class, 'download'])->whereNumber('invoice')->middleware('can:invoices.view');
+            Route::post('invoices/{invoice}/document', [InvoiceDocumentController::class, 'prepare'])->whereNumber('invoice')->middleware(['can:invoices.view', 'throttle:20,1']);
+            Route::get('customers', [CustomerController::class, 'index'])->middleware('can:customers.view');
+            Route::get('customers/requests/{key}', [CustomerController::class, 'requestStatus'])->whereUuid('key')->middleware('can:customers.view');
+            Route::post('customers', [CustomerController::class, 'create'])->middleware('can:customers.manage');
+            Route::get('customers/{customer}/summary', [SalesController::class, 'summary'])->whereNumber('customer')->middleware(['can:customers.view', 'can:sales.view']);
+            Route::middleware('can:sales.view')->group(function () {
+                Route::get('sales/requests/{key}', [SalesController::class, 'requestStatus'])->whereUuid('key');
+                Route::get('sales/catalog', [SalesController::class, 'catalog']);
+                Route::get('sales/orders', [SalesController::class, 'index']);
+                Route::get('sales/orders/{order}', [SalesController::class, 'show'])->whereNumber('order');
+            });
+            Route::middleware('can:sales.create')->group(function () {
+                Route::post('sales/quote', [SalesController::class, 'quote']);
+                Route::post('sales/orders', [SalesController::class, 'create'])->middleware('throttle:30,1');
+            });
+            Route::post('sales/orders/{order}/{action}', [SalesController::class, 'change'])->whereNumber('order')->where('action', 'cancel|invoice|deliver|payment|remove')->middleware('throttle:60,1');
+            Route::middleware('can:inventory.view')->group(function () {
+                Route::get('warehouses/{warehouse}/reconciliation', [InventoryController::class, 'reconciliation'])->whereNumber('warehouse')->middleware('throttle:20,1');
+                Route::get('warehouses/{warehouse}/stock', [InventoryController::class, 'index'])->whereNumber('warehouse');
+                Route::get('warehouses/{warehouse}/kardex', [InventoryController::class, 'kardex'])->whereNumber('warehouse');
+            });
+            Route::middleware('can:inventory.manage')->group(function () {
+                Route::get('inventory/destinations', [InventoryController::class, 'destinations']);
+                Route::post('inventory/movements', [InventoryController::class, 'move'])->middleware('throttle:60,1');
+                Route::get('inventory/requests/{key}', [InventoryController::class, 'status'])->whereUuid('key');
+            });
+            Route::patch('/', [StoreController::class, 'update'])->middleware('can:stores.manage');
+            Route::get('warehouses', [WarehouseController::class, 'index']);
+            Route::post('warehouses', [WarehouseController::class, 'create'])->middleware('can:warehouses.manage');
+            Route::patch('warehouses/{warehouse}', [WarehouseController::class, 'update'])->whereNumber('warehouse')->middleware('can:warehouses.manage');
+        });
+    });
+});

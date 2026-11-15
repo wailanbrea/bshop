@@ -1,0 +1,8 @@
+import type { CartLine, SavedOrder } from './sales';
+export interface BasketCardData { id: number; number: string; customer_id: number; customer_name: string; phone: string | null; items_count: number; quantity_count?: string; total: string; deposit: string; pending: string; currency: string; status: string; closed: boolean; invoice_generated: boolean; whatsapp_status: string | null; paid: boolean; shipped: boolean; version: number }
+export interface BasketLine extends CartLine { id?: number }
+export interface BasketDraft { version: number; lines: BasketLine[]; shipping: string; discount: string }
+export interface BasketQuote { quote_hash: string; subtotal: string; shipping_total: string; discount_total: string; tax_total: string; grand_total: string; paid_total: string; pending_total: string; currency: string }
+export const sendNames: Record<string, string> = { pending: 'Pendiente de envío', sending: 'En proceso', accepted: 'Aceptada por WhatsApp', sent: 'Factura enviada', delivered: 'Factura entregada', read: 'Factura leída', failed: 'Falló el envío', unknown: 'Resultado pendiente de confirmar' };
+export function fromOrder(o: SavedOrder): BasketDraft { return { version: o.lock_version, shipping: o.shipping_total, discount: o.discount_total, lines: o.items.map(i => ({ id: i.id, variant_id: i.variant_id, product_id: 0, name: i.product_name_snapshot, sku: i.sku_snapshot, quantity: i.quantity, price: i.unit_price, image: i.image_url_snapshot, attributes: i.variant_snapshot || [], available: null })) }; }
+export function editable(o: SavedOrder) { return o.order_kind === 'reservation' && !o.closed_at && !o.invoice && ['draft', 'reserved'].includes(o.status); }
