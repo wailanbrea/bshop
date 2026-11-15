@@ -19,15 +19,43 @@ jobs:
       - run: php artisan test
       - run: npm ci
       - run: npm run build
-      - name: Install tablet browser engines
-        run: npx playwright install --with-deps chromium webkit
-        env:
-          PLAYWRIGHT_BROWSERS_PATH: .runtime/playwright-browsers
-      - run: npm run test:tablet
+  browsers:
+    needs: application
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - project: ipad-portrait-webkit
+            engine: webkit
+          - project: ipad-landscape-webkit
+            engine: webkit
+          - project: android-portrait-chromium
+            engine: chromium
+          - project: tablet-wide-chromium
+            engine: chromium
+          - project: desktop-chromium
+            engine: chromium
+          - project: mobile-webkit
+            engine: webkit
+    env:
+      BSHOP_BROWSER_OFFLINE: '1'
+      PLAYWRIGHT_BROWSERS_PATH: .runtime/playwright-browsers
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Install browser engine
+        run: npx playwright install --with-deps ${{ matrix.engine }}
+      - run: npm run test:tablet -- --project=${{ matrix.project }} --reporter=dot
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: tablet-browser-evidence
+          name: tablet-browser-evidence-${{ matrix.project }}
           path: |
             playwright-report
             test-results/tablet

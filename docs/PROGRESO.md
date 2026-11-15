@@ -1955,3 +1955,46 @@ Pruebas: testing/sqlite/:memory:, sin host remoto; TestCase bloquea antes de mig
 Guía REVERSION_RECEPCIONES y QA/README/API/ESTADO actualizados;50/66,aproximado75%.
 El propietario confirmó que la futura corrección de reembolsos es sólo por registros
 erróneos donde nunca se entregó dinero; no representa recuperación de efectivo real.
+
+## 2026-11-15 — Corrección de reembolsos erróneos y cierre de publicación
+
+Aplicada la regla confirmada: compensar sólo registros erróneos cuando nunca hubo
+entrega de dinero. RefundReversals exige confirmed_no_money aceptado, razón, revisión,
+permiso refunds.reverse, contexto y unicidad. Guarda snapshot/hash/autor/fecha y
+mantiene refund/confirmación/ledger/facturas/PDF/stock originales. No crea pago positivo
+ni revierte transferencias. OrderSettlement distingue reembolso histórico/efectivo;
+RefundState excluye registros compensados de consumos/reembolsos netos y el disponible
+agrega su contrapartida. Aplicar crédito/reembolsar/ajustar posteriormente conserva
+el pago original y presupuesto, sin sumar nuevamente dinero.
+
+UI de confirmación explícita en conciliación e historial/actividad conservados. Journal
+con UUID, recepción/reembolso y casilla; recuperación GET al volver, sin reenvío automático,
+motivo/casilla conservados ante giro/conflicto. Owner/manager reciben permiso independiente.
+
+Pruebas testing/sqlite/:memory:, sin host remoto, guardia de TestCase vigente:
+- `PHP83 artisan test --compact`:239 pruebas/3.228 aserciones,45,50s;8 casos nuevos.
+- `npm run build`: aprobado,791 módulos, entrada496,73kB/gzip150,66; gráficos siguen
+  diferidos608,86kB/gzip210,38 con aviso Vite de umbral ya registrado.
+- `BSHOP_BROWSER_OFFLINE=1 npm run test:tablet -- baskets.spec.ts --grep "refund correction" --reporter=dot`:
+  30/30,27,7s. Completa `--reporter=dot`:688/688,6,2 minutos, seis perfiles interceptados.
+- Pint verificado con caché independiente: `--test --cache-file=.runtime/pint-final-refunds-verified.cache` aprobado.
+- Destino local/sqlite/host ninguno, database/bshop-business.sqlite. Copia íntegra
+  `.runtime/bshop-backup-20261115-063846.sqlite`,79 tablas previas.
+- `PHP83 artisan migrate --path=database/migrations/2026_11_15_003000_create_refund_reversals.php --force`:
+  aplicada tras inspección, nueva tabla/FK/check/permisos; sin refrescar datos.
+- `PHP83 scripts/verify-demo.php`:PASS;98/8/90 stock y480=257+223 USD;2 facturas/5 pagos.
+  No se crearon ni compensaron reembolsos comerciales de demo.
+
+Publicación anterior:30911b4 en origin/develop contiene compensaciones físicas y
+normalización de formato; CI43672751795 pasó PHP/build y655/658 browser, detectando
+tres problemas Linux. Evidencia descargada a .runtime/ci-43672751795. Se corrigió foco/
+scroll del error después de busy, y la etiqueta/mensaje de reintento no aparece durante
+el POST inicial. Prueba espera el error de red real antes del reintento. WebKit devolvía
+ratio0.9999219 con botón completo: se comprueba ratio>=.99 y caja dentro del viewport
+con tolerancia1px. Regresión688 local pasó después de esos cambios.
+
+CI ahora separa backend/build y seis trabajos browser por perfil, fail-fast=false,
+con los mismos assets reales/API interceptada usados localmente; sin excluir perfiles
+ni pruebas. Permiso workflow autorizado por el propietario; sin omitir hooks ni checks.
+Guía CORRECCION_REEMBOLSOS y QA/README/API/ESTADO actualizados;51/67,aproximado75%.
+Pendientes: compensación de ajustes económicos, MySQL específico y comisiones/entrega.

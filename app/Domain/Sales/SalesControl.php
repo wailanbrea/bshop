@@ -101,7 +101,7 @@ final class SalesControl
                     $cash[$currency]['methods'][$payment->payment_method] = bcadd($cash[$currency]['methods'][$payment->payment_method] ?? '0', (string) $payment->amount, 4);
                 }
             }
-            foreach (DB::table('refunds')->where('store_id', $store)->where('status', 'confirmed')->where('refunded_at', '>=', $bounds[0])->where('refunded_at', '<', $bounds[1])->orderBy('id')->cursor() as $refund) {
+            foreach (RefundState::effective(DB::table('refunds')->where('store_id', $store)->where('status', 'confirmed')->where('refunded_at', '>=', $bounds[0])->where('refunded_at', '<', $bounds[1])->orderBy('id'))->cursor() as $refund) {
                 $currency = $refund->currency;
                 $cash[$currency] ??= ['currency' => $currency, 'confirmed' => '0.0000', 'reversed' => '0.0000', 'refunded' => '0.0000', 'net_cash' => '0.0000', 'methods' => []];
                 $cash[$currency]['refunded'] = bcadd($cash[$currency]['refunded'], (string) $refund->amount, 4);

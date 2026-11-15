@@ -372,3 +372,12 @@ POST exige returns.reverse + sales.view y request_key/version/review_hash/reason
 GET `/reversal/requests/{uuid}` recupera actor/contexto original. Stock inverso
 trazado, cupo restaurado, sin cambios de dinero/PDF; bloquea ajuste/reembolso o
 existencias no disponibles.15 POST/min, sesión/CSRF/no-store. Ver REVERSION_RECEPCIONES.
+
+## Corrección de reembolsos erróneos
+
+GET/POST `/api/v1/business/stores/{store}/sales/orders/{order}/returns/{receipt}/refunds/{refund}/reversal`.
+POST exige sales.view+refunds.reverse, request_key/version/review_hash/reason y
+confirmed_no_money=true. GET `/reversal/requests/{uuid}` recupera al actor/contexto.
+Sólo registro manual confirmado sin entrega real de dinero: conserva ledger y
+reembolso históricos, restituye crédito sin ingreso ficticio.15 POST/min, sesión/
+CSRF/no-store. Ver `CORRECCION_REEMBOLSOS.md` para vigencia, bloqueos y recuperación.

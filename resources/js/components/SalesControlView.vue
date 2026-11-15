@@ -36,6 +36,7 @@ const timeline=computed(()=>{
     for(const c of d.credits)events.push({key:`credit:${c.id}`,type:'credit',label:c.target_order_id===d.order.id?t.incoming:t.outgoing,reference:t.creditReference(c.id),amount:c.amount,note:`${t.creditRoute(c.origin_order_id!,c.target_order_id!)} · ${c.reason||''}`,actor:c.actor_name||'',date:c.created_at});
     for(const c of d.credits)if(c.reversal)events.push({key:`credit-reversal:${c.reversal.id}`,type:'reversal',label:t.creditReversed,reference:t.creditReference(c.id),amount:c.amount,note:c.reversal.reason,actor:c.reversal.actor_name,date:c.reversal.created_at});
     for(const r of d.refunds)events.push({key:`refund:${r.id}`,type:'refund',label:t.refund,reference:t.refundReference(r.id),amount:r.amount,note:`${status(r.status||'')} · ${method(r.method||'')} · ${r.external_reference||t.noReference}`,actor:r.actor_name||'',date:r.refunded_at});
+    for(const r of d.refunds)if(r.reversal)events.push({key:`refund-correction:${r.reversal.id}`,type:'reversal',label:t.refundCorrected,reference:t.refundReference(r.id),amount:r.amount,note:r.reversal.reason,actor:r.reversal.actor_name,date:r.reversal.created_at});
     return events.sort((a,b)=>timestamp(b.date)-timestamp(a.date));
 });
 async function load(page=1){if(!props.store)return;const version=++token;controller?.abort();controller=new AbortController();loading.value=true;error.value='';report.value=null;

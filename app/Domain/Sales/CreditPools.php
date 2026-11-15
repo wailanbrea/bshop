@@ -29,7 +29,7 @@ final class CreditPools
         foreach ($rows as $row) {
             $group = (int) $row->adjustment_id;
             if (! array_key_exists($group, $refunds)) {
-                $refunds[$group] = OrderSettlement::total(DB::table('refunds')->where('sales_return_id', $row->sales_return_id)->where('original_payment_id', $paymentId)->where('status', 'confirmed')->orderBy('id'), 'amount', $lock);
+                $refunds[$group] = OrderSettlement::total(RefundState::effective(DB::table('refunds')->where('sales_return_id', $row->sales_return_id)->where('original_payment_id', $paymentId)->where('status', 'confirmed')->orderBy('id')), 'amount', $lock);
             }
             $used = self::used($row->id, $lock);
             $remaining = bcsub((string) $row->amount, $used, 4);

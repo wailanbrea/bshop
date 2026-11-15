@@ -114,7 +114,8 @@ test('lost confirmation retries the same request without a duplicate order', asy
     await openSales(page); await selectMaria(page); await add(page, 'Gafas de Sol'); await summary(page);
     await expect(page.getByRole('button', { name: 'Facturar y enviar', exact: true })).toBeEnabled(); sales.lostResponse = true;
     await page.getByRole('button', { name: 'Facturar y enviar', exact: true }).click();
-    await expect(page.getByRole('button', { name: 'Reintentar la misma operación', exact: true })).toBeVisible();
+    await expect(page.getByRole('alert')).toContainText('No hay conexión');
+    await expect(page.getByRole('button', { name: 'Reintentar la misma operación', exact: true })).toBeEnabled();
     await page.getByRole('button', { name: 'Reintentar la misma operación', exact: true }).click();
     await expect(page.getByRole('status').filter({ hasText: 'Operación recuperada sin duplicados' })).toBeVisible(); expect(sales.orders).toHaveLength(1); expect(sales.writes).toHaveLength(2); expect(sales.writes[1]).toEqual(sales.writes[0]);
 });
@@ -122,7 +123,11 @@ test('lost confirmation retries the same request without a duplicate order', asy
 test('customer creation selects the new record and keeps actions visible with keyboard viewport', async ({ page, sales }) => {
     await openSales(page); await summary(page); await page.locator('button.sales-selected-customer').click(); await page.getByRole('button', { name: '+ Nuevo cliente', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: 'Nuevo cliente', exact: true }); await dialog.getByLabel('Nombre completo', { exact: true }).fill('Ana Demo'); await dialog.getByLabel('Teléfono', { exact: true }).fill('+1 202-555-0103');
-    await page.setViewportSize({ width: 1024, height: 380 }); await expect(dialog.getByRole('button', { name: 'Crear y seleccionar', exact: true })).toBeInViewport({ ratio: 1 });
+    await page.setViewportSize({ width: 1024, height: 380 });
+    const create=dialog.getByRole('button', { name: 'Crear y seleccionar', exact: true });
+    // WebKit's intersection ratio can round to .99992 while the complete CSS box is visible.
+    await expect(create).toBeInViewport({ratio:.99});
+    await expect.poll(async()=>{const box=await create.boundingBox();return !!box&&box.y>=-1&&box.y+box.height<=380+1;}).toBe(true);
     await dialog.getByRole('button', { name: 'Crear y seleccionar', exact: true }).click(); await expect(dialog).not.toBeVisible(); await expect(page.locator('.sales-selected-customer')).toContainText('Ana Demo'); expect(sales.customers).toHaveLength(2);
 });
 

@@ -127,6 +127,12 @@ DB::transaction(function () use ($sum) {
         }
     }
     $financialDocuments = ['pending' => 0, 'ready' => 0, 'failed' => 0];
+    foreach (DB::table('refund_reversals as v')->join('refunds as r', 'r.id', '=', 'v.refund_id')->orderBy('v.id')->get(['v.*', 'r.amount as original_amount']) as $reversal) {
+        $snapshot = json_decode($reversal->snapshot, true, flags: JSON_THROW_ON_ERROR);
+        if (! hash_equals($reversal->data_hash, hash('sha256', app(FinancialDocument::class)->canonical($snapshot))) || ! $reversal->confirmed_no_money || ($snapshot['confirmed_no_money'] ?? null) !== true || ($snapshot['refund']['id'] ?? null) !== (int) $reversal->refund_id || bccomp((string) $reversal->amount, (string) $reversal->original_amount, 4) !== 0) {
+            throw new RuntimeException('Refund correction history is inconsistent.');
+        }
+    }
     foreach (DB::table('credit_application_reversals as v')->join('credit_applications as c', 'c.id', '=', 'v.credit_application_id')->select('v.*', 'c.amount as original_amount')->orderBy('v.id')->get() as $reversal) {
         $snapshot = json_decode($reversal->snapshot, true, flags: JSON_THROW_ON_ERROR);
         if (! hash_equals($reversal->data_hash, hash('sha256', app(FinancialDocument::class)->canonical($snapshot))) || ($snapshot['application']['id'] ?? null) !== (int) $reversal->credit_application_id || bccomp((string) $reversal->amount, (string) $reversal->original_amount, 4) !== 0) {

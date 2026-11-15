@@ -35,8 +35,11 @@ async function save() {
         const url = modal.value === 'store' ? `${base}/stores` : `${base}/stores/${props.store?.id}/warehouses`;
         await api.request({ method: editId.value ? 'patch' : 'post', url: url + (editId.value ? `/${editId.value}` : ''), data: modal.value === 'store' ? storeForm : warehouseForm });
         modal.value = null; saved.value = 'Los cambios se guardaron correctamente.'; emit('changed');
-    } catch (e) { error.value = errorMessage(e); await nextTick(); errorNotice.value?.focus(); }
-    finally { busy.value = false; }
+    } catch (e) { error.value = errorMessage(e); }
+    finally {
+        busy.value = false;
+        if(error.value){await nextTick();errorNotice.value?.focus({preventScroll:true});errorNotice.value?.scrollIntoView({block:'nearest',behavior:'instant'});}
+    }
 }
 async function saveBusiness() {
     if (busy.value) return;

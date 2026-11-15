@@ -19,7 +19,7 @@ Decisión vigente: una instalación para KeylaShop y sus sucursales. Ver
 - [x] Factories/fixtures para un negocio con dos sucursales.
 - [x] Pruebas que rechazan un segundo perfil y accesos a sucursales no autorizadas.
 - [x] Base tablet-first: controles táctiles, sucursal persistente y diálogos adaptables a teclado/orientación.
-- [x] Regresión actual: 658 casos aprobados en seis perfiles, incluidas compensaciones físicas, reversiones de crédito, dashboard/historial/gráficos/tabla, comprobantes de ajuste/crédito, aplicaciones de crédito, conciliaciones/reembolsos, recepciones, reversiones, cuentas semanales, clientes, inventario y enlaces.
+- [x] Regresión actual: 688 casos aprobados en seis perfiles, incluidas correcciones de reembolsos, compensaciones físicas, reversiones de crédito, dashboard/historial/gráficos/tabla, comprobantes de ajuste/crédito, aplicaciones de crédito, conciliaciones/reembolsos, recepciones, reversiones, cuentas semanales, clientes, inventario y enlaces.
 - [ ] Aceptación con la tablet física del cliente y sus navegadores/teclado nativo.
 - [ ] Revalidación integral financiera, concurrencia y reversibilidad sobre la arquitectura nueva.
 - [x] Catálogo de productos/servicios, categorías jerárquicas y marcas.
@@ -42,7 +42,7 @@ Decisión vigente: una instalación para KeylaShop y sus sucursales. Ver
 - [x] Facturación individual idempotente, snapshots y PDF privado; compartir manualmente.
 - [x] Abonos, asignación a la factura y crédito vinculado al pedido, sin sobreabonos ni duplicados.
 - [x] Cuentas por cobrar por sucursal: saldos decimales, filtros, resumen por moneda, CSV y acceso al cobro existente.
-- [x] PDF e imágenes por streaming; errores de descarga y reintentos sin duplicar ventas. Suite PHP actual: 231 pruebas / 3.081 aserciones.
+- [x] PDF e imágenes por streaming; errores de descarga y reintentos sin duplicar ventas. Suite PHP actual: 239 pruebas / 3.228 aserciones.
 - [x] Demo USD coherente creada mediante formularios; conciliación de stock/dinero/PDF y recorridos reales.
 - [x] F5.07: diagnóstico de inventario por almacén en pantalla/API/CLI, comparando saldos, reservas y kardex sin escrituras; programación horaria declarada.
 - [ ] Instalar/verificar programador de reconciliación en el destino y validar la nueva revisión con concurrencia y rango extremo en MySQL aislado.
@@ -64,7 +64,8 @@ Decisión vigente: una instalación para KeylaShop y sus sucursales. Ver
 - [x] Comprobantes PDF privados de ajuste/crédito, snapshots históricos, integridad y recuperación de publicación sin repetir movimientos.
 - [x] Reversión compensatoria completa de aplicaciones de crédito por error, con procedencia restaurada, historial/PDF preservados y recuperación sin repetir movimientos.
 - [x] Anulación compensatoria de recepciones físicas pendientes, stock inverso trazado, cupo restaurado y retención de factura semanal coherente; dinero/PDF preservados.
-- [ ] Otras anulaciones compensatorias (ajustes/reembolsos), concurrencia MySQL y conciliación avanzada con comisiones.
+- [x] Corrección compensatoria de reembolsos registrados por error y sin entrega real de dinero, confirmación explícita, saldo efectivo/restauración/procedencia y recuperación; sin ingresos ficticios.
+- [ ] Compensaciones de ajustes económicos confirmados, concurrencia MySQL y conciliación avanzada con comisiones.
 - [x] Tablero Apartados único (grid/detalle), edición con depósitos, alias y estados separados.
 - [x] Selector 2×2/4×4/6×6 persistente, páginas de 4/16/36 y adaptación al giro conservando selección/borradores.
 - [x] Integración opcional Meta WhatsApp con PDF privado, claves cifradas y webhook; sin reenvío ciego de resultados desconocidos.

@@ -48,6 +48,8 @@ Repositorio: https://github.com/wailanbrea/bshop.
   de procedencia, deuda del destino, motivo y recuperación sin repetir movimientos.
 - Anulación de recepciones físicas pendientes mediante kardex compensatorio,
   restaurando su cupo sin borrar historia ni modificar dinero.
+- Corrección de reembolsos registrados por error, con confirmación de no entrega
+  de dinero, saldo restaurado e historial compensatorio sin ingresos ficticios.
 - WhatsApp automático opcional desde servidor, configurable con claves cifradas
   y confirmaciones del proveedor; desactivado por defecto.
 - Auditoría e integridad del modelo de datos. Los módulos comerciales restantes
@@ -100,6 +102,7 @@ en la misma base. No existe alta ni selector de otras empresas en la interfaz/AP
 - [Recepción de mercancía devuelta y reintegro de stock](docs/RECEPCION_DEVOLUCIONES.md)
 - [Anular una recepción física errónea](docs/REVERSION_RECEPCIONES.md)
 - [Crédito y conciliación económica de devoluciones](docs/CONCILIACION_DEVOLUCIONES.md)
+- [Corregir un registro erróneo de reembolso](docs/CORRECCION_REEMBOLSOS.md)
 - [Aplicar saldo a favor entre pedidos](docs/APLICACION_CREDITO.md)
 - [Revertir una aplicación de crédito por error](docs/REVERSION_APLICACIONES_CREDITO.md)
 - [Comprobantes PDF de ajuste y crédito](docs/COMPROBANTES_FINANCIEROS.md)

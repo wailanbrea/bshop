@@ -106,7 +106,7 @@ final class ReturnSettlements
         }
         foreach ($q->get() as $allocation) {
             $fund = OrderSettlement::payment($allocation->payment_id, $lock);
-            abort_unless(bccomp($fund['available'], '0', 4) >= 0 && bccomp(bcadd(bcadd($fund['allocated'], $fund['legacy_credit'], 4), $fund['refunded'], 4), (string) $fund['payment']->amount, 4) === 0, 409, 'El crédito del pago requiere conciliación.');
+            abort_unless(bccomp($fund['available'], '0', 4) >= 0 && bccomp(bcadd(bcadd($fund['allocated'], $fund['legacy_credit'], 4), $fund['historical_refunded'], 4), (string) $fund['payment']->amount, 4) === 0, 409, 'El crédito del pago requiere conciliación.');
             if (bccomp($remaining, '0', 4) <= 0) {
                 continue;
             }
@@ -137,7 +137,7 @@ final class ReturnSettlements
         }
         foreach ($sources as $id => &$source) {
             $fund = OrderSettlement::payment($id);
-            $refunded = OrderSettlement::total(DB::table('refunds')->where('sales_return_id', $receipt->id)->where('original_payment_id', $id)->where('status', 'confirmed')->orderBy('id'), 'amount');
+            $refunded = OrderSettlement::total(RefundState::effective(DB::table('refunds')->where('sales_return_id', $receipt->id)->where('original_payment_id', $id)->where('status', 'confirmed')->orderBy('id')), 'amount');
             $spent = '0.0000';
             foreach (CreditPools::rows($id) as $pool) {
                 if ($pool['adjustment_id'] === (int) $adjustment->id) {
@@ -152,6 +152,10 @@ final class ReturnSettlements
             }$source = [...$source, 'applied_credit' => $spent, 'refunded' => $refunded, 'available_credit' => $fund['available'], 'max_refund' => $max, 'method' => $fund['payment']->payment_method, 'pending_refund' => $pending];
         }unset($source);
         $history = DB::table('refunds as r')->join('refund_confirmations as c', 'c.refund_id', '=', 'r.id')->where('c.adjustment_id', $adjustment->id)->orderByDesc('r.id')->get(['r.id', 'r.amount', 'r.method', 'r.external_reference', 'r.refunded_at', 'c.actor_name', 'c.reason']);
+        foreach ($history as $entry) {
+            $entry->amount = bcadd((string) $entry->amount, '0', 4);
+            $entry->reversal = DB::table('refund_reversals')->where('refund_id', $entry->id)->first(['id', 'reason', 'actor_name', 'created_at']);
+        }
 
         return ['state' => 'adjusted', 'version' => $order->lock_version, 'currency' => $order->currency, 'invoice_number' => $invoice->invoice_number, 'adjustment' => ['id' => $adjustment->id, 'amount' => (string) $adjustment->amount, 'shipping_credit' => (string) $adjustment->shipping_credit, 'credit_released' => (string) $adjustment->credit_released, 'reason' => $adjustment->reason, 'actor_name' => $adjustment->actor_name, 'created_at' => $adjustment->created_at, 'snapshot' => json_decode($adjustment->snapshot, true, flags: JSON_THROW_ON_ERROR)], 'balance' => OrderSettlement::position($order, $invoice->id), 'refund_sources' => array_values($sources), 'refunds' => $history];
     }
@@ -245,10 +249,10 @@ final class ReturnSettlements
             DB::table('payment_allocation_releases')->where('adjustment_id', $adjustment->id)->where('payment_id', $data['payment_id'])->lockForUpdate()->firstOrFail();
             $fund = OrderSettlement::payment($data['payment_id'], true);
             abort_unless($fund['payment']->status === 'confirmed' && $fund['payment']->store_id === $order->store_id && $fund['payment']->customer_id === $order->customer_id && $fund['payment']->currency === $order->currency, 409, 'El pago original requiere conciliación.');
-            abort_unless(bccomp($fund['available'], '0', 4) >= 0 && bccomp($fund['released'], $fund['allocated'], 4) <= 0 && bccomp(bcadd(bcadd($fund['allocated'], $fund['legacy_credit'], 4), $fund['refunded'], 4), (string) $fund['payment']->amount, 4) === 0, 409, 'El crédito del pago no está conciliado.');
+            abort_unless(bccomp($fund['available'], '0', 4) >= 0 && bccomp($fund['released'], $fund['allocated'], 4) <= 0 && bccomp(bcadd(bcadd($fund['allocated'], $fund['legacy_credit'], 4), $fund['historical_refunded'], 4), (string) $fund['payment']->amount, 4) === 0, 409, 'El crédito del pago no está conciliado.');
             abort_if(DB::table('refunds')->where('original_payment_id', $data['payment_id'])->where('status', 'pending')->lockForUpdate()->first(), 409, 'Hay un reembolso sin resultado confirmado.');
             $released = OrderSettlement::total(DB::table('payment_allocation_releases')->where('adjustment_id', $adjustment->id)->where('payment_id', $data['payment_id'])->orderBy('id'), 'amount', true);
-            $refunded = OrderSettlement::total(DB::table('refunds')->where('sales_return_id', $returnId)->where('original_payment_id', $data['payment_id'])->where('status', 'confirmed')->orderBy('id'), 'amount', true);
+            $refunded = OrderSettlement::total(RefundState::effective(DB::table('refunds')->where('sales_return_id', $returnId)->where('original_payment_id', $data['payment_id'])->where('status', 'confirmed')->orderBy('id')), 'amount', true);
             $spent = '0.0000';
             foreach (CreditPools::rows($data['payment_id'], true) as $pool) {
                 if ($pool['adjustment_id'] === (int) $adjustment->id) {

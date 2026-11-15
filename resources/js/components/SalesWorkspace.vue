@@ -363,7 +363,7 @@ async function share() {
             </div>
             <p v-if="error" class="notice error" role="alert">{{ error }}</p>
             <p v-if="notice" class="notice success" role="status">{{ notice }}</p>
-            <p v-if="uncertain" class="notice" role="status">
+            <p v-if="uncertain&&!busy" class="notice" role="status">
                 La respuesta se interrumpió. Reintenta la misma operación para consultar su resultado sin duplicarla.
             </p>
             <p v-if="documentState === 'failed'" class="notice error" role="alert">
@@ -430,7 +430,7 @@ async function share() {
                     :can-create="canCreate"
                     :can-pay="canPay&&!saved?.return_pending"
                     :can-cancel="permissions.includes('sales.cancel')"
-                    :payment-context="{root,actorId,canReverse:permissions.includes('payments.reverse'),canReceive:permissions.includes('returns.receive'),canAdjust:permissions.includes('returns.adjust'),canRefund:permissions.includes('refunds.record'),canApply:permissions.includes('credits.apply'),canDownload:permissions.includes('invoices.view'),canReverseCredit:permissions.includes('credits.reverse'),canReverseReturn:permissions.includes('returns.reverse')}"
+                    :payment-context="{root,actorId,canReverse:permissions.includes('payments.reverse'),canReceive:permissions.includes('returns.receive'),canAdjust:permissions.includes('returns.adjust'),canRefund:permissions.includes('refunds.record'),canApply:permissions.includes('credits.apply'),canDownload:permissions.includes('invoices.view'),canReverseCredit:permissions.includes('credits.reverse'),canReverseReturn:permissions.includes('returns.reverse'),canReverseRefund:permissions.includes('refunds.reverse')}"
                     @payments-changed="saved=$event;refresh++"
                     @select-customer="chooseCustomer"
                     @quantity="draft.changeQuantity"

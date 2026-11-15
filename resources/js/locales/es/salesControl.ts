@@ -31,6 +31,7 @@ export const salesControlText = {
     payment:'Cobro registrado', reversal:'Pago revertido', receipt:'Mercancía recibida', adjustment:'Ajuste económico', incoming:'Crédito recibido', outgoing:'Crédito aplicado a otro pedido', refund:'Reembolso registrado', noActivity:'Todavía no hay movimientos financieros en esta operación.', noReference:'Sin referencia externa', unknownDate:'Fecha no disponible', unknownActor:'',
     creditReversed:'Aplicación de crédito revertida',
     receiptReversed:'Recepción física anulada',
+    refundCorrected:'Registro de reembolso erróneo compensado',
     paymentReference:(id:number)=>`Pago #${id}`, receiptReference:(id:number)=>`Recepción #${id}`, adjustmentReference:(id:number)=>`Ajuste #${id}`, creditReference:(id:number)=>`Crédito #${id}`, refundReference:(id:number)=>`Reembolso #${id}`, creditRoute:(origin:number,target:number)=>`Pedido #${origin} → Pedido #${target}`,
     regions:{control:'Control de ventas',indicators:(currency:string)=>`Indicadores de ventas ${currency}`,cash:'Cobros del período',daily:'Evolución diaria de pedidos',history:'Historial de ventas',items:'Artículos históricos',payments:'Cobros y reversiones históricos',returns:'Devoluciones y ajustes históricos',credits:'Aplicaciones de crédito históricas',refunds:'Reembolsos históricos'},
 };

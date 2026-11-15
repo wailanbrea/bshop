@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Domain\Business\StoreContext;
+use App\Domain\Sales\RefundReversals;
 use App\Domain\Sales\ReturnSettlements;
 use App\Domain\Sales\SalesService;
 use App\Http\Controllers\Controller;
@@ -12,6 +13,25 @@ use Illuminate\Support\Facades\DB;
 
 class ReturnSettlementController extends Controller
 {
+    public function reversalInfo(Request $request, StoreContext $context, RefundReversals $service)
+    {
+        return response()->json(['data' => $service->info($context, (int) $request->route('order'), (int) $request->route('receipt'), (int) $request->route('refund'))])->header('Cache-Control', 'private, no-store');
+    }
+
+    public function reverse(Request $request, StoreContext $context, RefundReversals $service)
+    {
+        return response()->json(['data' => $service->reverse($context, (int) $request->route('order'), (int) $request->route('receipt'), (int) $request->route('refund'), $request->user(), $request->all())])->header('Cache-Control', 'private, no-store');
+    }
+
+    public function reversalRecovery(Request $request, StoreContext $context, SalesService $sales)
+    {
+        $row = DB::table('idempotency_requests')->where('operation', 'refunds.reverse')->where('request_key', strtolower($request->route('key')))->where('status', 'completed')->firstOrFail();
+        $data = json_decode($row->response_data, true, flags: JSON_THROW_ON_ERROR);
+        abort_unless(($data['_identity'] ?? null) === [$request->user()->id, $context->store()->id, (int) $request->route('order'), (int) $request->route('receipt'), (int) $request->route('refund')], 404);
+
+        return response()->json(['data' => ['order' => $sales->present(SalesOrder::where('store_id', $context->store()->id)->findOrFail($data['order_id'])), 'refund_id' => $data['refund_id'], 'reversal_id' => $data['reversal_id'], 'replay' => true]])->header('Cache-Control', 'private, no-store');
+    }
+
     public function show(Request $request, StoreContext $context, ReturnSettlements $service)
     {
         return response()->json(['data' => $service->info($context, (int) $request->route('order'), (int) $request->route('receipt'), $request->query())])->header('Cache-Control', 'private, no-store');

@@ -100,6 +100,135 @@ class ReturnSettlementsTest extends TestCase
         return $this->postJson($this->path($receipt).'/refund', ['request_key' => $key ?? (string) Str::uuid(), 'version' => $version ?? SalesOrder::find($this->order)->lock_version, 'payment_id' => $payment, 'amount' => $amount, 'method' => 'bank_transfer', 'external_reference' => $reference, 'reason' => 'Reembolso manual ya realizado']);
     }
 
+    private function erroneousRefund(): array
+    {
+        $payment = $this->fund('34.70');
+        $receipt = $this->receive();
+        $this->adjust($receipt)->assertOk();
+        $refund = $this->refund($receipt, $payment, '5', 'WRONG-REGISTRATION')->assertOk()->json('data.refund_id');
+
+        return [$receipt, $payment, $refund];
+    }
+
+    private function correctionPath(int $receipt, int $refund): string
+    {
+        return $this->path($receipt)."/refunds/$refund/reversal";
+    }
+
+    private function correctionPayload(int $receipt, int $refund): array
+    {
+        $r = $this->getJson($this->correctionPath($receipt, $refund))->assertOk()->json('data');
+
+        return ['request_key' => (string) Str::uuid(), 'version' => $r['version'], 'review_hash' => $r['review_hash'], 'reason' => 'Registro erróneo, no se entregó dinero', 'confirmed_no_money' => true];
+    }
+
+    public function test_erroneous_refund_correction_restores_credit_without_new_cash_or_rewriting_history(): void
+    {
+        [$receipt,$payment,$refund] = $this->erroneousRefund();
+        $before = [];
+        foreach (['payments', 'payment_allocations', 'customer_credit_movements', 'refunds', 'refund_confirmations', 'invoices', 'invoice_documents', 'sales_return_items', 'inventory_movements', 'stock_balances'] as $table) {
+            $before[$table] = DB::table($table)->get()->toJson();
+        }$body = $this->correctionPayload($receipt, $refund);
+        $path = $this->correctionPath($receipt, $refund);
+        $this->postJson($path, $body)->assertOk()->assertJsonPath('data.order.credit_available', '9.9000')->assertJsonPath('data.order.refunded_total', '0.0000')->assertJsonPath('data.order.net_total', '24.8000')->assertJsonPath('data.order.paid_total', '24.8000');
+        $this->postJson($path, $body)->assertOk()->assertJsonPath('data.replay', true);
+        $this->getJson($path.'/requests/'.$body['request_key'])->assertOk();
+        $this->postJson($path, $this->correctionPayload($receipt, $refund))->assertConflict();
+        foreach ($before as $table => $rows) {
+            $this->assertSame($rows, DB::table($table)->get()->toJson(), $table);
+        }
+        $this->assertDatabaseCount('refund_reversals', 1);
+        $this->assertSame('9.9000', OrderSettlement::payment($payment)['available']);
+        $this->getJson($this->root().'/sales/control')->assertOk()->assertJsonPath('cash.0.confirmed', '34.7000')->assertJsonPath('cash.0.refunded', '0.0000')->assertJsonPath('cash.0.net_cash', '34.7000');
+        $this->getJson($this->path($receipt).'/financial')->assertOk()->assertJsonPath('data.refunds.0.reversal.reason', 'Registro erróneo, no se entregó dinero');
+    }
+
+    public function test_refund_correction_requires_an_explicit_no_money_confirmation(): void
+    {
+        [$receipt,,$refund] = $this->erroneousRefund();
+        $data = $this->correctionPayload($receipt, $refund);
+        unset($data['confirmed_no_money']);
+        $this->postJson($this->correctionPath($receipt, $refund), $data)->assertUnprocessable();
+        $this->postJson($this->correctionPath($receipt, $refund), [...$data, 'confirmed_no_money' => false])->assertUnprocessable();
+        $this->assertDatabaseCount('refund_reversals', 0);
+    }
+
+    public function test_corrected_refund_does_not_consume_the_next_real_refund_budget(): void
+    {
+        [$receipt,$payment,$refund] = $this->erroneousRefund();
+        $this->postJson($this->correctionPath($receipt, $refund), $this->correctionPayload($receipt, $refund))->assertOk();
+        $this->refund($receipt, $payment, '8.90', 'REAL-TRANSFER')->assertOk()->assertJsonPath('data.order.refunded_total', '8.9000')->assertJsonPath('data.order.credit_available', '1.0000');
+        $this->assertSame('13.9000', OrderSettlement::payment($payment)['historical_refunded']);
+        $this->assertSame('8.9000', OrderSettlement::payment($payment)['refunded']);
+        $this->assertDatabaseCount('payments', 1);
+    }
+
+    public function test_corrected_refund_credit_can_be_applied_without_creating_a_receipt(): void
+    {
+        [$receipt,$payment,$refund] = $this->erroneousRefund();
+        $this->postJson($this->correctionPath($receipt, $refund), $this->correctionPayload($receipt, $refund))->assertOk();
+        $target = $this->sale('1');
+        $path = $this->root()."/sales/orders/$target/credits";
+        $r = $this->getJson($path)->assertOk()->json('data');
+        $this->postJson($path, ['request_key' => (string) Str::uuid(), 'version' => $r['version'], 'review_hash' => $r['review_hash'], 'payment_id' => $payment, 'amount' => '9.90', 'reason' => 'Aplicar crédito realmente disponible'])->assertOk()->assertJsonPath('data.order.pending_total', '1.1000');
+        $this->assertDatabaseCount('payments', 1);
+        $this->assertSame('0.0000', OrderSettlement::payment($payment)['available']);
+    }
+
+    public function test_next_return_adjustment_reconciles_the_historical_and_effective_refunds(): void
+    {
+        [$receipt,,$refund] = $this->erroneousRefund();
+        $this->postJson($this->correctionPath($receipt, $refund), $this->correctionPayload($receipt, $refund))->assertOk();
+        $next = $this->receive();
+        $this->adjust($next)->assertOk()->assertJsonPath('data.order.credit_available', '19.8000')->assertJsonPath('data.order.refunded_total', '0.0000');
+    }
+
+    public function test_refund_correction_rejects_stale_scope_and_nonconfirmed_records(): void
+    {
+        [$receipt,,$refund] = $this->erroneousRefund();
+        $body = $this->correctionPayload($receipt, $refund);
+        SalesOrder::whereKey($this->order)->increment('lock_version');
+        $this->postJson($this->correctionPath($receipt, $refund), $body)->assertConflict();
+        $this->getJson($this->correctionPath($receipt + 1, $refund))->assertNotFound();
+        DB::table('refunds')->where('id', $refund)->update(['status' => 'pending']);
+        $this->getJson($this->correctionPath($receipt, $refund))->assertOk()->assertJsonPath('data.allowed', false);
+        $this->postJson($this->correctionPath($receipt, $refund), $this->correctionPayload($receipt, $refund))->assertConflict();
+        $this->assertDatabaseCount('refund_reversals', 0);
+    }
+
+    public function test_refund_correction_permission_recovery_identity_and_csrf(): void
+    {
+        [$receipt,,$refund] = $this->erroneousRefund();
+        $body = $this->correctionPayload($receipt, $refund);
+        $path = $this->correctionPath($receipt, $refund);
+        $this->postJson($path, $body)->assertOk();
+        $reader = User::factory()->create();
+        $role = Role::create(['code' => 'refund_observer', 'label' => 'Reader', 'permissions' => ['sales.view', 'stores.view']]);
+        $reader->roles()->attach($role);
+        DB::table('store_user')->insert(['store_id' => $this->store, 'user_id' => $reader->id]);
+        Auth::forgetGuards();
+        $this->app['session']->flush();
+        $this->actingAs($reader);
+        $this->getJson($path)->assertOk();
+        $this->postJson($path, $body)->assertForbidden();
+        $this->getJson($path.'/requests/'.$body['request_key'])->assertNotFound();
+    }
+
+    public function test_refund_correction_requires_csrf_without_the_test_bypass(): void
+    {
+        [$receipt,,$refund] = $this->erroneousRefund();
+        $body = $this->correctionPayload($receipt, $refund);
+        $this->app->bind(ValidateCsrfToken::class, fn ($app) => new class($app, $app['encrypter']) extends ValidateCsrfToken
+        {
+            protected function runningUnitTests()
+            {
+                return false;
+            }
+        });
+        $this->postJson($this->correctionPath($receipt, $refund), $body)->assertStatus(419);
+        $this->assertDatabaseCount('refund_reversals', 0);
+    }
+
     public function test_credit_and_manual_refunds_preserve_invoice_stock_and_all_original_money_rows(): void
     {
         $payment = $this->fund('34.70');

@@ -38,11 +38,13 @@ final class OrderSettlement
         }$payment = $query->firstOrFail();
         $allocated = self::total(DB::table('payment_allocations')->where('payment_id', $id)->orderBy('id'), 'amount', $lock);
         $released = self::total(DB::table('payment_allocation_releases')->where('payment_id', $id)->orderBy('id'), 'amount', $lock);
-        $refunded = self::total(DB::table('refunds')->where('original_payment_id', $id)->where('status', 'confirmed')->orderBy('id'), 'amount', $lock);
+        $historicalRefunded = self::total(DB::table('refunds')->where('original_payment_id', $id)->where('status', 'confirmed')->orderBy('id'), 'amount', $lock);
+        $reversedRefund = self::total(DB::table('refund_reversals as v')->join('refunds as r', 'r.id', '=', 'v.refund_id')->where('r.original_payment_id', $id)->where('r.status', 'confirmed')->orderBy('v.id'), 'v.amount', $lock);
+        $refunded = bcsub($historicalRefunded, $reversedRefund, 4);
         $legacy = self::total(DB::table('customer_credit_movements')->where('payment_id', $id)->orderBy('id'), 'amount_delta', $lock);
         $reversed = self::total(DB::table('credit_application_reversals as v')->join('credit_applications as c', 'c.id', '=', 'v.credit_application_id')->where('c.payment_id', $id)->orderBy('v.id'), 'v.amount', $lock);
 
-        return ['payment' => $payment, 'allocated' => $allocated, 'released' => $released, 'refunded' => $refunded, 'legacy_credit' => $legacy, 'reversed_credit' => $reversed, 'available' => bcadd(bcadd($legacy, $released, 4), $reversed, 4), 'effective_allocated' => bcsub(bcsub($allocated, $released, 4), $reversed, 4)];
+        return ['payment' => $payment, 'allocated' => $allocated, 'released' => $released, 'refunded' => $refunded, 'historical_refunded' => $historicalRefunded, 'reversed_refund' => $reversedRefund, 'legacy_credit' => $legacy, 'reversed_credit' => $reversed, 'available' => bcadd(bcadd(bcadd($legacy, $released, 4), $reversed, 4), $reversedRefund, 4), 'effective_allocated' => bcsub(bcsub($allocated, $released, 4), $reversed, 4)];
     }
 
     public static function position(object $order, ?int $invoiceId, bool $lock = false): array
@@ -56,14 +58,14 @@ final class OrderSettlement
         }
         $gross = '0.0000';
         $refundQuery = DB::table('refunds as r')->leftJoin('sales_return_receipts as c', 'c.sales_return_id', '=', 'r.sales_return_id')->leftJoin('order_payments as op', 'op.payment_id', '=', 'r.original_payment_id')->where('r.status', 'confirmed')->where(fn ($q) => $q->where('c.order_id', $order->id)->orWhere(fn ($unused) => $unused->whereNull('r.sales_return_id')->where('op.order_id', $order->id)))->orderBy('r.id');
-        $refunds = self::total($refundQuery, 'r.amount', $lock);
+        $refunds = self::total(RefundState::effective($refundQuery, 'r'), 'r.amount', $lock);
         $paid = '0.0000';
         $available = $invoiceId ? CreditPools::orderAvailable($order->id, $lock) : '0.0000';
         foreach ($query->get(['p.id', 'p.amount']) as $payment) {
             $gross = bcadd($gross, (string) $payment->amount, 4);
             if ($invoiceId) {
                 $legacyAllocated = self::total(DB::table('payment_allocations as a')->leftJoin('credit_applications as c', 'c.payment_allocation_id', '=', 'a.id')->where('a.payment_id', $payment->id)->whereNull('c.id')->orderBy('a.id'), 'a.amount', $lock);
-                $unusedRefund = self::total(DB::table('refunds')->where('original_payment_id', $payment->id)->where('refund_kind', 'unused_credit')->where('status', 'confirmed')->orderBy('id'), 'amount', $lock);
+                $unusedRefund = self::total(RefundState::effective(DB::table('refunds')->where('original_payment_id', $payment->id)->where('refund_kind', 'unused_credit')->where('status', 'confirmed')->orderBy('id')), 'amount', $lock);
                 $legacyAvailable = bcsub(bcsub((string) $payment->amount, $legacyAllocated, 4), $unusedRefund, 4);
                 abort_if(bccomp($legacyAvailable, '0', 4) < 0, 409, 'El crédito original requiere conciliación.');
                 $available = bcadd($available, $legacyAvailable, 4);

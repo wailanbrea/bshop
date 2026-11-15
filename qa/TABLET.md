@@ -37,6 +37,13 @@ No acredita módulos pendientes ni aceptación en hardware físico.
 
 ## Matriz automatizada
 
+Última regresión de correcciones de reembolsos: **688/688**, seis perfiles,6,2 minutos.
+Treinta casos nuevos: confirmación obligatoria de no entrega de dinero, motivo/casilla
+al girar, recuperación por GET, revisión conservadora, permiso y bloqueo. Además se
+corrigieron incidencias observadas en CI Linux: scroll explícito del error tras liberar
+busy y etiqueta de reintento sólo tras terminar la petición inicial. La comprobación
+de acción visible admite redondeo WebKit de1px sin ocultar recortes reales.
+
 Última regresión de compensación física: **658/658**, seis perfiles,5,8 minutos.
 Treinta casos nuevos de giro/motivo, respuesta perdida/recuperación por GET, stock
 obsoleto, permiso y bloqueo económico/stock. Ejecución focalizada30/30,23,8s.
