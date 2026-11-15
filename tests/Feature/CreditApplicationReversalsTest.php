@@ -223,6 +223,27 @@ class CreditApplicationReversalsTest extends TestCase
         $this->assertDatabaseCount('credit_application_reversals', 0);
     }
 
+    public function test_return_compensation_unwinds_a_credit_chain_only_after_the_physical_hold_is_resolved(): void
+    {
+        $this->fixture();
+        $r = $this->returnReceipt($this->target);
+        $this->adjust($this->target, $r);
+        $a = DB::table('return_adjustments')->where('sales_return_id', $r)->value('id');
+        $base = $this->root().'/sales/orders/'.$this->target.'/returns/'.$r;
+        $review = $this->getJson($base."/adjustments/$a/reversal")->assertOk()->json('data');
+        $this->postJson($base."/adjustments/$a/reversal", ['request_key' => (string) Str::uuid(), 'version' => $review['version'], 'review_hash' => $review['review_hash'], 'reason' => 'Compensar devolución del destino'])->assertOk();
+        $this->getJson($this->path())->assertOk()->assertJsonPath('data.allowed', false)->assertJsonPath('data.return_pending', true);
+        $review = $this->getJson($base.'/reversal')->assertOk()->json('data');
+        $this->postJson($base.'/reversal', ['request_key' => (string) Str::uuid(), 'version' => $review['version'], 'review_hash' => $review['review_hash'], 'reason' => 'Anular recepción errónea del destino'])->assertOk();
+        $this->postJson($this->path(), $this->payload())->assertOk();
+        $sourceAdjustment = DB::table('return_adjustments')->where('sales_return_id', $this->receipt)->value('id');
+        $base = $this->root().'/sales/orders/'.$this->source.'/returns/'.$this->receipt."/adjustments/$sourceAdjustment/reversal";
+        $review = $this->getJson($base)->assertOk()->json('data');
+        $this->postJson($base, ['request_key' => (string) Str::uuid(), 'version' => $review['version'], 'review_hash' => $review['review_hash'], 'reason' => 'Compensar ajuste original tras recuperar saldo'])->assertOk()->assertJsonPath('data.order.paid_total', '30.0000')->assertJsonPath('data.order.credit_available', '0.0000');
+        $this->assertSame('30.0000', OrderSettlement::payment($this->payment)['effective_allocated']);
+        $this->assertDatabaseCount('payments', 1);
+    }
+
     public function test_permission_and_recovery_actor_are_revalidated(): void
     {
         $this->fixture();

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Domain\Business\StoreContext;
 use App\Domain\Sales\RefundReversals;
+use App\Domain\Sales\ReturnAdjustmentReversals;
 use App\Domain\Sales\ReturnSettlements;
 use App\Domain\Sales\SalesService;
 use App\Http\Controllers\Controller;
@@ -13,6 +14,25 @@ use Illuminate\Support\Facades\DB;
 
 class ReturnSettlementController extends Controller
 {
+    public function adjustmentReversalInfo(Request $request, StoreContext $context, ReturnAdjustmentReversals $service)
+    {
+        return response()->json(['data' => $service->info($context, (int) $request->route('order'), (int) $request->route('receipt'), (int) $request->route('adjustment'))])->header('Cache-Control', 'private, no-store');
+    }
+
+    public function reverseAdjustment(Request $request, StoreContext $context, ReturnAdjustmentReversals $service)
+    {
+        return response()->json(['data' => $service->reverse($context, (int) $request->route('order'), (int) $request->route('receipt'), (int) $request->route('adjustment'), $request->user(), $request->all())])->header('Cache-Control', 'private, no-store');
+    }
+
+    public function adjustmentReversalRecovery(Request $request, StoreContext $context, SalesService $sales)
+    {
+        $row = DB::table('idempotency_requests')->where('operation', 'adjustments.reverse')->where('request_key', strtolower($request->route('key')))->where('status', 'completed')->firstOrFail();
+        $data = json_decode($row->response_data, true, flags: JSON_THROW_ON_ERROR);
+        abort_unless(($data['_identity'] ?? null) === [$request->user()->id, $context->store()->id, (int) $request->route('order'), (int) $request->route('receipt'), (int) $request->route('adjustment')], 404);
+
+        return response()->json(['data' => ['order' => $sales->present(SalesOrder::where('store_id', $context->store()->id)->findOrFail($data['order_id'])), 'adjustment_id' => $data['adjustment_id'], 'reversal_id' => $data['reversal_id'], 'replay' => true]])->header('Cache-Control', 'private, no-store');
+    }
+
     public function reversalInfo(Request $request, StoreContext $context, RefundReversals $service)
     {
         return response()->json(['data' => $service->info($context, (int) $request->route('order'), (int) $request->route('receipt'), (int) $request->route('refund'))])->header('Cache-Control', 'private, no-store');

@@ -381,3 +381,13 @@ confirmed_no_money=true. GET `/reversal/requests/{uuid}` recupera al actor/conte
 Sólo registro manual confirmado sin entrega real de dinero: conserva ledger y
 reembolso históricos, restituye crédito sin ingreso ficticio.15 POST/min, sesión/
 CSRF/no-store. Ver `CORRECCION_REEMBOLSOS.md` para vigencia, bloqueos y recuperación.
+
+## Compensación de ajustes económicos
+
+GET/POST `/api/v1/business/stores/{store}/sales/orders/{order}/returns/{receipt}/adjustments/{adjustment}/reversal`.
+POST requiere sales.view+adjustments.reverse y request_key/version/review_hash/reason.
+GET `/reversal/requests/{uuid}` recupera sólo al actor/contexto original.15 POST/min,
+sesión/CSRF/no-store. Revisión incluye LIFO, presupuesto íntegro y saldos proyectados.
+Compensa sin borrar; deja recepción pendiente y permite nueva versión con otro ID.
+GET `/returns/{receipt}/financial` añade history con estado/reversión de cada ajuste.
+Ver `COMPENSACION_AJUSTES.md` para redondeo, proyecciones y representación histórica.

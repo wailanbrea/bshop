@@ -34,7 +34,7 @@ class AppServiceProvider extends ServiceProvider
     {
         Event::listen(ScheduledTaskFinished::class, fn ($event) => app(SchedulerMonitor::class)->finished($event));
         Event::listen(ScheduledTaskFailed::class, fn ($event) => app(SchedulerMonitor::class)->failed($event));
-        foreach (['business.manage', 'stores.view', 'stores.manage', 'warehouses.view', 'warehouses.manage', 'audit.view', 'members.manage', 'catalog.view', 'catalog.manage', 'catalog.costs', 'inventory.view', 'inventory.manage', ...InstallBusiness::SALES_PERMISSIONS, 'sales.cancel', 'payments.reverse', 'returns.receive', 'returns.adjust', 'refunds.record', 'credits.apply', 'credits.reverse', 'returns.reverse', 'refunds.reverse'] as $permission) {
+        foreach (['business.manage', 'stores.view', 'stores.manage', 'warehouses.view', 'warehouses.manage', 'audit.view', 'members.manage', 'catalog.view', 'catalog.manage', 'catalog.costs', 'inventory.view', 'inventory.manage', ...InstallBusiness::SALES_PERMISSIONS, 'sales.cancel', 'payments.reverse', 'returns.receive', 'returns.adjust', 'refunds.record', 'credits.apply', 'credits.reverse', 'returns.reverse', 'refunds.reverse', 'adjustments.reverse'] as $permission) {
             Gate::define($permission, function (User $user) use ($permission) {
                 return $user->permits($permission);
             });
@@ -53,6 +53,7 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('returns-receive', fn (Request $request) => Limit::perMinute(15)->by((string) $request->user()?->id));
         RateLimiter::for('returns-reverse', fn (Request $request) => Limit::perMinute(15)->by((string) $request->user()?->id));
         RateLimiter::for('refunds-reverse', fn (Request $request) => Limit::perMinute(15)->by((string) $request->user()?->id));
+        RateLimiter::for('adjustments-reverse', fn (Request $request) => Limit::perMinute(15)->by((string) $request->user()?->id));
         RateLimiter::for('returns-finance', fn (Request $request) => Limit::perMinute(15)->by((string) $request->user()?->id));
         RateLimiter::for('credits-apply', fn (Request $request) => Limit::perMinute(15)->by((string) $request->user()?->id));
         RateLimiter::for('credits-reverse', fn (Request $request) => Limit::perMinute(15)->by((string) $request->user()?->id));

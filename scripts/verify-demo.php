@@ -1,5 +1,6 @@
 <?php
 
+use App\Domain\Sales\AdjustmentState;
 use App\Domain\Sales\FinancialDocument;
 use App\Domain\Sales\OrderSettlement;
 use App\Domain\Sales\SalesControl;
@@ -127,6 +128,18 @@ DB::transaction(function () use ($sum) {
         }
     }
     $financialDocuments = ['pending' => 0, 'ready' => 0, 'failed' => 0];
+    foreach (DB::table('return_adjustment_heads')->orderBy('sales_return_id')->get() as $head) {
+        $active = AdjustmentState::effective(DB::table('return_adjustments')->where('sales_return_id', $head->sales_return_id))->get();
+        if ($active->count() > 1 || ($head->active_adjustment_id === null && $active->isNotEmpty()) || ($head->active_adjustment_id !== null && ($active->count() !== 1 || (int) $active->first()->id !== (int) $head->active_adjustment_id))) {
+            throw new RuntimeException('Adjustment revision head mismatch.');
+        }
+    }
+    foreach (DB::table('return_adjustment_reversals as v')->join('return_adjustments as a', 'a.id', '=', 'v.adjustment_id')->orderBy('v.id')->get(['v.*', 'a.amount as original_amount']) as $reversal) {
+        $snapshot = json_decode($reversal->snapshot, true, flags: JSON_THROW_ON_ERROR);
+        if (! hash_equals($reversal->data_hash, hash('sha256', app(FinancialDocument::class)->canonical($snapshot))) || ($snapshot['adjustment']['id'] ?? null) !== (int) $reversal->adjustment_id || bccomp((string) $reversal->amount, (string) $reversal->original_amount, 4) !== 0) {
+            throw new RuntimeException('Adjustment compensation history mismatch.');
+        }
+    }
     foreach (DB::table('refund_reversals as v')->join('refunds as r', 'r.id', '=', 'v.refund_id')->orderBy('v.id')->get(['v.*', 'r.amount as original_amount']) as $reversal) {
         $snapshot = json_decode($reversal->snapshot, true, flags: JSON_THROW_ON_ERROR);
         if (! hash_equals($reversal->data_hash, hash('sha256', app(FinancialDocument::class)->canonical($snapshot))) || ! $reversal->confirmed_no_money || ($snapshot['confirmed_no_money'] ?? null) !== true || ($snapshot['refund']['id'] ?? null) !== (int) $reversal->refund_id || bccomp((string) $reversal->amount, (string) $reversal->original_amount, 4) !== 0) {

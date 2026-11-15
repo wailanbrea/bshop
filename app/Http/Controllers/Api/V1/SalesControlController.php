@@ -39,6 +39,9 @@ class SalesControlController extends Controller
             $order = SalesOrder::where('store_id', $context->store()->id)->findOrFail($request->route('order'));
             $payments = DB::table('order_payments as op')->join('payments as p', 'p.id', '=', 'op.payment_id')->leftJoin('payment_reversals as r', 'r.payment_id', '=', 'p.id')->where('op.order_id', $order->id)->orderBy('p.id')->get(['p.id', 'p.amount', 'p.currency', 'p.payment_method', 'p.status', 'p.paid_at', 'r.reason as reversal_reason', 'r.actor_name as reversal_actor', 'r.reversed_at']);
             $adjustments = DB::table('return_adjustments')->where('order_id', $order->id)->orderBy('id')->get(['id', 'sales_return_id', 'amount', 'reason', 'actor_name', 'created_at']);
+            foreach ($adjustments as $entry) {
+                $entry->reversal = DB::table('return_adjustment_reversals')->where('adjustment_id', $entry->id)->first(['id', 'reason', 'actor_name', 'created_at']);
+            }
             $credits = DB::table('credit_applications')->where('target_order_id', $order->id)->orWhere('origin_order_id', $order->id)->orderBy('id')->get(['id', 'origin_order_id', 'target_order_id', 'amount', 'reason', 'actor_name', 'created_at']);
             foreach ($credits as $credit) {
                 $credit->reversal = DB::table('credit_application_reversals')->where('credit_application_id', $credit->id)->first(['id', 'reason', 'actor_name', 'created_at']);

@@ -14,7 +14,7 @@ final class InstallBusiness
 {
     public const SALES_PERMISSIONS = ['customers.view', 'customers.manage', 'sales.view', 'sales.create', 'invoices.view', 'payments.record'];
 
-    public const OWNER_PERMISSIONS = ['business.manage', 'stores.view', 'stores.manage', 'warehouses.view', 'warehouses.manage', 'members.manage', 'audit.view', 'catalog.view', 'catalog.manage', 'catalog.costs', 'inventory.view', 'inventory.manage', ...self::SALES_PERMISSIONS, 'sales.cancel', 'payments.reverse', 'returns.receive', 'returns.adjust', 'refunds.record', 'credits.apply', 'credits.reverse', 'returns.reverse', 'refunds.reverse'];
+    public const OWNER_PERMISSIONS = ['business.manage', 'stores.view', 'stores.manage', 'warehouses.view', 'warehouses.manage', 'members.manage', 'audit.view', 'catalog.view', 'catalog.manage', 'catalog.costs', 'inventory.view', 'inventory.manage', ...self::SALES_PERMISSIONS, 'sales.cancel', 'payments.reverse', 'returns.receive', 'returns.adjust', 'refunds.record', 'credits.apply', 'credits.reverse', 'returns.reverse', 'refunds.reverse', 'adjustments.reverse'];
 
     public function create(User $owner, array $data): BusinessProfile
     {
@@ -24,7 +24,7 @@ final class InstallBusiness
             }
             $profile = BusinessProfile::create(['name' => $data['name'], 'default_currency' => $data['default_currency'], 'timezone' => $data['timezone']]);
             foreach (['owner' => ['Propietario', self::OWNER_PERMISSIONS], 'manager' => ['Administrador', ['stores.view', 'stores.manage', 'warehouses.view', 'warehouses.manage', 'audit.view', 'catalog.view', 'catalog.manage', 'catalog.costs', 'inventory.view', 'inventory.manage']], 'seller' => ['Vendedor', ['stores.view', 'warehouses.view', 'catalog.view', 'inventory.view']]] as $code => [$label, $permissions]) {
-                $permissions = array_values(array_unique([...$permissions, ...self::SALES_PERMISSIONS, ...($code !== 'seller' ? ['sales.cancel', 'payments.reverse', 'returns.receive', 'returns.adjust', 'refunds.record', 'credits.apply', 'credits.reverse', 'returns.reverse', 'refunds.reverse'] : [])]));
+                $permissions = array_values(array_unique([...$permissions, ...self::SALES_PERMISSIONS, ...($code !== 'seller' ? ['sales.cancel', 'payments.reverse', 'returns.receive', 'returns.adjust', 'refunds.record', 'credits.apply', 'credits.reverse', 'returns.reverse', 'refunds.reverse', 'adjustments.reverse'] : [])]));
                 $role = Role::create(compact('code', 'label', 'permissions'));
                 if ($code === 'owner') {
                     $owner->roles()->attach($role->id);

@@ -69,11 +69,11 @@ final class ReturnReceiptReversals
             $enough = $enough && $balance && bccomp($available, $quantity, 4) >= 0;
             $stock[] = ['variant_id' => (int) $variant, 'required' => $quantity, 'available' => $available, 'version' => (int) ($balance->version ?? 0)];
         }
-        $q = DB::table('return_adjustments')->where('sales_return_id', $receipt->sales_return_id);
+        $q = AdjustmentState::effective(DB::table('return_adjustments')->where('sales_return_id', $receipt->sales_return_id));
         if ($lock) {
             $q->lockForUpdate();
         }$adjusted = (bool) $q->first();
-        $q = DB::table('refunds')->where('sales_return_id', $receipt->sales_return_id);
+        $q = RefundState::effective(DB::table('refunds')->where('sales_return_id', $receipt->sales_return_id)->whereIn('status', ['pending', 'confirmed']));
         if ($lock) {
             $q->lockForUpdate();
         }$refunded = (bool) $q->first();

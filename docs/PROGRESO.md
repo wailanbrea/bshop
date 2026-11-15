@@ -1998,3 +1998,61 @@ con los mismos assets reales/API interceptada usados localmente; sin excluir per
 ni pruebas. Permiso workflow autorizado por el propietario; sin omitir hooks ni checks.
 Guía CORRECCION_REEMBOLSOS y QA/README/API/ESTADO actualizados;51/67,aproximado75%.
 Pendientes: compensación de ajustes económicos, MySQL específico y comisiones/entrega.
+
+## 2026-11-15 — Compensación y versiones de ajustes económicos
+
+ReturnAdjustmentReversals compensa un ajuste íntegro con permiso adjustments.reverse,
+motivo/actor/snapshot/hash, versión/UUID/revisión y recuperación privada. Retira su
+crédito disponible y restituye asignaciones/deuda, sin nuevos pagos ni cambio físico.
+Bloquea consumos de crédito/reembolso y estados/comisiones inciertos. Sólo el último
+ajuste vigente del pedido: LIFO conserva el redondeo acumulado0,33/0,34/0,33.
+La recepción vuelve a received y retiene nuevos cobros hasta revisión o anulación física.
+
+003100 añade puntero de versión vigente con FK compuesta, líneas por ajuste/artículo
+y compensaciones únicas. Copia líneas/ajustes iniciales y sustituye el antiguo índice
+de una versión por recepción; no borra filas. Los ajustes/PDF y primeras líneas siguen
+históricos; refund_amount de la recepción es una proyección vigente. Puede aprobarse
+otra versión con ID/PDF distintos. AdjustmentState centraliza ajustes/liberaciones
+efectivos en pedidos/facturas/pagos/pools, y se actualizaron filtros de Apartados.
+Historia/actividad y descargas conservan versiones compensadas. UI con diálogos
+secuenciales y textos centralizados, motivo retenido al girar/conflicto y journal GET
+sin reenvío automático. Replay antiguo después de reaprobar no cancela la versión nueva.
+
+Verificaciones desde C:/xampp/php/www/BShop:
+- Destino PHP testing/sqlite/:memory: mostrado, phpunit.xml forzado y conexión efectiva
+  validada por TestCase antes de migrar; sin host remoto.
+- `PHP83 artisan test --compact`:251 pruebas/3.482 aserciones,58,78s.12 casos nuevos:
+  historia/PDF/revisión, deuda, valor0, LIFO/céntimos, crédito/reembolso consumido,
+  recepción física posterior, scope/permiso/CSRF, migración con filas previas, factura
+  semanal y cadena de crédito resuelta en orden.
+- `npm run build`: aprobado,795 módulos,entrada505,67kB/gzip152,02; gráficos diferidos
+  608,86kB/gzip210,38. Aviso Vite de chunks>500kB registrado, no se elevó el umbral.
+- `BSHOP_BROWSER_OFFLINE=1 npm run test:tablet -- baskets.spec.ts --grep "economic adjustment compensation" --reporter=dot`:
+  30/30,27,4s. Completa `--reporter=dot`:718/718,7,3 minutos, seis perfiles interceptados.
+- Pint normalizado y comprobado con caché nueva .runtime/pint-adjustments-final-verified.cache.
+
+MySQL aislado:
+- Se inició sólo el binario/configuración existentes del proyecto, sin inicializar ni
+  limpiar datos. Host127.0.0.1:33078,bshop_testing_single,testing,MySQL8.4.13 y datadir
+  .runtime/mysql-data verificados por import-test-connection.php antes de SQL de negocio.
+- Simulación de pendientes002000–003100 antes de ejecutar. `PHP83 scripts/mysql-migration-check.php`
+  guardó copia íntegra verificada de63 tablas en
+  .runtime/checked-mysql-backup-20261115-073149-ae7260.json, aplicó las migraciones
+  inspeccionadas y comprobó que filas previas/identidades/permisos existentes se conservaron.
+- `PHP83 scripts/verify-adjustment-reversals-mysql.php`:PASS, flujo nativo de ajuste,
+  reembolso erróneo corregido, compensación/nueva versión, stock/asignaciones intactos
+  y extremo199999999999999,98 con precisión DECIMAL. Fixtures/perfil revertidos por
+  transacción. Sin HTTP, archivos PDF ni proveedores reales. No simula concurrencia.
+
+Demo SQLite:
+- Destino local/sqlite/host ninguno,database/bshop-business.sqlite; copia íntegra
+  .runtime/bshop-backup-20261115-073914.sqlite,80 tablas previas.
+- `PHP83 artisan migrate --path=database/migrations/2026_11_15_003100_version_return_adjustments.php --pretend --force`:
+  simulación mostrada; aplicación posterior de sólo esa migración completada.
+- `PHP83 scripts/verify-demo.php`:PASS, proyecciones/versiones/hashes verificados;
+  físico98/reservado8/disponible90;480=257+223 USD;2 facturas/5 pagos. No se crearon
+  ni compensaron ajustes comerciales de demostración.
+
+Guía COMPENSACION_AJUSTES y README/API/QA/ESTADO actualizados.52/68; aproximadamente75%
+de planificación conservado. Pendientes: concurrencia/carga MySQL, comisiones y módulos
+comerciales restantes, tablet física y entrega operativa.

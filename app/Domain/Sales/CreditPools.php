@@ -21,6 +21,7 @@ final class CreditPools
     public static function rows(int $paymentId, bool $lock = false): array
     {
         $q = DB::table('payment_allocation_releases as r')->join('return_adjustments as a', 'a.id', '=', 'r.adjustment_id')->where('r.payment_id', $paymentId)->orderBy('r.id')->select('r.*', 'a.sales_return_id');
+        AdjustmentState::releases($q, 'r');
         if ($lock) {
             $q->lockForUpdate();
         }$rows = $q->get();
@@ -48,6 +49,7 @@ final class CreditPools
     public static function orderAvailable(int $orderId, bool $lock = false): string
     {
         $q = DB::table('payment_allocation_releases as r')->join('payments as p', 'p.id', '=', 'r.payment_id')->where('r.order_id', $orderId)->where('p.status', 'confirmed')->orderBy('r.id');
+        AdjustmentState::releases($q, 'r');
         if ($lock) {
             $q->lockForUpdate();
         }$payments = $q->get(['r.payment_id'])->pluck('payment_id')->unique();

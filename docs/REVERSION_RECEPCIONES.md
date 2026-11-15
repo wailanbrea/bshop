@@ -19,7 +19,9 @@ Si hay unidades consumidas/reservadas, falla todo el lote sin efectos parciales.
 Se restaura el cupo para recibir las unidades correctamente mediante otra recepción.
 Sólo desaparece la retención de cobro si no quedan otras recepciones pendientes de
 la factura; probado también con factura semanal. Una recepción con ajuste económico
-exige compensar antes ese flujo; esta acción no borra ni deshace un ajuste aprobado.
+exige compensar antes ese flujo (`COMPENSACION_AJUSTES.md`); esta acción no borra ni
+deshace un ajuste aprobado. Reembolsos erróneos corregidos dejan de bloquear el
+historial económico efectivo.
 
 Locks producto/variante→sucursal/almacén/saldos→pedido/factura/recepción. UUID,
 versión y hash incluyen stock/versiones.409 conserva motivo y exige revisar;

@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Domain\Business\InstallBusiness;
 use App\Domain\Catalog\ProductService;
 use App\Domain\Sales\OrderInvoice;
+use App\Domain\Sales\OrderSettlement;
 use App\Domain\Sales\WeeklyAccounts;
 use App\Models\BusinessProfile;
 use App\Models\Customer;
@@ -90,6 +91,30 @@ class WeeklyAccountsTest extends TestCase
         }
 
         return $id;
+    }
+
+    public function test_adjustment_compensation_reopens_the_shared_invoice_hold_and_preserves_its_original_pdf(): void
+    {
+        $id = $this->grouped();
+        $this->closeAccount($id, $this->review($id))->assertOk();
+        $order = $this->orders[0];
+        $this->postJson($this->root()."/sales/orders/$order/deliver", ['request_key' => (string) Str::uuid(), 'version' => SalesOrder::find($order)->lock_version])->assertOk();
+        $path = $this->root()."/sales/orders/$order/returns";
+        $r = $this->getJson($path)->json('data');
+        $receipt = $this->postJson($path, ['request_key' => (string) Str::uuid(), 'version' => $r['version'], 'review_hash' => $r['review_hash'], 'reason' => 'Revisión de devolución semanal', 'lines' => [['invoice_item_id' => $r['lines'][0]['invoice_item_id'], 'quantity' => '1', 'restock' => true]]])->assertCreated()->json('data.sales_return_id');
+        $r = $this->getJson($path."/$receipt/financial")->json('data.proposal');
+        $a = $this->postJson($path."/$receipt/adjust", ['request_key' => (string) Str::uuid(), 'version' => $r['version'], 'review_hash' => $r['review_hash'], 'shipping_credit' => '0', 'reason' => 'Ajuste semanal inicial'])->assertOk()->json('data.adjustment_id');
+        $doc = DB::table('invoice_documents')->first();
+        $bytes = Storage::disk('private_invoices')->get($doc->object_key);
+        $r = $this->getJson($path."/$receipt/adjustments/$a/reversal")->assertOk()->json('data');
+        $this->postJson($path."/$receipt/adjustments/$a/reversal", ['request_key' => (string) Str::uuid(), 'version' => $r['version'], 'review_hash' => $r['review_hash'], 'reason' => 'Corregir ajuste económico semanal'])->assertOk();
+        $other = $this->orders[1];
+        $this->getJson($this->root()."/sales/orders/$other")->assertOk()->assertJsonPath('data.return_pending', true);
+        $invoice = DB::table('invoices')->first();
+        $this->assertSame('50.0000', OrderSettlement::invoice($invoice)['net_total']);
+        $this->assertSame('5.0000', OrderSettlement::invoice($invoice)['paid_total']);
+        $this->assertSame($bytes, Storage::disk('private_invoices')->get($doc->object_key));
+        $this->assertDatabaseCount('invoices', 1);
     }
 
     public function test_sales_control_counts_a_shared_weekly_invoice_once_and_each_order_amount_once(): void

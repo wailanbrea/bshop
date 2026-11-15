@@ -44,7 +44,7 @@ final class CreditApplicationReversals
         }$reversal = $q->first();
         $fund = OrderSettlement::payment($entry->payment_id, $lock);
         $balance = OrderSettlement::position($order, $invoice->id, $lock);
-        $q = DB::table('payment_allocation_releases')->where('payment_allocation_id', $entry->payment_allocation_id);
+        $q = AdjustmentState::releases(DB::table('payment_allocation_releases')->where('payment_allocation_id', $entry->payment_allocation_id));
         if ($lock) {
             $q->lockForUpdate();
         }$released = (bool) $q->first();

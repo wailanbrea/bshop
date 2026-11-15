@@ -27,7 +27,7 @@ final class OrderSettlement
 
     public static function credited(int $orderId, bool $lock = false): string
     {
-        return self::total(DB::table('return_adjustments')->where('order_id', $orderId)->orderBy('id'), 'amount', $lock);
+        return self::total(AdjustmentState::effective(DB::table('return_adjustments')->where('order_id', $orderId)->orderBy('id')), 'amount', $lock);
     }
 
     public static function payment(int $id, bool $lock = false): array
@@ -37,7 +37,7 @@ final class OrderSettlement
             $query->lockForUpdate();
         }$payment = $query->firstOrFail();
         $allocated = self::total(DB::table('payment_allocations')->where('payment_id', $id)->orderBy('id'), 'amount', $lock);
-        $released = self::total(DB::table('payment_allocation_releases')->where('payment_id', $id)->orderBy('id'), 'amount', $lock);
+        $released = self::total(AdjustmentState::releases(DB::table('payment_allocation_releases')->where('payment_id', $id)->orderBy('id')), 'amount', $lock);
         $historicalRefunded = self::total(DB::table('refunds')->where('original_payment_id', $id)->where('status', 'confirmed')->orderBy('id'), 'amount', $lock);
         $reversedRefund = self::total(DB::table('refund_reversals as v')->join('refunds as r', 'r.id', '=', 'v.refund_id')->where('r.original_payment_id', $id)->where('r.status', 'confirmed')->orderBy('v.id'), 'v.amount', $lock);
         $refunded = bcsub($historicalRefunded, $reversedRefund, 4);
@@ -75,7 +75,7 @@ final class OrderSettlement
             $paid = bcsub($gross, $refunds, 4);
         } else {
             $allocated = self::total(CreditPools::allocations($order->id, $invoiceId)->orderBy('a.id'), 'a.amount', $lock);
-            $released = self::total(DB::table('payment_allocation_releases as r')->join('payments as p', 'p.id', '=', 'r.payment_id')->where('r.order_id', $order->id)->where('r.invoice_id', $invoiceId)->where('p.status', 'confirmed')->orderBy('r.id'), 'r.amount', $lock);
+            $released = self::total(AdjustmentState::releases(DB::table('payment_allocation_releases as r')->join('payments as p', 'p.id', '=', 'r.payment_id')->where('r.order_id', $order->id)->where('r.invoice_id', $invoiceId)->where('p.status', 'confirmed')->orderBy('r.id'), 'r'), 'r.amount', $lock);
             $paid = bcsub($allocated, $released, 4);
         }
         $incoming = self::total(DB::table('credit_applications as c')->join('payments as p', 'p.id', '=', 'c.payment_id')->where('c.target_order_id', $order->id)->where('p.status', 'confirmed')->whereNotExists(fn ($q) => $q->selectRaw('1')->from('credit_application_reversals as v')->whereColumn('v.credit_application_id', 'c.id'))->orderBy('c.id'), 'c.amount', $lock);
@@ -87,10 +87,10 @@ final class OrderSettlement
 
     public static function invoice(object $invoice, bool $lock = false): array
     {
-        $credit = self::total(DB::table('return_adjustments')->where('invoice_id', $invoice->id)->orderBy('id'), 'amount', $lock);
+        $credit = self::total(AdjustmentState::effective(DB::table('return_adjustments')->where('invoice_id', $invoice->id)->orderBy('id')), 'amount', $lock);
         $net = bcsub((string) $invoice->grand_total, $credit, 4);
         $paid = self::total(DB::table('payment_allocations as a')->join('payments as p', 'p.id', '=', 'a.payment_id')->where('a.invoice_id', $invoice->id)->where('p.status', 'confirmed')->orderBy('a.id'), 'a.amount', $lock);
-        $released = self::total(DB::table('payment_allocation_releases as r')->join('payments as p', 'p.id', '=', 'r.payment_id')->where('r.invoice_id', $invoice->id)->where('p.status', 'confirmed')->orderBy('r.id'), 'r.amount', $lock);
+        $released = self::total(AdjustmentState::releases(DB::table('payment_allocation_releases as r')->join('payments as p', 'p.id', '=', 'r.payment_id')->where('r.invoice_id', $invoice->id)->where('p.status', 'confirmed')->orderBy('r.id'), 'r'), 'r.amount', $lock);
         $paid = bcsub($paid, $released, 4);
         $reversed = self::total(DB::table('credit_application_reversals as v')->join('credit_applications as c', 'c.id', '=', 'v.credit_application_id')->join('payments as p', 'p.id', '=', 'c.payment_id')->where('c.invoice_id', $invoice->id)->where('p.status', 'confirmed')->orderBy('v.id'), 'v.amount', $lock);
         $paid = bcsub($paid, $reversed, 4);

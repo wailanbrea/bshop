@@ -48,11 +48,20 @@ La reversión de aplicaciones añade49/65 puntos del checklist; la estimación g
 se mantiene aproximadamente75% por compensaciones restantes, comisiones y entrega.
 Compensación de recepciones pendientes:50/66 puntos; se conserva aproximadamente75%.
 Corrección de reembolsos erróneos:51/67; se conserva la estimación aproximada75%.
+Compensación/versiones de ajustes:52/68; se mantiene aproximadamente75% hasta cerrar
+concurrencia, comisiones, módulos restantes y entrega operativa.
 Los puntos tienen tamaños distintos: cuentas semanales o devoluciones representan
 mucho más trabajo que un ajuste de interfaz. Por eso el porcentaje global se basa
 en el alcance ponderado y conserva los módulos grandes pendientes.
 
-## Entrega de esta iteración: corrección de reembolsos erróneos
+## Entrega de esta iteración: compensación/versiones de ajustes
+
+- Compensación LIFO sin consumos pendientes, restauración de deuda/asignaciones,
+  recepción retenida y nueva revisión con otro ID sin perder PDF original.
+- 251 PHP/3.482 aserciones y718/718 browser. Esquema/flujo MySQL8.4 verificados con
+  conservación de filas y DECIMAL extremo; concurrencia específica aún pendiente.
+
+### Entrega anterior: corrección de reembolsos erróneos
 
 - Sólo registros sin entrega real de dinero, con confirmación explícita. Restituye
   crédito sin reescribir ledger ni generar ingresos; historial y saldos coherentes.

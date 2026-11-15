@@ -37,6 +37,12 @@ No acredita módulos pendientes ni aceptación en hardware físico.
 
 ## Matriz automatizada
 
+Última regresión de compensación/versiones de ajustes: **718/718**, seis perfiles,
+7,3 minutos. Treinta casos nuevos: motivo al girar, recuperación GET, revisión obsoleta,
+permiso y bloqueo, re-conciliación con nuevo ID y descarga del PDF compensado. Ejecución
+focalizada30/30,27,4s. Dinero/historia verificados también en PHP y MySQL nativo;
+la emulación no sustituye aceptación física ni carreras reales.
+
 Última regresión de correcciones de reembolsos: **688/688**, seis perfiles,6,2 minutos.
 Treinta casos nuevos: confirmación obligatoria de no entrega de dinero, motivo/casilla
 al girar, recuperación por GET, revisión conservadora, permiso y bloqueo. Además se

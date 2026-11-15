@@ -75,7 +75,7 @@ final class ReturnSettlements
             abort_unless(isset($entitlements[$line->invoice_item_id]), 409, 'La recepción contiene un artículo ajeno a este pedido.');
             $original = $entitlements[$line->invoice_item_id];
             $item = $original['item'];
-            $settled = OrderSettlement::total(DB::table('return_adjustment_items')->where('invoice_item_id', $item->id)->orderBy('sales_return_item_id'), 'quantity', $lock);
+            $settled = OrderSettlement::total(AdjustmentState::effective(DB::table('return_adjustment_revision_items as ri')->join('return_adjustments as a', 'a.id', '=', 'ri.adjustment_id')->where('ri.invoice_item_id', $item->id)->orderBy('ri.adjustment_id')->orderBy('ri.sales_return_item_id'), 'a'), 'ri.quantity', $lock);
             $after = bcadd($settled, (string) $line->quantity, 4);
             abort_unless(bccomp((string) $item->quantity, '0', 4) > 0 && bccomp($after, (string) $item->quantity, 4) <= 0, 409, 'Las cantidades económicas exceden el artículo facturado.');
             $beforeAmount = Money::round(bcdiv(bcmul($original['amount'], $settled, 12), (string) $item->quantity, 12));
@@ -85,7 +85,7 @@ final class ReturnSettlements
             $details[] = ['sales_return_item_id' => (int) $line->id, 'invoice_item_id' => (int) $item->id, 'name' => $item->description, 'quantity' => bcadd((string) $line->quantity, '0', 4), 'credit_amount' => $amount, 'item_entitlement' => $original['amount']];
         }
         abort_unless(count($details) > 0, 422, 'La recepción no contiene artículos.');
-        $priorShipping = OrderSettlement::total(DB::table('return_adjustments')->where('order_id', $order->id)->orderBy('id'), 'shipping_credit', $lock);
+        $priorShipping = OrderSettlement::total(AdjustmentState::effective(DB::table('return_adjustments')->where('order_id', $order->id)->orderBy('id')), 'shipping_credit', $lock);
         $shippingAvailable = bcsub($order->shipping_total, $priorShipping, 4);
         if (bccomp($shipping, $shippingAvailable, 4) > 0) {
             throw ValidationException::withMessages(['shipping_credit' => 'El envío a acreditar excede el envío original pendiente.']);
@@ -110,7 +110,7 @@ final class ReturnSettlements
             if (bccomp($remaining, '0', 4) <= 0) {
                 continue;
             }
-            $prior = OrderSettlement::total(DB::table('payment_allocation_releases')->where('payment_allocation_id', $allocation->id)->orderBy('id'), 'amount', $lock);
+            $prior = OrderSettlement::total(AdjustmentState::releases(DB::table('payment_allocation_releases')->where('payment_allocation_id', $allocation->id)->orderBy('id')), 'amount', $lock);
             $available = bcsub((string) $allocation->amount, $prior, 4);
             abort_if(bccomp($available, '0', 4) < 0, 409, 'Una asignación tiene liberaciones inconsistentes.');
             $take = bccomp($available, $remaining, 4) > 0 ? $remaining : $available;
@@ -128,7 +128,8 @@ final class ReturnSettlements
 
     private function state(SalesOrder $order, object $invoice, object $receipt): array
     {
-        $adjustment = DB::table('return_adjustments')->where('sales_return_id', $receipt->id)->firstOrFail();
+        $adjustment = AdjustmentState::current($receipt->id);
+        abort_unless($adjustment, 409, __('adjustment_reversal.no_current'));
         $sources = [];
         foreach (DB::table('payment_allocation_releases')->where('adjustment_id', $adjustment->id)->orderBy('id')->get() as $release) {
             $id = (int) $release->payment_id;
@@ -151,7 +152,7 @@ final class ReturnSettlements
                 $max = '0.0000';
             }$source = [...$source, 'applied_credit' => $spent, 'refunded' => $refunded, 'available_credit' => $fund['available'], 'max_refund' => $max, 'method' => $fund['payment']->payment_method, 'pending_refund' => $pending];
         }unset($source);
-        $history = DB::table('refunds as r')->join('refund_confirmations as c', 'c.refund_id', '=', 'r.id')->where('c.adjustment_id', $adjustment->id)->orderByDesc('r.id')->get(['r.id', 'r.amount', 'r.method', 'r.external_reference', 'r.refunded_at', 'c.actor_name', 'c.reason']);
+        $history = DB::table('refunds as r')->join('refund_confirmations as c', 'c.refund_id', '=', 'r.id')->where('r.sales_return_id', $receipt->id)->orderByDesc('r.id')->get(['r.id', 'r.amount', 'r.method', 'r.external_reference', 'r.refunded_at', 'c.actor_name', 'c.reason']);
         foreach ($history as $entry) {
             $entry->amount = bcadd((string) $entry->amount, '0', 4);
             $entry->reversal = DB::table('refund_reversals')->where('refund_id', $entry->id)->first(['id', 'reason', 'actor_name', 'created_at']);
@@ -168,11 +169,16 @@ final class ReturnSettlements
         return DB::transaction(function () use ($context, $orderId, $returnId, $shipping) {
             Store::whereKey($context->store()->id)->sharedLock()->firstOrFail();
             [$order,$invoice,$receipt] = $this->scope($context, $orderId, $returnId, false);
-            if (DB::table('return_adjustments')->where('sales_return_id', $returnId)->exists()) {
-                return $this->state($order, $invoice, $receipt);
+            $history = DB::table('return_adjustments')->where('sales_return_id', $returnId)->orderByDesc('id')->get(['id', 'amount', 'shipping_credit', 'reason', 'actor_name', 'created_at']);
+            foreach ($history as $row) {
+                $row->amount = bcadd((string) $row->amount, '0', 4);
+                $row->reversal = DB::table('return_adjustment_reversals')->where('adjustment_id', $row->id)->first(['id', 'reason', 'actor_name', 'created_at']);
+            }
+            if (AdjustmentState::current($returnId)) {
+                return [...$this->state($order, $invoice, $receipt), 'history' => $history];
             }abort_unless($receipt->status === 'received', 409, 'La recepción no está pendiente de ajuste.');
 
-            return ['state' => 'received', 'proposal' => $this->proposal($order, $invoice, $receipt, $shipping, false)];
+            return ['state' => 'received', 'proposal' => $this->proposal($order, $invoice, $receipt, $shipping, false), 'history' => $history];
         });
     }
 
@@ -192,7 +198,9 @@ final class ReturnSettlements
         }, function () use ($context, $orderId, $returnId, $actor, $data) {
             $this->locks($context, $orderId);
             [$order,$invoice,$receipt] = $this->scope($context, $orderId, $returnId, true);
-            abort_unless($order->lock_version === $data['version'] && $receipt->status === 'received' && ! DB::table('return_adjustments')->where('sales_return_id', $returnId)->lockForUpdate()->first(), 409, 'La devolución cambió o ya tiene un ajuste.');
+            DB::table('return_adjustment_heads')->insertOrIgnore(['sales_return_id' => $returnId, 'active_adjustment_id' => null]);
+            $head = DB::table('return_adjustment_heads')->where('sales_return_id', $returnId)->lockForUpdate()->firstOrFail();
+            abort_unless($order->lock_version === $data['version'] && $receipt->status === 'received' && ! $head->active_adjustment_id && ! AdjustmentState::current($returnId, true), 409, 'La devolución cambió o ya tiene un ajuste.');
             abort_unless(in_array($invoice->status, ['issued', 'partially_paid', 'paid'], true), 409, 'La factura tiene otros ajustes que requieren conciliación.');
             abort_if(DB::table('commission_entries')->where('invoice_id', $invoice->id)->lockForUpdate()->first(), 409, 'La factura tiene comisiones que requieren conciliación.');
             abort_if(DB::table('refunds')->where('invoice_id', $invoice->id)->where('status', 'pending')->lockForUpdate()->first(), 409, 'Hay un reembolso pendiente de resultado.');
@@ -200,13 +208,17 @@ final class ReturnSettlements
             abort_unless(hash_equals($proposal['review_hash'], $data['review_hash']), 409, 'Los importes o abonos cambiaron. Revisa la propuesta actualizada.');
             $id = DB::table('return_adjustments')->insertGetId(['sales_return_id' => $returnId, 'order_id' => $orderId, 'invoice_id' => $invoice->id, 'store_id' => $order->store_id, 'customer_id' => $order->customer_id, 'currency' => $order->currency, 'amount' => $proposal['amount'], 'merchandise_credit' => $proposal['merchandise_credit'], 'shipping_credit' => $proposal['shipping_credit'], 'net_after' => $proposal['net_after'], 'credit_released' => $proposal['credit_released'], 'snapshot' => json_encode($proposal, JSON_THROW_ON_ERROR), 'reason' => $data['reason'], 'created_by_user_id' => $actor->id, 'actor_name' => $actor->name, 'created_at' => now()]);
             foreach ($proposal['lines'] as $line) {
-                DB::table('return_adjustment_items')->insert(['sales_return_item_id' => $line['sales_return_item_id'], 'adjustment_id' => $id, 'invoice_item_id' => $line['invoice_item_id'], 'quantity' => $line['quantity'], 'credit_amount' => $line['credit_amount']]);
+                $detail = ['sales_return_item_id' => $line['sales_return_item_id'], 'adjustment_id' => $id, 'invoice_item_id' => $line['invoice_item_id'], 'quantity' => $line['quantity'], 'credit_amount' => $line['credit_amount']];
+                DB::table('return_adjustment_revision_items')->insert($detail);
+                // Preserve the first historical representation for legacy readers.
+                DB::table('return_adjustment_items')->insertOrIgnore($detail);
                 DB::table('sales_return_items')->where('id', $line['sales_return_item_id'])->update(['refund_amount' => $line['credit_amount']]);
             }
             foreach ($proposal['releases'] as $release) {
                 DB::table('payment_allocation_releases')->insert([...$release, 'adjustment_id' => $id, 'order_id' => $orderId, 'invoice_id' => $invoice->id, 'store_id' => $order->store_id, 'customer_id' => $order->customer_id, 'currency' => $order->currency, 'created_at' => now()]);
             }
             DB::table('sales_returns')->where('id', $returnId)->update(['status' => 'adjusted', 'updated_at' => now()]);
+            DB::table('return_adjustment_heads')->where('sales_return_id', $returnId)->update(['active_adjustment_id' => $id]);
             $order->lock_version++;
             $order->save();
             $this->sales->refreshInvoiceBalance($invoice->id);
@@ -243,7 +255,8 @@ final class ReturnSettlements
             $this->locks($context, $orderId);
             [$order,$invoice,$receipt] = $this->scope($context, $orderId, $returnId, true);
             abort_unless($order->lock_version === $data['version'] && $receipt->status === 'adjusted', 409, 'La devolución cambió o no tiene ajuste confirmado.');
-            $adjustment = DB::table('return_adjustments')->where('sales_return_id', $returnId)->lockForUpdate()->firstOrFail();
+            $adjustment = AdjustmentState::current($returnId, true);
+            abort_unless($adjustment, 409, __('adjustment_reversal.no_current'));
             abort_unless(in_array($invoice->status, ['issued', 'partially_paid', 'paid'], true), 409, 'La factura requiere conciliación de otros ajustes.');
             abort_if(DB::table('commission_entries')->where('invoice_id', $invoice->id)->lockForUpdate()->first(), 409, 'Las comisiones requieren conciliación antes de reembolsar.');
             DB::table('payment_allocation_releases')->where('adjustment_id', $adjustment->id)->where('payment_id', $data['payment_id'])->lockForUpdate()->firstOrFail();

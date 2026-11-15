@@ -113,6 +113,7 @@ por GET al reabrir la conciliación, sin reenvío automático. Respuestas no-sto
 - Comprobantes propios incorporados en `COMPROBANTES_FINANCIEROS.md`; reversión de
   aplicaciones en `REVERSION_APLICACIONES_CREDITO.md`.
 - Corrección de reembolsos sin entrega real de dinero en `CORRECCION_REEMBOLSOS.md`.
-- Pendientes: otras anulaciones compensatorias,
+- Compensación de ajustes y re-conciliación versionada en `COMPENSACION_AJUSTES.md`.
+- Pendientes: concurrencia/rendimiento de las compensaciones,
   conciliación avanzada con comisiones, concurrencia
   MySQL específica, aceptación física y cualquier integración bancaria real.
