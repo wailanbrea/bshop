@@ -364,3 +364,11 @@ review_hash/reason. GET `/reversal/requests/{uuid}` recupera sólo al actor orig
 15 POST/minuto, sesión/CSRF, StoreContext/no-store. Compensación única, procedencia
 restaurada y deuda reabierta sin modificar recibos/PDF/stock; bloqueo de crédito
 posteriormente liberado y conciliaciones inciertas. Ver REVERSION_APLICACIONES_CREDITO.
+
+## Compensación de recepciones físicas pendientes
+
+GET/POST `/api/v1/business/stores/{store}/sales/orders/{order}/returns/{receipt}/reversal`;
+POST exige returns.reverse + sales.view y request_key/version/review_hash/reason.
+GET `/reversal/requests/{uuid}` recupera actor/contexto original. Stock inverso
+trazado, cupo restaurado, sin cambios de dinero/PDF; bloquea ajuste/reembolso o
+existencias no disponibles.15 POST/min, sesión/CSRF/no-store. Ver REVERSION_RECEPCIONES.

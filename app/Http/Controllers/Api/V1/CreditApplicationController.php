@@ -48,6 +48,6 @@ class CreditApplicationController extends Controller
         $data = json_decode($row->response_data, true, flags: JSON_THROW_ON_ERROR);
         abort_unless(($data['_identity'][0] ?? null) === $request->user()->id && ($data['_identity'][1] ?? null) === $context->store()->id && ($data['_identity'][2] ?? null) === (int) $request->route('order'), 404);
 
-        return response()->json(['data' => ['order' => $sales->present(SalesOrder::where('store_id', $context->store()->id)->findOrFail($data['order_id'])), 'credit_application_id' => $data['credit_application_id'], 'replay' => true]])->header('Cache-Control','private, no-store');
+        return response()->json(['data' => ['order' => $sales->present(SalesOrder::where('store_id', $context->store()->id)->findOrFail($data['order_id'])), 'credit_application_id' => $data['credit_application_id'], 'replay' => true]])->header('Cache-Control', 'private, no-store');
     }
 }

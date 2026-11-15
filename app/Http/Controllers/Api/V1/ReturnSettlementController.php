@@ -35,6 +35,6 @@ class ReturnSettlementController extends Controller
         abort_unless(($result['_identity'][0] ?? null) === $request->user()->id && ($result['_identity'][1] ?? null) === $context->store()->id && ($result['_identity'][2] ?? null) === (int) $request->route('order') && ($result['_identity'][3] ?? null) === (int) $request->route('receipt'), 404);
         unset($result['_identity']);
 
-        return response()->json(['data' => [...$result, 'order' => $sales->present(SalesOrder::where('store_id', $context->store()->id)->findOrFail($result['order_id'])), 'replay' => true]])->header('Cache-Control','private, no-store');
+        return response()->json(['data' => [...$result, 'order' => $sales->present(SalesOrder::where('store_id', $context->store()->id)->findOrFail($result['order_id'])), 'replay' => true]])->header('Cache-Control', 'private, no-store');
     }
 }

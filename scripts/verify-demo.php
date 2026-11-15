@@ -151,10 +151,26 @@ DB::transaction(function () use ($sum) {
                 throw new RuntimeException('Unrestocked return has an inventory movement.');
             }
             if ($item->restock) {
-                $movement = $movements->first();
-                if ($movements->count() !== 1 || $movement->movement_type !== 'customer_return' || (int) $movement->warehouse_id !== (int) $receipt->warehouse_id || bccomp((string) $movement->on_hand_delta, (string) $item->quantity, 4) !== 0 || bccomp((string) $movement->reserved_delta, '0', 4) !== 0) {
+                $movement = $movements->firstWhere('movement_type', 'customer_return');
+                if ($movements->where('movement_type', 'customer_return')->count() !== 1 || $movement->movement_type !== 'customer_return' || (int) $movement->warehouse_id !== (int) $receipt->warehouse_id || bccomp((string) $movement->on_hand_delta, (string) $item->quantity, 4) !== 0 || bccomp((string) $movement->reserved_delta, '0', 4) !== 0) {
                     throw new RuntimeException('Return receipt/stock provenance mismatch.');
                 }
+            }
+            $reversal = DB::table('return_receipt_reversals')->where('sales_return_id', $receipt->sales_return_id)->first();
+            if ($reversal) {
+                $snapshot = json_decode($reversal->snapshot, true, flags: JSON_THROW_ON_ERROR);
+                $link = DB::table('return_receipt_reversal_items')->where('return_item_id', $item->id)->where('reversal_id', $reversal->id)->first();
+                if (! $link || ! hash_equals($reversal->data_hash, hash('sha256', app(FinancialDocument::class)->canonical($snapshot))) || DB::table('sales_returns')->where('id', $receipt->sales_return_id)->value('status') !== 'void' || bccomp((string) $link->quantity, (string) $item->quantity, 4) !== 0) {
+                    throw new RuntimeException('Return receipt compensation history mismatch.');
+                }
+                if ($item->restock) {
+                    $inverse = $movements->firstWhere('id', $link->inverse_movement_id);
+                    if ($movements->count() !== 2 || ! $inverse || $inverse->movement_type !== 'customer_return_reversal' || (int) $link->original_movement_id !== (int) $movements->firstWhere('movement_type', 'customer_return')->id || (int) $inverse->warehouse_id !== (int) $receipt->warehouse_id || bccomp((string) $inverse->on_hand_delta, bcsub('0', (string) $item->quantity, 4), 4) !== 0 || bccomp((string) $inverse->reserved_delta, '0', 4) !== 0) {
+                        throw new RuntimeException('Return inverse movement mismatch.');
+                    }
+                }
+            } elseif ($item->restock && $movements->count() !== 1) {
+                throw new RuntimeException('Unexpected movements for return item.');
             }
         }
     }

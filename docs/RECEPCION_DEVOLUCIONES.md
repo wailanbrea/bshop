@@ -13,7 +13,7 @@ Con `returns.receive`, indicar cantidades, motivo y destino por artículo:
 
 Confirmar **Registrar recepción física**. El historial conserva autor, motivo,
 fecha, cantidades y destino. No permite editar/borrar recepciones ni eliminar
-movimientos; un flujo compensatorio quedará para su fase.
+movimientos. Corrección compensatoria disponible en `REVERSION_RECEPCIONES.md`.
 
 **La recepción física nace pendiente de ajuste económico.** No calcula crédito,
 cambia el total fiscal ni entrega dinero. Se registra received con importes
@@ -97,5 +97,6 @@ Respuestas privadas no-store.
 - Conciliación económica y registro manual de reembolsos incorporados posteriormente;
   ver la guía específica y la regresión actual187/2.180 PHP y472 browser.
 - Aplicación de crédito entre pedidos incorporada en `APLICACION_CREDITO.md`.
-- Pendientes: correcciones compensatorias de recepción, concurrencia MySQL
+- Corrección de recepciones pendientes incorporada en `REVERSION_RECEPCIONES.md`.
+- Pendientes: compensación posterior a ajustes, concurrencia MySQL
   específica y aceptación en tablet física.

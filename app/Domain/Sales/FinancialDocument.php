@@ -189,7 +189,7 @@ final class FinancialDocument
             DB::table('financial_documents')->where($this->column($kind), $id)->where('status', '!=', 'ready')->update(['status' => 'failed', 'updated_at' => now()]);
             throw $error;
         } finally {
-            flock($handle,LOCK_UN);
+            flock($handle, LOCK_UN);
             fclose($handle);
         }
     }

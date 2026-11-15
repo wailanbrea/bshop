@@ -75,7 +75,7 @@ final class CatalogImportValidator
                         }
                     }
 
-continue;
+                    continue;
                 }
                 if (isset($seen[$combination['key']])) {
                     $message = 'Esta combinación de atributos se repite dentro del grupo.';

@@ -46,11 +46,18 @@ manteniendo la estimación aproximada75% hasta revisar el alcance restante de re
 y entrega. Compensaciones y QA MySQL siguen pendientes.
 La reversión de aplicaciones añade49/65 puntos del checklist; la estimación global
 se mantiene aproximadamente75% por compensaciones restantes, comisiones y entrega.
+Compensación de recepciones pendientes:50/66 puntos; se conserva aproximadamente75%.
 Los puntos tienen tamaños distintos: cuentas semanales o devoluciones representan
 mucho más trabajo que un ajuste de interfaz. Por eso el porcentaje global se basa
 en el alcance ponderado y conserva los módulos grandes pendientes.
 
-## Entrega de esta iteración: reversión compensatoria de crédito
+## Entrega de esta iteración: compensación de recepciones físicas
+
+- Anula registros pendientes por error mediante stock inverso trazado, conservando
+  artículos y dinero, y restaura cupo/retención según otras recepciones pendientes.
+- 231 PHP/3.081 aserciones y658/658 browser; demo conciliada tras respaldo/migración.
+
+### Entrega anterior: reversión compensatoria de crédito
 
 - Conserva aplicación/ledger/PDF, restaura liberaciones consumidas y reabre deuda
   del destino; atribución probada en factura semanal y cadenas de crédito.

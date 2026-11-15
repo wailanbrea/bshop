@@ -107,6 +107,9 @@ Route::middleware(['auth:sanctum', 'active', 'auth.session'])->group(function ()
             Route::post('sales/orders/{order}/returns/{receipt}/adjust', [ReturnSettlementController::class, 'adjust'])->whereNumber(['order', 'receipt'])->middleware(['can:sales.view', 'can:returns.adjust', 'throttle:returns-finance']);
             Route::post('sales/orders/{order}/returns/{receipt}/refund', [ReturnSettlementController::class, 'refund'])->whereNumber(['order', 'receipt'])->middleware(['can:sales.view', 'can:refunds.record', 'throttle:returns-finance']);
             Route::get('sales/orders/{order}/returns', [SalesReturnReceiptController::class, 'show'])->whereNumber('order')->middleware('can:sales.view');
+            Route::get('sales/orders/{order}/returns/{receipt}/reversal', [SalesReturnReceiptController::class, 'reversalInfo'])->whereNumber(['order', 'receipt'])->middleware('can:sales.view');
+            Route::post('sales/orders/{order}/returns/{receipt}/reversal', [SalesReturnReceiptController::class, 'reverse'])->whereNumber(['order', 'receipt'])->middleware(['can:sales.view', 'can:returns.reverse', 'throttle:returns-reverse']);
+            Route::get('sales/orders/{order}/returns/{receipt}/reversal/requests/{key}', [SalesReturnReceiptController::class, 'reversalRecovery'])->whereNumber(['order', 'receipt'])->whereUuid('key')->middleware('can:sales.view');
             Route::get('sales/orders/{order}/returns/requests/{key}', [SalesReturnReceiptController::class, 'recovery'])->whereNumber('order')->whereUuid('key')->middleware('can:sales.view');
             Route::post('sales/orders/{order}/returns', [SalesReturnReceiptController::class, 'receive'])->whereNumber('order')->middleware(['can:sales.view', 'can:returns.receive', 'throttle:returns-receive']);
             Route::get('sales/orders/{order}/payments', [PaymentReversalController::class, 'index'])->whereNumber('order')->middleware('can:sales.view');

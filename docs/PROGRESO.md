@@ -1918,3 +1918,40 @@ Repositorio indicado por el propietario: https://github.com/wailanbrea/bshop.git
 Guía REVERSION_APLICACIONES_CREDITO y README/API/QA/ESTADO actualizados. Checklist49/65;
 aproximado75% conservado. Próximos bloques: otras compensaciones (recepciones/ajustes/
 reembolsos), comisiones y revalidación MySQL específica, además de entrega operativa.
+
+## 2026-11-15 UTC — Publicación inicial y compensación de recepciones pendientes
+
+Commit inicial b494fcd creado por petición expresa. Se revisaron archivos publicables,
+diff y patrones de credenciales; .env/datos SQLite/runtime/documentos/capturas no se
+incluyen. .gitignore ampliado para capturas y variantes .env, conservando .env.example.
+GitHub rechazó inicialmente el workflow por scope; tras autorización del propietario,
+GitHub CLI recibió workflow y `git push -u origin develop` publicó el commit completo.
+El primer CI detectó11 detalles de formato omitidos por caché local: se normalizó
+con caché nueva y se verificó otra caché independiente, sin desactivar controles.
+
+ReturnReceiptReversals: recepción received sin ajuste/reembolso, revisión de fuente
+y stock disponible agregado, compensación StockLedger customer_return_reversal,
+detalles original/inverso, snapshot/hash, actor/motivo y estado void. No se modifican
+artículos originales, pagos, facturas ni PDF. Cupo restaura cantidades no vigentes;
+retención sólo desaparece si no quedan otras recepciones received, incluso en semanal.
+Permiso returns.reverse independiente, recuperación por GET y UI secuencial con
+motivo conservado al girar/conflicto. Historia y actividad muestran compensación.
+
+Pruebas: testing/sqlite/:memory:, sin host remoto; TestCase bloquea antes de migrar.
+- `PHP83 artisan test --compact`:231/3.081,41,33s;8 escenarios nuevos de stock/PDF,
+  no reposición, bloqueo económico, stock usado/revisión, múltiples recepciones,
+  scope/permiso/recuperación, CSRF y retención semanal.
+- `npm run build`: aprobado,787 módulos,entrada488,64kB/gzip148,91.
+- `BSHOP_BROWSER_OFFLINE=1 npm run test:tablet -- baskets.spec.ts --grep "physical receipt compensation" --reporter=dot`:
+  30/30,23,8s. Completa `--reporter=dot`:658/658,5,8 minutos, seis perfiles interceptados.
+- Pint normalizado; control frío `--test --cache-file=.runtime/pint-ci-verification.cache` aprobado.
+- Destino local/sqlite/host ninguno, database/bshop-business.sqlite; respaldo íntegro
+  `.runtime/bshop-backup-20261115-032624.sqlite`,77 tablas previas.
+- `PHP83 artisan migrate --path=database/migrations/2026_11_15_002900_create_return_receipt_reversals.php --force`:
+  aplicada tras inspección, sólo tablas/FK/checks/permisos nuevos.
+- `PHP83 scripts/verify-demo.php`:PASS;98/8/90 stock y480=257+223 USD;2 facturas/5 pagos.
+  Sin compensaciones comerciales de demo. Verificador contempla pares de kardex.
+
+Guía REVERSION_RECEPCIONES y QA/README/API/ESTADO actualizados;50/66,aproximado75%.
+El propietario confirmó que la futura corrección de reembolsos es sólo por registros
+erróneos donde nunca se entregó dinero; no representa recuperación de efectivo real.

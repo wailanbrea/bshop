@@ -44,6 +44,9 @@ class SalesControlController extends Controller
                 $credit->reversal = DB::table('credit_application_reversals')->where('credit_application_id', $credit->id)->first(['id', 'reason', 'actor_name', 'created_at']);
             }
             $returns = DB::table('sales_return_receipts as c')->join('sales_returns as r', 'r.id', '=', 'c.sales_return_id')->where('c.order_id', $order->id)->orderBy('c.sales_return_id')->get(['c.sales_return_id', 'c.received_at', 'r.reason', 'c.actor_name']);
+            foreach ($returns as $receipt) {
+                $receipt->reversal = DB::table('return_receipt_reversals')->where('sales_return_id', $receipt->sales_return_id)->first(['id', 'reason', 'actor_name', 'created_at']);
+            }
             $refunds = DB::table('refunds as r')->leftJoin('sales_return_receipts as c', 'c.sales_return_id', '=', 'r.sales_return_id')->leftJoin('order_payments as op', 'op.payment_id', '=', 'r.original_payment_id')->where('r.store_id', $context->store()->id)->where(fn ($q) => $q->where('c.order_id', $order->id)->orWhere(fn ($unused) => $unused->whereNull('r.sales_return_id')->where('op.order_id', $order->id)))->orderBy('r.id')->get(['r.id', 'r.amount', 'r.status', 'r.method', 'r.external_reference', 'r.refunded_at']);
             foreach ([$payments, $adjustments, $credits, $refunds] as $entries) {
                 foreach ($entries as $entry) {

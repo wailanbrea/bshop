@@ -85,6 +85,120 @@ class SalesReturnReceiptsTest extends TestCase
         return $this->postJson($this->endpoint($review['order_id']), ['request_key' => $key ?? (string) Str::uuid(), 'version' => $review['version'], 'review_hash' => $review['review_hash'], 'reason' => 'Mercancía recibida del cliente', 'lines' => [['invoice_item_id' => $review['lines'][0]['invoice_item_id'], 'quantity' => $quantity, 'restock' => $restock]]]);
     }
 
+    private function undoPayload(int $receipt): array
+    {
+        $r = $this->getJson($this->endpoint()."/$receipt/reversal")->assertOk()->json('data');
+
+        return ['request_key' => (string) Str::uuid(), 'version' => $r['version'], 'review_hash' => $r['review_hash'], 'reason' => 'Corregir recepción física registrada por error'];
+    }
+
+    public function test_receipt_compensation_preserves_original_items_money_and_pdf_and_reopens_quantity(): void
+    {
+        $r = $this->review();
+        $doc = DB::table('invoice_documents')->first();
+        $bytes = Storage::disk('private_invoices')->get($doc->object_key);
+        $receipt = $this->receive($r)->assertCreated()->json('data.sales_return_id');
+        $items = DB::table('sales_return_items')->get()->toJson();
+        $invoices = DB::table('invoices')->get()->toJson();
+        $body = $this->undoPayload($receipt);
+        $path = $this->endpoint()."/$receipt/reversal";
+        $this->postJson($path, $body)->assertOk()->assertJsonPath('data.order.return_pending', false);
+        $this->postJson($path, $body)->assertOk()->assertJsonPath('data.replay', true);
+        $this->postJson($path, $this->undoPayload($receipt))->assertConflict();
+        $this->assertSame($items, DB::table('sales_return_items')->get()->toJson());
+        $this->assertSame($invoices, DB::table('invoices')->get()->toJson());
+        $this->assertSame($bytes, Storage::disk('private_invoices')->get($doc->object_key));
+        $this->assertDatabaseCount('payments', 0);
+        $this->assertDatabaseCount('return_adjustments', 0);
+        $this->assertDatabaseHas('sales_returns', ['id' => $receipt, 'status' => 'void']);
+        $this->assertDatabaseHas('stock_balances', ['variant_id' => $this->variants[0], 'warehouse_id' => $this->warehouse, 'on_hand' => '7', 'reserved' => '0']);
+        $this->assertDatabaseHas('inventory_movements', ['movement_type' => 'customer_return_reversal', 'on_hand_delta' => '-1', 'reserved_delta' => '0']);
+        $this->assertDatabaseCount('return_receipt_reversals', 1);
+        $this->getJson($path.'/requests/'.$body['request_key'])->assertOk()->assertJsonPath('data.replay', true);
+        $current = $this->review();
+        $this->assertSame('0.0000', $current['lines'][0]['received_quantity']);
+        $this->assertSame('3.0000', $current['lines'][0]['available_quantity']);
+        $this->receive($current)->assertCreated();
+        $this->assertSame(0, app(InventoryReconciliation::class)->inspect($this->store, $this->warehouse)['summary']['differences']);
+    }
+
+    public function test_receipt_without_restock_can_be_voided_without_an_inventory_movement(): void
+    {
+        $receipt = $this->receive($this->review(), restock: false)->assertCreated()->json('data.sales_return_id');
+        $before = DB::table('inventory_movements')->get()->toJson();
+        $this->postJson($this->endpoint()."/$receipt/reversal", $this->undoPayload($receipt))->assertOk();
+        $this->assertSame($before, DB::table('inventory_movements')->get()->toJson());
+        $this->assertDatabaseHas('return_receipt_reversal_items', ['original_movement_id' => null, 'inverse_movement_id' => null]);
+        $this->assertSame('3.0000', $this->review()['lines'][0]['available_quantity']);
+    }
+
+    public function test_economic_adjustment_blocks_physical_receipt_cancellation(): void
+    {
+        $receipt = $this->receive($this->review())->assertCreated()->json('data.sales_return_id');
+        $path = $this->endpoint()."/$receipt";
+        $r = $this->getJson($path.'/financial')->json('data.proposal');
+        $this->postJson($path.'/adjust', ['request_key' => (string) Str::uuid(), 'version' => $r['version'], 'review_hash' => $r['review_hash'], 'shipping_credit' => '0', 'reason' => 'Ajuste económico ya aprobado'])->assertOk();
+        $this->getJson($path.'/reversal')->assertOk()->assertJsonPath('data.economic_history', true)->assertJsonPath('data.allowed', false);
+        $this->postJson($path.'/reversal', $this->undoPayload($receipt))->assertConflict();
+        $this->assertDatabaseCount('return_receipt_reversals', 0);
+    }
+
+    public function test_consumed_stock_and_changed_stock_review_block_the_compensation(): void
+    {
+        $receipt = $this->receive($this->review())->assertCreated()->json('data.sales_return_id');
+        $payload = $this->undoPayload($receipt);
+        $balance = DB::table('stock_balances')->where('variant_id', $this->variants[0])->first();
+        $this->postJson($this->root().'/inventory/movements', ['request_key' => (string) Str::uuid(), 'warehouse_id' => $this->warehouse, 'variant_id' => $this->variants[0], 'operation' => 'receipt', 'quantity' => '1', 'version' => $balance->version, 'note' => 'Stock cambió después de revisar'])->assertCreated();
+        $this->postJson($this->endpoint()."/$receipt/reversal", $payload)->assertConflict();
+        $balance = DB::table('stock_balances')->where('variant_id', $this->variants[0])->first();
+        $this->postJson($this->root().'/inventory/movements', ['request_key' => (string) Str::uuid(), 'warehouse_id' => $this->warehouse, 'variant_id' => $this->variants[0], 'operation' => 'issue', 'quantity' => (string) $balance->on_hand, 'version' => $balance->version, 'note' => 'Unidades usadas fuera de esta recepción'])->assertCreated();
+        $this->getJson($this->endpoint()."/$receipt/reversal")->assertOk()->assertJsonPath('data.stock_available', false);
+        $this->postJson($this->endpoint()."/$receipt/reversal", $this->undoPayload($receipt))->assertConflict();
+        $this->assertDatabaseCount('return_receipt_reversals', 0);
+    }
+
+    public function test_cancelling_one_of_two_receipts_keeps_the_other_collection_hold(): void
+    {
+        $a = $this->receive($this->review())->assertCreated()->json('data.sales_return_id');
+        $b = $this->receive($this->review())->assertCreated()->json('data.sales_return_id');
+        $this->postJson($this->endpoint()."/$a/reversal", $this->undoPayload($a))->assertOk()->assertJsonPath('data.order.return_pending', true);
+        $this->postJson($this->endpoint()."/$b/reversal", $this->undoPayload($b))->assertOk()->assertJsonPath('data.order.return_pending', false);
+    }
+
+    public function test_receipt_compensation_protects_scope_permission_and_recovery_actor(): void
+    {
+        $receipt = $this->receive($this->review())->assertCreated()->json('data.sales_return_id');
+        $payload = $this->undoPayload($receipt);
+        $path = $this->endpoint()."/$receipt/reversal";
+        $this->getJson($this->endpoint($this->orders[1])."/$receipt/reversal")->assertNotFound();
+        $this->postJson($path, $payload)->assertOk();
+        $reader = User::factory()->create();
+        $role = Role::create(['code' => 'receipt_observer', 'label' => 'Reader', 'permissions' => ['sales.view', 'stores.view']]);
+        $reader->roles()->attach($role);
+        DB::table('store_user')->insert(['user_id' => $reader->id, 'store_id' => $this->store]);
+        Auth::forgetGuards();
+        $this->app['session']->flush();
+        $this->actingAs($reader);
+        $this->getJson($path)->assertOk();
+        $this->postJson($path, $payload)->assertForbidden();
+        $this->getJson($path.'/requests/'.$payload['request_key'])->assertNotFound();
+    }
+
+    public function test_receipt_compensation_requires_csrf_without_the_test_bypass(): void
+    {
+        $receipt = $this->receive($this->review())->assertCreated()->json('data.sales_return_id');
+        $payload = $this->undoPayload($receipt);
+        $this->app->bind(ValidateCsrfToken::class, fn ($app) => new class($app, $app['encrypter']) extends ValidateCsrfToken
+        {
+            protected function runningUnitTests()
+            {
+                return false;
+            }
+        });
+        $this->postJson($this->endpoint()."/$receipt/reversal", $payload)->assertStatus(419);
+        $this->assertDatabaseCount('return_receipt_reversals', 0);
+    }
+
     public function test_receipt_restocks_once_and_preserves_fiscal_and_financial_history(): void
     {
         $review = $this->review();
@@ -252,6 +366,6 @@ class SalesReturnReceiptsTest extends TestCase
         $fresh = $this->review();
         $this->receive($fresh)->assertForbidden();
         $this->assertFalse($seller->permits('returns.receive'));
-        $this->assertDatabaseCount('sales_returns',1);
+        $this->assertDatabaseCount('sales_returns', 1);
     }
 }

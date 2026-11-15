@@ -26,7 +26,7 @@ final class SalesReturnReceipts
             $sum = bcadd($sum, (string) $value, 4);
         }
 
-return $sum;
+        return $sum;
     }
 
     private function delivered(SalesOrder $order, object $item, bool $locked): string
@@ -65,6 +65,7 @@ return $sum;
             $tracked = (bool) $variant?->product?->track_stock;
             $delivered = $tracked ? $this->delivered($order, $item, $locked) : '0.0000';
             $returns = DB::table('sales_return_items')->where('invoice_item_id', $item->id)->orderBy('id');
+            $returns->whereNotExists(fn ($q) => $q->selectRaw('1')->from('return_receipt_reversals as v')->whereColumn('v.sales_return_id', 'sales_return_items.sales_return_id'));
             if ($locked) {
                 $returns->lockForUpdate();
             }
@@ -98,6 +99,7 @@ return $sum;
             $result = $this->describe($order, $invoice);
             $result['history'] = DB::table('sales_return_receipts as c')->join('sales_returns as r', 'r.id', '=', 'c.sales_return_id')->where('c.order_id', $id)->where('c.store_id', $context->store()->id)->orderByDesc('c.sales_return_id')->limit(20)->get(['c.sales_return_id as id', 'c.received_at', 'c.actor_name', 'r.reason', 'r.status'])->map(function ($receipt) {
                 $receipt->items = DB::table('sales_return_items as ri')->join('invoice_items as i', 'i.id', '=', 'ri.invoice_item_id')->where('sales_return_id', $receipt->id)->orderBy('ri.id')->get(['i.description as name', 'ri.quantity', 'ri.restock'])->map(fn ($i) => ['name' => $i->name, 'quantity' => bcadd((string) $i->quantity, '0', 4), 'restock' => (bool) $i->restock])->all();
+                $receipt->reversal = DB::table('return_receipt_reversals')->where('sales_return_id', $receipt->id)->first(['id', 'reason', 'actor_name', 'created_at']);
 
                 return $receipt;
             });
@@ -164,6 +166,6 @@ return $sum;
             return ['order_id' => $id, 'sales_return_id' => $return];
         });
 
-        return ['order' => $this->sales->present(SalesOrder::where('store_id',$context->store()->id)->findOrFail($id)), 'sales_return_id' => $result['sales_return_id'], 'economic_status' => 'pending_adjustment', 'replay' => $result['replay']];
+        return ['order' => $this->sales->present(SalesOrder::where('store_id', $context->store()->id)->findOrFail($id)), 'sales_return_id' => $result['sales_return_id'], 'economic_status' => 'pending_adjustment', 'replay' => $result['replay']];
     }
 }

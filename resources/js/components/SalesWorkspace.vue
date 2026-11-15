@@ -430,7 +430,7 @@ async function share() {
                     :can-create="canCreate"
                     :can-pay="canPay&&!saved?.return_pending"
                     :can-cancel="permissions.includes('sales.cancel')"
-                    :payment-context="{root,actorId,canReverse:permissions.includes('payments.reverse'),canReceive:permissions.includes('returns.receive'),canAdjust:permissions.includes('returns.adjust'),canRefund:permissions.includes('refunds.record'),canApply:permissions.includes('credits.apply'),canDownload:permissions.includes('invoices.view'),canReverseCredit:permissions.includes('credits.reverse')}"
+                    :payment-context="{root,actorId,canReverse:permissions.includes('payments.reverse'),canReceive:permissions.includes('returns.receive'),canAdjust:permissions.includes('returns.adjust'),canRefund:permissions.includes('refunds.record'),canApply:permissions.includes('credits.apply'),canDownload:permissions.includes('invoices.view'),canReverseCredit:permissions.includes('credits.reverse'),canReverseReturn:permissions.includes('returns.reverse')}"
                     @payments-changed="saved=$event;refresh++"
                     @select-customer="chooseCustomer"
                     @quantity="draft.changeQuantity"

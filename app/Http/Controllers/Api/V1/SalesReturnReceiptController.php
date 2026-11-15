@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Domain\Business\StoreContext;
+use App\Domain\Sales\ReturnReceiptReversals;
 use App\Domain\Sales\SalesReturnReceipts;
 use App\Domain\Sales\SalesService;
 use App\Http\Controllers\Controller;
@@ -12,6 +13,25 @@ use Illuminate\Support\Facades\DB;
 
 class SalesReturnReceiptController extends Controller
 {
+    public function reversalInfo(Request $request, StoreContext $context, ReturnReceiptReversals $service)
+    {
+        return response()->json(['data' => $service->info($context, (int) $request->route('order'), (int) $request->route('receipt'))])->header('Cache-Control', 'private, no-store');
+    }
+
+    public function reverse(Request $request, StoreContext $context, ReturnReceiptReversals $service)
+    {
+        return response()->json(['data' => $service->reverse($context, (int) $request->route('order'), (int) $request->route('receipt'), $request->user(), $request->all())])->header('Cache-Control', 'private, no-store');
+    }
+
+    public function reversalRecovery(Request $request, StoreContext $context, SalesService $sales)
+    {
+        $row = DB::table('idempotency_requests')->where('operation', 'returns.reverse')->where('request_key', strtolower($request->route('key')))->where('status', 'completed')->firstOrFail();
+        $data = json_decode($row->response_data, true, flags: JSON_THROW_ON_ERROR);
+        abort_unless(($data['_identity'] ?? null) === [$request->user()->id, $context->store()->id, (int) $request->route('order'), (int) $request->route('receipt')], 404);
+
+        return response()->json(['data' => ['order' => $sales->present(SalesOrder::where('store_id', $context->store()->id)->findOrFail($data['order_id'])), 'sales_return_id' => $data['sales_return_id'], 'reversal_id' => $data['reversal_id'], 'replay' => true]])->header('Cache-Control', 'private, no-store');
+    }
+
     public function show(Request $request, StoreContext $context, SalesReturnReceipts $service)
     {
         return response()->json(['data' => $service->info($context, (int) $request->route('order'))])->header('Cache-Control', 'private, no-store');
@@ -30,6 +50,6 @@ class SalesReturnReceiptController extends Controller
         $data = json_decode($row->response_data, true, flags: JSON_THROW_ON_ERROR);
         abort_unless(($data['_identity'][0] ?? null) === $request->user()->id && ($data['_identity'][1] ?? null) === $context->store()->id && ($data['_identity'][2] ?? null) === (int) $request->route('order'), 404);
 
-        return response()->json(['data' => ['order' => $sales->present(SalesOrder::where('store_id', $context->store()->id)->findOrFail($data['order_id'])), 'sales_return_id' => $data['sales_return_id'], 'economic_status' => 'pending_adjustment', 'replay' => true]])->header('Cache-Control','private, no-store');
+        return response()->json(['data' => ['order' => $sales->present(SalesOrder::where('store_id', $context->store()->id)->findOrFail($data['order_id'])), 'sales_return_id' => $data['sales_return_id'], 'economic_status' => 'pending_adjustment', 'replay' => true]])->header('Cache-Control', 'private, no-store');
     }
 }

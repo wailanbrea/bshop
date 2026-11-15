@@ -252,6 +252,6 @@ class CreditApplicationReversalsTest extends TestCase
             }
         });
         $this->postJson($this->path(), $payload)->assertStatus(419);
-        $this->assertDatabaseCount('credit_application_reversals',0);
+        $this->assertDatabaseCount('credit_application_reversals', 0);
     }
 }

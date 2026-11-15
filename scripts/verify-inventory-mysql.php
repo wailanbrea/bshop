@@ -34,7 +34,7 @@ foreach ($snapshot as $name => $saved) {
             throw new RuntimeException('Unexpected rows in '.$name);
         }
 
-continue;
+        continue;
     }
     $after = DB::table($name)->select(array_keys($before[0]))->get()->map(fn ($row) => (array) $row)->all();
     $canonical = fn ($rows) => collect($rows)->map(fn ($row) => json_encode($row, JSON_THROW_ON_ERROR))->sort()->values()->all();

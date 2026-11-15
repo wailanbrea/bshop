@@ -99,6 +99,24 @@ class WeeklyAccountsTest extends TestCase
         $this->getJson($this->root().'/sales/control')->assertOk()->assertJsonPath('summary.0.orders', 2)->assertJsonPath('summary.0.invoices', 1)->assertJsonPath('summary.0.sales_net', '50.0000')->assertJsonPath('summary.0.paid_total', '5.0000')->assertJsonPath('summary.0.pending_total', '45.0000')->assertJsonPath('cash.0.confirmed', '5.0000');
     }
 
+    public function test_receipt_compensation_removes_the_shared_invoice_hold_without_modifying_its_money(): void
+    {
+        $id = $this->grouped();
+        $this->closeAccount($id, $this->review($id))->assertOk();
+        $order = $this->orders[0];
+        $this->postJson($this->root()."/sales/orders/$order/deliver", ['request_key' => (string) Str::uuid(), 'version' => SalesOrder::find($order)->lock_version])->assertOk();
+        $path = $this->root()."/sales/orders/$order/returns";
+        $r = $this->getJson($path)->json('data');
+        $receipt = $this->postJson($path, ['request_key' => (string) Str::uuid(), 'version' => $r['version'], 'review_hash' => $r['review_hash'], 'reason' => 'Recepción errónea en cuenta semanal', 'lines' => [['invoice_item_id' => $r['lines'][0]['invoice_item_id'], 'quantity' => '1', 'restock' => true]]])->assertCreated()->json('data.sales_return_id');
+        $other = $this->orders[1];
+        $this->getJson($this->root()."/sales/orders/$other")->assertOk()->assertJsonPath('data.return_pending', true);
+        $invoice = DB::table('invoices')->first();
+        $r = $this->getJson($path."/$receipt/reversal")->json('data');
+        $this->postJson($path."/$receipt/reversal", ['request_key' => (string) Str::uuid(), 'version' => $r['version'], 'review_hash' => $r['review_hash'], 'reason' => 'Anular registro físico por error'])->assertOk();
+        $this->getJson($this->root()."/sales/orders/$other")->assertOk()->assertJsonPath('data.return_pending', false);
+        $this->assertSame((array) $invoice, (array) DB::table('invoices')->first());
+    }
+
     public function test_close_creates_one_aggregate_invoice_and_allocates_pre_and_post_close_deposits_once(): void
     {
         $id = $this->grouped();

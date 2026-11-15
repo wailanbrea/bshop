@@ -37,6 +37,10 @@ No acredita módulos pendientes ni aceptación en hardware físico.
 
 ## Matriz automatizada
 
+Última regresión de compensación física: **658/658**, seis perfiles,5,8 minutos.
+Treinta casos nuevos de giro/motivo, respuesta perdida/recuperación por GET, stock
+obsoleto, permiso y bloqueo económico/stock. Ejecución focalizada30/30,23,8s.
+
 Última regresión de reversión de aplicaciones: **628/628**, seis perfiles,5,8 minutos.
 Treinta casos nuevos: motivo al girar, respuesta perdida/GET al volver al pedido,
 revisión obsoleta conservando motivo, permiso independiente y bloqueo de crédito
