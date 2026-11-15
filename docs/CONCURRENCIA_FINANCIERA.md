@@ -96,9 +96,13 @@ commit7923cc9. Application, financial-concurrency y seis perfiles browser aproba
 Informe del runner `B6ED2E775727`:22/22, cobertura de ambos órdenes y filas previas
 preservadas. Evidencia descargada e inspeccionada localmente;718/718 browser aprobados.
 
+La cobertura posterior de cuentas semanales está en `CONCURRENCIA_SEMANAL.md`:
+32 carreras adicionales de creación/membresía/cierre/cobro, integradas en el mismo
+job MySQL después de las22 financieras.
+
 ## Alcance pendiente
 
 Estas son carreras sintéticas acotadas de servicios financieros, no un benchmark de
 carga ni una aceptación HTTP/PDF/proveedores o de tablet física. Faltan carga sostenida,
-concurrencia específica de cierres semanales/enlaces/vencimientos, comisiones,
+concurrencia específica de enlaces/vencimientos, comisiones,
 programador persistente y validación de entrega. No se prueba contra VPS/producción.

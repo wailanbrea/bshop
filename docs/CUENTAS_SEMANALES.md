@@ -105,6 +105,14 @@ acceso se revalidan en transacción. PDF usa el endpoint privado de facturas exi
 
 ## Evidencia y pendientes
 
+- Concurrencia MySQL8.4 verificada posteriormente:32 carreras multiproceso en dos
+  rondas, ambos órdenes mixtos, replay, pagos por miembro y recierre tras revisión.
+  Fuentes/asignaciones, ledger, secuencia, stock y snapshots comprobados. Sin defecto
+  productivo nuevo detectado. Ver `CONCURRENCIA_SEMANAL.md` para ejecutar y consultar
+  artefactos/límites. Suite PHP actual258 pruebas/3.490 aserciones.
+
+Evidencia del hito funcional original:
+
 - Suite PHP completa:161 pruebas /1.746 aserciones, SQLite :memory: protegido.
 - Regresión de navegador:388/388 en seis perfiles; cuatro escenarios semanales
   por perfil: agrupación/cierre con giro, respuesta perdida/recarga, conflicto de
@@ -114,5 +122,5 @@ acceso se revalidan en transacción. PDF usa el endpoint privado de facturas exi
   permisos/sucursal/recuperación, medianoche/DST, reapertura y límite DECIMAL.
 - Migración002200: mutex y cinco columnas aditivas. Aplicada sólo a SQLite local
   tras `.runtime/bshop-backup-20261114-053136.sqlite`, copia íntegra verificada.
-- Pendientes: concurrencia MySQL real de creación/membresía/cierre/cobro, política
-  global de corte/automatización, aceptación física y configuración de producción.
+- Pendientes: política global de corte/automatización, carga sostenida, aceptación
+  física y configuración de producción.

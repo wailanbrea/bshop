@@ -57,7 +57,20 @@ en el alcance ponderado y conserva los módulos grandes pendientes.
 Concurrencia financiera multiproceso:53/69 puntos; se conserva aproximadamente75%.
 El hito cubre carreras acotadas de servicios, no carga sostenida ni aceptación final.
 
-## Entrega de esta iteración: concurrencia financiera MySQL
+Cuentas semanales en MySQL:54/70 puntos tras separar su hito de concurrencia de la
+política global de corte/automatización pendiente; estimación aproximadamente75%.
+
+## Entrega de esta iteración: concurrencia semanal MySQL
+
+- 32 carreras reales/dos rondas: creación/solapamientos, miembros, cierre, cobros y
+  facturación individual; seis escenarios mixtos con ambos ganadores.
+- Replay único y pagos simultáneos a miembros distintos aceptados correctamente;
+  cuatro cierres posteriores con revisión nueva, fuentes/asignaciones/ledger precisos.
+- Copia verificada de82 tablas; stock conciliado, fixtures archivados y filas previas
+  conservadas. Suite PHP258/3.490 y Pint aprobados. Se integra al CI MySQL existente.
+- Detalles y límites en `CONCURRENCIA_SEMANAL.md` y PROGRESO.
+
+### Entrega anterior: concurrencia financiera MySQL
 
 - 22 carreras reales por ejecución, dos rondas y ambos órdenes de los escenarios
   mixtos. Una escritura por conflicto, replay idéntico y conservación exacta.
@@ -164,7 +177,7 @@ El hito cubre carreras acotadas de servicios, no carga sostenida ni aceptación 
 
 ## Trabajo principal restante
 
-1. Política global de corte/automatización semanal y QA MySQL de los cierres nuevos.
+1. Política global de corte/automatización semanal y su aceptación operativa.
 2. Carga sostenida financiera y conciliación avanzada con comisiones.
 3. Vendedores, comisiones y remuneraciones.
 4. Edición pública de pedidos ya guardados y QA de concurrencia MySQL de enlaces/vencimientos.

@@ -2129,3 +2129,50 @@ previas preservadas. Artefacto financial-concurrency-evidence-1 descargado a
 .runtime/ci-43719059152-financial para inspección. Bootstrap/guardia/Docker y subida
 selectiva de evidencia pasaron en Linux. Regresión browser completa718/718 aprobada.
 Ejecución: https://github.com/wailanbrea/bshop/actions/runs/43719059152
+
+## 2026-11-15 — Concurrencia MySQL de cuentas semanales
+
+Se añadieron verify-weekly-concurrency-mysql.php, weekly-concurrency-support.php y
+worker independiente.16 escenarios/dos rondas:crear ciclos iguales/solapados/replay,
+agregar/replay y facturación individual, doble cierre/replay, cierre frente a agregar,
+retirar, cobrar o facturar individualmente; cobros del mismo/distintos miembros/replay
+y anulación de cuenta vacía frente a agrupación. Se exigen ambos ganadores en los
+seis escenarios mixtos, conexiones/PID independientes y consultas SQL simultáneas
+observadas antes de liberar la barrera de dominio. El job CI existente ejecuta22
+carreras financieras y después32 semanales; artifacts selectivos para ambas suites.
+
+Se verifican factura/fuentes/artículos únicos, asignaciones por pago, ledger, efectivo
+solicitado, estados agregados, conservación decimal, snapshots/contacto/abonado al
+cierre, stock/reservas/kardex y secuencia sin consumos por operaciones rechazadas.
+Después de los cuatro cierres que perdieron ante un cambio, se revisa y cierra otra
+vez explícitamente:incorpora el cobro, ajusta miembros y excluye la factura individual
+sin reescribirla. No se detectó defecto productivo nuevo; no hay migraciones ni cambios
+a las reglas de cuentas semanales.
+
+Destino mostrado antes de operar:testing/mysql/127.0.0.1:33078/bshop_testing_single,
+MySQL8.4.13,bind local/datadir .runtime/mysql-data validados por guardia común.
+Se comparte mutex con harness financiero, se respalda schema+filas de82 tablas y se
+verifica SHA-256 antes de fixtures. Sólo sucursal/almacén/actor/producto/clientes QA.
+Al terminar se entregan los apartados sintéticos mediante el servicio real para
+liberar reservas; salida compensatoria del remanente, conciliación y archivo de
+fixtures. Historia intacta; comparación de cada fila preexistente con el respaldo.
+No se utilizó la demo SQLite ni VPS; sin HTTP/PDF/proveedores.
+
+Comandos/resultados desde C:/xampp/php/www/BShop:
+- `PHP83 scripts/verify-weekly-concurrency-mysql.php --preflight`:PASS, sólo lecturas.
+- `... --rounds=2`:primera instrumentación E64F2CD89D59 rechazó barrera tras15 casos;
+  cancelar cuenta vacía no espera por pedido no agrupado. Se cambió la barrera del
+  harness a la cuenta; no fue defecto comercial. Fixtures archivados/previos intactos.
+- Ejecución5DB9113ED12F:32/32. AF2AD6097F8D:32/32 con recierres revisados.
+- Revalidación final BD64A632AA27:32/32, ambos ganadores en seis escenarios mixtos,
+  cuatro recierres, cero fallos;fixtures_archived/preexisting_rows_preserved=true.
+  Evidencia privada .runtime/weekly-race-BD64A632AA27/report.json y after/overlap.
+- `PHP83 artisan test --compact`:258 pruebas/3.490 aserciones,47,02s. Destino forzado
+  testing/sqlite/:memory: y guardia TestCase antes de migrar. Sin pruebas sobre VPS.
+- `PHP83 vendor/bin/pint --test --cache-file=.runtime/pint-weekly-20261115-d.cache`:
+  PASS con caché nueva. La regresión build/browser completa se comprueba en CI al
+  publicar; sin cambios de interfaz, no se repite la suite local718 del hito anterior.
+
+CONCURRENCIA_SEMANAL/CUENTAS_SEMANALES/CONCURRENCIA_FINANCIERA/QA/ESTADO actualizados.
+54/70 puntos,aproximadamente75% conservado. Pendientes:política de corte/automatización,
+carga sostenida, enlaces/vencimientos, comisiones, tablet física y entrega operativa.

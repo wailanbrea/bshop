@@ -56,7 +56,8 @@ Decisión vigente: una instalación para KeylaShop y sus sucursales. Ver
 - [x] Catálogo autorizado y confirmación única de apartados por enlace temporal para un cliente existente, con precios/reservas de servidor y recuperación tras pérdida de respuesta.
 - [x] Enlaces temporales de consulta de un pedido guardado: caducidad/revocación, privacidad, replay y acceso invitado.
 - [x] Cuentas semanales de siete días, agrupación y cierre manual con factura agregada única, asignación de abonos, PDF histórico y CxC integrado.
-- [ ] Política global de día de corte/automatización y concurrencia MySQL específica de creación, agrupación, cierre y cobros semanales.
+- [x] Concurrencia MySQL específica semanal:32 carreras/dos rondas, creación/solapamientos, membresía, cierre/cobro/facturación individual, ambos órdenes mixtos, replay y recierre revisado; sin duplicar fuentes/asignaciones.
+- [ ] Política global de día de corte y automatización de cuentas semanales; carga sostenida y aceptación operativa.
 - [x] Historial y reversión completa de pagos por error, permiso administrativo, motivo/UUID/versión, crédito y facturas individuales/semanales conciliados sin borrar historia.
 - [x] Recepción física de mercancía devuelta, límite por entrega, reposición opcional con kardex trazado, ajuste económico pendiente y cobros retenidos hasta conciliar.
 - [x] Conciliación económica de recepciones con importes originales, prorrata/redondeo acumulado, crédito liberado y registro manual de reembolso con límites/referencia/UUID; saldos netos integrados.
