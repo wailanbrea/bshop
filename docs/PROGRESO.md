@@ -2172,6 +2172,14 @@ Comandos/resultados desde C:/xampp/php/www/BShop:
 - `PHP83 vendor/bin/pint --test --cache-file=.runtime/pint-weekly-20261115-d.cache`:
   PASS con caché nueva. La regresión build/browser completa se comprueba en CI al
   publicar; sin cambios de interfaz, no se repite la suite local718 del hito anterior.
+- CI `f094e89`, run 43729717065: application (Pint, 258 pruebas, build),
+  financial-concurrency (22 financieras + 32 semanales en MySQL8.4 Docker) y los
+  seis perfiles browser en success.
+  https://github.com/wailanbrea/bshop/actions/runs/43729717065
+- Artefacto `financial-concurrency-evidence-1` verificado:weekly-race-A727BCD2A0E7
+  status passed,32 casos,0 fallos,ambos ganadores en los seis escenarios mixtos,
+  fixtures archivados y filas previas conservadas; financial-race-7D4576CB97F1 passed
+  22/22. Copia privada .runtime/ci-43729717065-concurrency/.
 
 CONCURRENCIA_SEMANAL/CUENTAS_SEMANALES/CONCURRENCIA_FINANCIERA/QA/ESTADO actualizados.
 54/70 puntos,aproximadamente75% conservado. Pendientes:política de corte/automatización,

@@ -98,7 +98,9 @@ ni cambios a las reglas comerciales. El trabajo añade verificación ejecutable.
 El job `financial-concurrency` ejecuta primero22 carreras de crédito/compensaciones
 y después32 semanales en el mismo MySQL8.4 desechable. Publica report/overlap/out/err
 de ambas suites y excluye backups/credenciales; detiene su contenedor al terminar.
-La ejecución remota y su enlace se registran en PROGRESO al verificarse.
+Ejecución remota verificada:run 43729717065 de`f094e89` en success,weekly-race-
+A727BCD2A0E7 passed 32/32 y financial-race-7D4576CB97F1 passed 22/22 en el artefacto
+`financial-concurrency-evidence-1`. Enlace y detalle en PROGRESO.
 
 Quedan pendientes política global de corte/automatización, carga sostenida, carreras
 de enlaces/vencimientos, comisiones, tablet física y entrega operativa. Estas carreras
