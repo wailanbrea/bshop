@@ -38,7 +38,8 @@
 - [x] Build, pruebas PHP y navegador en perfiles tablet, escritorio y móvil emulados.
 - [ ] Aceptación en los teléfonos y tablets físicos de la clienta.
 - [ ] Verificación de carga contra el proveedor R2 real cuando esté configurado.
-- [ ] Verificación remota de CI y publicación en la instalación de la clienta.
+- [x] CI remota para el commit `559e688`, incluida la creación con stock en MySQL.
+- [ ] Publicación en la instalación de la clienta.
 
 ## Evidencia local
 
@@ -53,3 +54,9 @@ La prueba de concurrencia usa un producto sintético; la prueba de alta revierte
 su transacción de QA. Estas suites se ejecutaron sobre el árbol de trabajo completo,
 que también contenía cambios locales de fases anteriores; no son evidencia de CI
 del commit separado de esta solicitud.
+
+CI [43881840970](https://github.com/wailanbrea/bshop/actions/runs/43881840970),
+intento 2: éxito en aplicación, MySQL y los seis perfiles de navegador. En el
+primer intento falló una prueba táctil de invitación de equipo; esa prueba pasó
+15 repeticiones locales y el perfil completo aprobó en el segundo intento. La
+instalación pública y los dispositivos físicos no se verificaron con este commit.
