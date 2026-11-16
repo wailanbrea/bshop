@@ -12,6 +12,7 @@ use App\Models\User;
 use App\Models\Warehouse;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -164,6 +165,36 @@ class ReservationExpiryTest extends TestCase
         $this->assertDatabaseCount('inventory_movements', 4);
     }
 
+    public function test_command_expires_reversed_payment_but_preserves_confirmed_payment_and_history(): void
+    {
+        $this->configure(1);
+        $reversed = $this->order('1');
+        $confirmed = $this->order('1');
+        $pending = $this->order('1');
+        $pendingPayment = DB::table('order_payments')->where('order_id', $pending['id'])->value('payment_id');
+        DB::table('payments')->where('id', $pendingPayment)->update(['status' => 'pending']);
+        $payment = DB::table('order_payments')->where('order_id', $reversed['id'])->value('payment_id');
+        $this->postJson($this->root().'/sales/orders/'.$reversed['id'].'/payments/'.$payment.'/reverse', [
+            'request_key' => (string) Str::uuid(), 'version' => $reversed['lock_version'], 'reason' => 'Pago registrado por error',
+        ])->assertOk();
+
+        $this->travel(1)->hours();
+        $this->artisan('bshop:reservations-expire', ['--limit' => 1])->expectsOutputToContain('"eligible":1')->assertExitCode(0);
+        $this->assertSame('reserved', SalesOrder::find($reversed['id'])->status);
+        $this->artisan('bshop:reservations-expire', ['--apply' => true, '--limit' => 1])->expectsOutputToContain('"expired":1')->assertExitCode(0);
+        $this->artisan('bshop:reservations-expire', ['--apply' => true, '--limit' => 1])->expectsOutputToContain('"checked":0')->assertExitCode(0);
+
+        $this->assertSame('cancelled', SalesOrder::find($reversed['id'])->status);
+        $this->assertSame('reserved', SalesOrder::find($confirmed['id'])->status);
+        $this->assertSame('reserved', SalesOrder::find($pending['id'])->status);
+        $this->assertDatabaseHas('payments', ['id' => $payment, 'status' => 'reversed']);
+        $this->assertDatabaseHas('payment_reversals', ['payment_id' => $payment]);
+        $this->assertSame(1, DB::table('stock_reservations')->where('status', 'expired')->count());
+        $this->assertSame(2, DB::table('stock_reservations')->where('status', 'active')->count());
+        $this->assertSame(1, DB::table('inventory_movements')->where('movement_type', 'expire')->count());
+        $this->assertSame(0, app(InventoryReconciliation::class)->inspect($this->store, $this->warehouse)['summary']['differences']);
+    }
+
     public function test_failure_rolls_back_all_releases_and_audit(): void
     {
         $this->configure(1);
@@ -176,6 +207,35 @@ class ReservationExpiryTest extends TestCase
         $this->assertDatabaseCount('inventory_movements', 4);
         $this->assertDatabaseMissing('audit_logs', ['event' => 'sales.reservation.expired']);
         $this->assertDatabaseMissing('inventory_movements', ['movement_type' => 'expire']);
+    }
+
+    public function test_operator_can_continue_a_limited_batch_after_a_failed_order(): void
+    {
+        $this->configure(1);
+        $blocked = $this->order();
+        $data = ['warehouse_id' => $this->warehouse, 'customer_id' => $this->customer, 'lines' => [['variant_id' => $this->variants[1], 'quantity' => '1.0001']], 'shipping' => '0', 'discount' => '0'];
+        $quote = $this->postJson($this->root().'/sales/quote', $data)->assertOk()->json('data.quote_hash');
+        $next = $this->postJson($this->root().'/sales/orders', [...$data, 'quote_hash' => $quote, 'mode' => 'reservation', 'initial_payment' => '0', 'payment_method' => 'cash', 'request_key' => (string) Str::uuid()])->assertCreated()->json('data.order');
+        DB::table('stock_balances')->where('variant_id', $this->variants[0])->update(['reserved' => '0']);
+        $this->travel(1)->hours();
+
+        $this->assertSame(1, Artisan::call('bshop:reservations-expire', ['--apply' => true, '--limit' => 1]));
+        $result = json_decode(Artisan::output(), true, flags: JSON_THROW_ON_ERROR);
+        $this->assertSame(1, $result['results']['failed']);
+        $this->assertSame($blocked['id'], $result['next_after_id']);
+        $this->assertSame([['order_id' => $blocked['id'], 'status' => 'failed']], $result['attention']);
+        $this->assertSame('reserved', SalesOrder::find($blocked['id'])->status);
+        $this->assertSame('reserved', SalesOrder::find($next['id'])->status);
+
+        $this->assertSame(0, Artisan::call('bshop:reservations-expire', ['--apply' => true, '--limit' => 1, '--after-id' => $blocked['id']]));
+        $result = json_decode(Artisan::output(), true, flags: JSON_THROW_ON_ERROR);
+        $this->assertSame(1, $result['results']['expired']);
+        $this->assertSame($next['id'], $result['next_after_id']);
+        $this->assertSame('reserved', SalesOrder::find($blocked['id'])->status);
+        $this->assertSame('cancelled', SalesOrder::find($next['id'])->status);
+        $this->artisan('bshop:reservations-expire', ['--after-id' => '-1'])->assertExitCode(2);
+        $this->artisan('bshop:reservations-expire', ['--after-id' => '999999999999999999999999'])->assertExitCode(2);
+        $this->artisan('bshop:reservations-expire', ['--after-id' => $next['id']])->expectsOutputToContain('"next_after_id":null')->assertExitCode(0);
     }
 
     public function test_mixed_deadlines_do_not_expire_or_block_another_eligible_order_in_a_limited_batch(): void

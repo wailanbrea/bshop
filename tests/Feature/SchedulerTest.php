@@ -8,6 +8,7 @@ use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Support\Facades\Storage;
 use JsonException;
+use RuntimeException;
 use Tests\TestCase;
 
 class SchedulerTest extends TestCase
@@ -95,6 +96,39 @@ class SchedulerTest extends TestCase
         } catch (JsonException) {
             $this->assertFalse($ran);
             $this->assertSame('{invalid', Storage::disk('operations_qa')->get('scheduler.json'));
+        }
+    }
+
+    public function test_incomplete_or_inconsistent_state_is_preserved_and_jobs_do_not_run(): void
+    {
+        $valid = ['schema' => 1, 'status' => 'ok', 'started_at' => '2026-11-14T12:00:00+00:00', 'finished_at' => '2026-11-14T12:00:01+00:00', 'pid' => 123, 'tasks' => []];
+        $invalidStates = [
+            ['schema' => 1, 'tasks' => []],
+            [...$valid, 'status' => 'unknown'],
+            [...$valid, 'started_at' => 'not a date'],
+            [...$valid, 'started_at' => '2026-02-30T12:00:00+00:00'],
+            [...$valid, 'finished_at' => null],
+            [...$valid, 'status' => 'running'],
+            [...$valid, 'pid' => 0],
+            [...$valid, 'tasks' => ['bshop:example' => ['status' => 'failed', 'exit_code' => 0, 'finished_at' => $valid['finished_at']]]],
+            [...$valid, 'tasks' => ['bshop:example' => ['status' => 'ok']]],
+        ];
+        $ran = false;
+        $this->schedule->call(function () use (&$ran) {
+            $ran = true;
+        })->everyMinute();
+
+        foreach ($invalidStates as $state) {
+            $contents = json_encode($state, JSON_THROW_ON_ERROR);
+            Storage::disk('operations_qa')->put('scheduler.json', $contents);
+            try {
+                $this->artisan('bshop:scheduler', ['--run' => true])->run();
+                $this->fail('Invalid state must stop execution.');
+            } catch (RuntimeException $error) {
+                $this->assertStringContainsString('Invalid scheduler state', $error->getMessage());
+            }
+            $this->assertFalse($ran);
+            $this->assertSame($contents, Storage::disk('operations_qa')->get('scheduler.json'));
         }
     }
 }

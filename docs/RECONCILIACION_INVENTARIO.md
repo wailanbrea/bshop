@@ -67,11 +67,11 @@ No expira reservas ni envía alertas externas.
 - Cantidades fraccionarias, corrupción controlada, permisos, entrega parcial y
   transferencias probadas en datos aislados; no se modificó stock de la demo.
 
-SQLite NUMERIC puede convertir números grandes a REAL; estas pruebas no acreditan
-todo el rango DECIMAL(19,4). La nueva revisión requiere todavía la prueba extrema
-y de concurrencia sobre MySQL aislado. El vencimiento de reservas ya dispone de
-fase funcional independiente; ver `EXPIRACION_RESERVAS.md` y sus pendientes operativos.
+SQLite NUMERIC puede convertir números grandes a REAL; esas pruebas no acreditan
+todo el rango DECIMAL(19,4). La prueba extrema y de concurrencia de la revisión
+aprobaron en MySQL aislado; ver `VERIFICACION_RESERVAS_MYSQL.md`. El vencimiento
+de reservas dispone de fase funcional independiente y pendientes operativos en
+`EXPIRACION_RESERVAS.md`.
 
 La activación del programador tiene ejecutor con seguimiento y plan Windows
-revisable (`PROGRAMADOR_WINDOWS.md`). El verificador específico MySQL está
-preparado (`VERIFICACION_RESERVAS_MYSQL.md`), pero su ejecución sigue pendiente.
+revisable (`PROGRAMADOR_WINDOWS.md`). Su instalación en el destino sigue pendiente.

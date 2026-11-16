@@ -2184,3 +2184,77 @@ Comandos/resultados desde C:/xampp/php/www/BShop:
 CONCURRENCIA_SEMANAL/CUENTAS_SEMANALES/CONCURRENCIA_FINANCIERA/QA/ESTADO actualizados.
 54/70 puntos,aproximadamente75% conservado. Pendientes:política de corte/automatización,
 carga sostenida, enlaces/vencimientos, comisiones, tablet física y entrega operativa.
+
+## 2026-11-15 - Verificación MySQL de vencimientos y reconciliación
+
+Destino comprobado antes de operar: entorno `testing`, conexión `mysql`, host
+`127.0.0.1:33078`, base `bshop_testing_single`, MySQL 8.4.13 y datadir local
+`.runtime/mysql-data`. El guardia confirmó la identidad del servidor y la base.
+
+`PHP83 scripts/verify-reservations-mysql.php`: PASS en los siete casos preparados:
+vencimiento frente a cobro, entrega parcial y edición; vencimiento antes de cobro;
+dos vencimientos; reconciliación frente a escritor; y precisión DECIMAL(19,4)
+extrema con reserva fraccionaria. El fixture extremo se revirtió; los demás
+fixtures sintéticos confirmados y artefactos se conservaron para inspección en
+`.runtime/reservation-qa-C163DF204167`. No se usó la demo ni el VPS.
+
+Queda pendiente instalar y verificar la ejecución persistente del programador en
+el destino, además de la política de cancelación de apartados con abonos.
+
+## 2026-11-15 - Validación del estado del programador
+
+El monitor valida el esquema, estado, fechas ISO, PID y resultado coherente de
+cada tarea antes de iniciar el programador. Un JSON sintácticamente válido pero
+incompleto o incoherente detiene la ejecución y se conserva sin sobrescribir.
+Se probaron estados incompletos, fechas inválidas y resultados contradictorios,
+además de los flujos existentes de fallo persistente, recuperación y exclusión.
+
+Destino de pruebas: `testing`, SQLite `:memory:`, forzado por `phpunit.xml` y
+verificado por `tests/TestCase.php`. `PHP83 artisan test --compact`: 259 pruebas,
+3.517 aserciones. Pint aprobado para `SchedulerMonitor.php` y `SchedulerTest.php`.
+No se instaló ni ejecutó el programador en el destino de entrega.
+
+## 2026-11-15 - Vencimiento tras reversión de pago
+
+El selector del lote de vencimientos excluía cualquier pago histórico, aunque la
+regla de reversión y la revalidación transaccional permiten vencer un apartado con
+pagos solo revertidos o fallidos. El selector ahora excluye pagos pendientes o
+confirmados, alineándose con la revalidación bajo bloqueo. Las facturas y entregas
+siguen protegiendo el apartado; el proceso no crea ni devuelve dinero.
+
+Una prueba crea apartados y revierte un pago mediante el flujo real; comprueba el
+diagnóstico, vencimiento, repetición idempotente, conservación del historial,
+protección de pagos pendiente/confirmado y conciliación de inventario. Destino:
+`testing`, SQLite `:memory:`, forzado por `phpunit.xml` y guardia `TestCase`.
+`PHP83 artisan test --compact`: 260 pruebas, 3.545 aserciones. Pint aprobado en
+el comando y su prueba. Esta prueba nueva no acredita el caso específico en MySQL.
+
+## 2026-11-15 - Selector de vencimiento y reversión en MySQL
+
+Se extrajo la consulta de candidatos para que el comando y el verificador utilicen
+exactamente el mismo selector. Destino comprobado antes de operar: `testing/mysql`,
+`127.0.0.1:33078`, base `bshop_testing_single`, MySQL 8.4.13 y datadir local.
+`PHP83 scripts/verify-reservations-mysql.php`: ocho casos aprobados. El caso nuevo
+confirma que un pago confirmado excluye el pedido, su reversión lo hace elegible y
+el vencimiento preserva la reversión y concilia el stock. Solo consulta y vence su
+propio fixture; no ejecuta el comando global con `--apply`. Los siete casos previos
+también aprobaron; fixture extremo revertido. Artefactos y fixtures sintéticos:
+`.runtime/reservation-qa-DE8C727100F6`.
+
+Regresión `PHP83 artisan test --compact`: 260 pruebas y 3.545 aserciones en
+`testing/sqlite/:memory:`; Pint aprobado para los archivos PHP del cambio.
+
+## 2026-11-15 - Continuación manual de lotes de vencimiento
+
+El comando devuelve los IDs con resultado `failed`, `inconsistent` o `changed`
+en `attention` y el último ID revisado en `next_after_id`. La opción explícita
+`--after-id` permite continuar un lote después de un pedido que requiere revisión,
+sin alterar ese pedido ni ocultar el fallo de su ejecución. No se guarda cursor:
+cada ejecución vuelve a calcular el corte y el programador comienza desde cero.
+Los casos anteriores requieren diagnóstico y reintento desde el principio.
+
+Prueba funcional: error del primer pedido en lote de uno, rollback y salida de
+fallo con su ID; continuación explícita que vence el segundo; límites inválidos y
+fin de resultados. `PHP83 artisan test --compact`: 261 pruebas, 3.569 aserciones,
+destino `testing/sqlite/:memory:` forzado por PHPUnit y comprobado por TestCase.
+Pint completo aprobado. La continuación nueva no se ha ejecutado en MySQL.

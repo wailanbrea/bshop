@@ -24,11 +24,39 @@ final class SchedulerMonitor
             return ['status' => 'never_run', 'tasks' => []];
         }
         $data = json_decode(file_get_contents($path), true, flags: JSON_THROW_ON_ERROR);
-        if (! is_array($data) || ($data['schema'] ?? null) !== 1 || ! is_array($data['tasks'] ?? null)) {
+        if (! is_array($data) || ($data['schema'] ?? null) !== 1
+            || ! in_array($data['status'] ?? null, ['running', 'ok', 'failed'], true)
+            || ! $this->validTimestamp($data['started_at'] ?? null)
+            || ! array_key_exists('finished_at', $data)
+            || (($data['status'] === 'running') ? $data['finished_at'] !== null : ! $this->validTimestamp($data['finished_at']))
+            || ! is_int($data['pid'] ?? null) || $data['pid'] <= 0
+            || ! is_array($data['tasks'] ?? null)) {
             throw new RuntimeException('Invalid scheduler state; preserve the file for diagnosis.');
+        }
+        foreach ($data['tasks'] as $name => $task) {
+            if (! is_string($name) || $name === '' || ! is_array($task)
+                || ! in_array($task['status'] ?? null, ['ok', 'failed'], true)
+                || ! is_int($task['exit_code'] ?? null)
+                || (($task['exit_code'] === 0) !== ($task['status'] === 'ok'))
+                || ! $this->validTimestamp($task['finished_at'] ?? null)) {
+                throw new RuntimeException('Invalid scheduler state; preserve the file for diagnosis.');
+            }
         }
 
         return $data;
+    }
+
+    private function validTimestamp(mixed $value): bool
+    {
+        if (! is_string($value) || ! preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/D', $value)) {
+            return false;
+        }
+
+        try {
+            return CarbonImmutable::parse($value)->toIso8601String() === $value;
+        } catch (\Throwable) {
+            return false;
+        }
     }
 
     public function status(): array

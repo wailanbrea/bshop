@@ -42,8 +42,9 @@ con salida 0 aunque un comando hijo falle: BShop observa los eventos de finaliza
 y fallo para conservar el resultado real. Una ejecución posterior sin tareas
 pendientes no borra el fallo; debe recuperarse esa misma tarea.
 
-Un JSON corrupto detiene la ejecución antes de iniciar tareas; conservarlo para
-diagnóstico. Si se retira definitivamente una tarea fallida, archivar/revisar el
+Un JSON corrupto o un estado incompleto o incoherente detiene la ejecución antes
+de iniciar tareas; se validan estado, fechas, PID y resultados por tarea y se
+conserva el archivo para diagnóstico. Si se retira definitivamente una tarea fallida, archivar/revisar el
 estado antes de restablecerlo bajo control operativo. `ok` acredita el ejecutor y
 los resultados registrados, no la aceptación funcional de servicios externos ni
 la instalación de una tarea de Windows. Los errores detallados permanecen en los
@@ -93,5 +94,7 @@ Definir retención de los logs de vencimiento y reconciliación durante desplieg
   mediante su ejecución. No se modificaron políticas de seguridad.
 - Consulta local real: `never_run`, sin ejecutar tareas ni modificar reservas.
 - Regresión de interfaz existente: 286 casos; esta fase no modifica la interfaz.
-- Verificación real MySQL pendiente por bloqueo de socket; ver
+- Verificación de reservas y reconciliación en MySQL aislado aprobada; ver
   `VERIFICACION_RESERVAS_MYSQL.md`.
+- Validación de estados incompletos/incoherentes: suite completa 259 pruebas y
+  3.517 aserciones en SQLite `:memory:`; Pint aprobado en archivos modificados.

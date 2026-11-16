@@ -1,10 +1,12 @@
 <?php
 
+use App\Console\Commands\ExpireReservations;
 use App\Domain\Business\StoreContext;
 use App\Domain\Catalog\ProductService;
 use App\Domain\Inventory\InventoryReconciliation;
 use App\Domain\Inventory\InventoryService;
 use App\Domain\Sales\BasketService;
+use App\Domain\Sales\PaymentReversals;
 use App\Domain\Sales\ReservationExpiry;
 use App\Domain\Sales\SalesService;
 use App\Models\Customer;
@@ -219,6 +221,20 @@ try {
     array_pop($workers);
     reservationQaAssert($result['row']['physical'] === '10.0001' && $result['row']['reserved'] === '1.0001', 'Reader missed the completed writer.');
     echo "PASS: reconciliation waits for the writer and sees one consistent committed state.\n";
+
+    $fixture = $make('reversed-payment');
+    $sales->change($context, $fixture['order'], 'payment', ['request_key' => (string) Str::uuid(), 'version' => 0, 'amount' => '1', 'payment_method' => 'cash'], $owner);
+    $payment = DB::table('order_payments')->where('order_id', $fixture['order'])->value('payment_id');
+    $cutoff = CarbonImmutable::now('UTC');
+    $candidates = app(ExpireReservations::class);
+    reservationQaAssert(! $candidates->candidates($cutoff)->whereKey($fixture['order'])->exists(), 'Confirmed payment did not protect the fixture from selection.');
+    app(PaymentReversals::class)->reverse($context, $fixture['order'], $payment, $owner, ['request_key' => (string) Str::uuid(), 'version' => SalesOrder::findOrFail($fixture['order'])->lock_version, 'reason' => 'Synthetic incorrect payment']);
+    reservationQaAssert($candidates->candidates($cutoff)->whereKey($fixture['order'])->exists(), 'Reversed payment incorrectly excluded the fixture from selection.');
+    reservationQaAssert(app(ReservationExpiry::class)->inspect($fixture['order'], $cutoff, true) === 'expired', 'Reversed-payment fixture did not expire.');
+    reservationQaAssert(DB::table('payments')->where('id', $payment)->where('status', 'reversed')->exists() && DB::table('payment_reversals')->where('payment_id', $payment)->exists(), 'Reversed payment history was not preserved.');
+    reservationQaAssert(! $candidates->candidates($cutoff)->whereKey($fixture['order'])->exists(), 'Expired fixture remained eligible.');
+    reservationQaAssert(reservationQaRow($fixture)['reserved'] === '0.0000', 'Expired fixture still reserves stock.');
+    echo "PASS: MySQL candidate selector protects confirmed payment and allows expiry after reversal; history preserved.\n";
 
     DB::beginTransaction();
     try {

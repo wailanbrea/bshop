@@ -21,10 +21,12 @@ asigna un plazo por una edición posterior. Se guarda en UTC y se muestra en la
 zona horaria del negocio, tanto en Apartados como en el pedido de Ventas.
 
 Solo se cancela automáticamente un apartado `reserved`, abierto, sin envío,
-sin factura, sin ningún pago vinculado y sin ninguna entrega parcial. Todas sus
+sin factura, sin pagos pendientes o confirmados y sin ninguna entrega parcial. Todas sus
 reservas activas deben tener fecha explícita alcanzada. Si falta una fecha o hay
-una futura, no se vence parcialmente. Reservas con pagos/facturas/entregas
+una futura, no se vence parcialmente. Reservas con pagos activos/facturas/entregas
 requieren resolución comercial explícita y conservan el stock pendiente.
+Los pagos revertidos o fallidos conservan su historial y no impiden el vencimiento;
+esto no realiza una devolución de dinero.
 
 Los apartados compuestos solo por servicios sin control de stock no tienen
 reservas físicas y no se cancelan con este proceso. La fecha indica elegibilidad;
@@ -57,6 +59,9 @@ créditos o facturas. El detalle distingue un apartado vencido de otras cancelac
 
 # Aplicar solo los vencimientos elegibles
 .\.runtime\php83\php.exe artisan bshop:reservations-expire --apply --limit=100
+
+# Continuar manualmente después del ID revisado en un lote anterior
+.\.runtime\php83\php.exe artisan bshop:reservations-expire --apply --limit=100 --after-id=123
 ```
 
 Lote de 1 a 1000 pedidos; JSON con modo, fecha de corte, revisados y resultados.
@@ -64,6 +69,13 @@ Salida 0 normal, 1 con fallos/inconsistencias, 2 si el límite no es válido. Un
 excepción revierte íntegramente ese pedido y permite seguir con los demás; el
 detalle se registra en el log de errores. Los pedidos protegidos se excluyen de
 la selección del lote y vuelven a verificarse dentro de la transacción.
+El JSON incluye `after_id`, `next_after_id` (último ID revisado o null si no hubo
+resultados) y `attention` con los IDs cuyo resultado fue `failed`, `inconsistent`
+o `changed`. Una excepción o inconsistencia conserva el código de fallo del lote.
+`--after-id` permite continuar manualmente sin volver a procesar los IDs anteriores;
+no repara ni resuelve esos pedidos. El cursor no se guarda y cada ejecución usa
+una nueva fecha de corte: hay que revisar los casos señalados y volver a ejecutar
+desde el principio después. El programador normal sigue comenzando desde cero.
 
 Cada pedido usa transacción y reintentos de deadlock, bloqueando productos,
 variantes, sucursal, almacén, saldos, pedido y reservas en el orden del escritor.
@@ -91,10 +103,11 @@ históricas, apartado vacío, lotes y rollback completo. Pruebas sobre SQLite
 Doce casos nuevos de navegador cubren configuración y detalle en seis perfiles.
 
 La demo real se consultó sin aplicar vencimientos ni cambiar la configuración.
-Pendientes: prueba concurrente en MySQL aislado, programador del destino,
-aceptación en tablet física y política comercial para cancelaciones con abonos.
+El verificador en MySQL aislado aprobó sus ocho casos, incluido el selector tras
+reversión de pago; ver
+`VERIFICACION_RESERVAS_MYSQL.md`. Pendientes: programador del destino, aceptación
+en tablet física y política comercial para cancelaciones con abonos.
 
 Ejecutor verificable del programador, estado y plan Windows preparados:
-`PROGRAMADOR_WINDOWS.md`. Verificador de carreras y rango extremo preparado:
-`VERIFICACION_RESERVAS_MYSQL.md`. Su preparación no sustituye la instalación ni la
-validación real, ambas aún pendientes.
+`PROGRAMADOR_WINDOWS.md`. El verificador de carreras y rango extremo se ejecutó
+en MySQL aislado; la instalación del programador sigue pendiente.

@@ -42,14 +42,16 @@ Decisión vigente: una instalación para KeylaShop y sus sucursales. Ver
 - [x] Facturación individual idempotente, snapshots y PDF privado; compartir manualmente.
 - [x] Abonos, asignación a la factura y crédito vinculado al pedido, sin sobreabonos ni duplicados.
 - [x] Cuentas por cobrar por sucursal: saldos decimales, filtros, resumen por moneda, CSV y acceso al cobro existente.
-- [x] PDF e imágenes por streaming; errores de descarga y reintentos sin duplicar ventas. Suite PHP actual: 258 pruebas / 3.490 aserciones.
+- [x] PDF e imágenes por streaming; errores de descarga y reintentos sin duplicar ventas. Suite PHP actual: 261 pruebas / 3.569 aserciones.
 - [x] Demo USD coherente creada mediante formularios; conciliación de stock/dinero/PDF y recorridos reales.
 - [x] F5.07: diagnóstico de inventario por almacén en pantalla/API/CLI, comparando saldos, reservas y kardex sin escrituras; programación horaria declarada.
-- [ ] Instalar/verificar programador de reconciliación en el destino y validar la nueva revisión con concurrencia y rango extremo en MySQL aislado.
+- [x] Validar reconciliación con concurrencia y rango extremo en MySQL aislado (ver `docs/VERIFICACION_RESERVAS_MYSQL.md`).
+- [ ] Instalar/verificar programador de reconciliación en el destino.
 - [x] F5.04: plazo configurable para nuevas reservas y vencimiento idempotente de apartados sin pagos/factura/entregas; conservando fechas históricas, con diagnóstico y programación declarada.
-- [ ] Activar/verificar ejecución persistente de vencimientos y concurrencia con cobro/edición/entrega en MySQL aislado; política de cancelación con abonos por fase de devoluciones.
+- [x] Validar vencimientos concurrentes con cobro/edición/entrega en MySQL aislado (ver `docs/VERIFICACION_RESERVAS_MYSQL.md`).
+- [ ] Activar/verificar ejecución persistente de vencimientos; política de cancelación con abonos por fase de devoluciones.
 - [x] Ejecutor del programador con estado privado, protección de solapamiento y fallo persistente por tarea; consulta sin ejecutar tareas.
-- [x] Preparados plan/instalador Windows y verificador MySQL de carreras/rango extremo. Ejecución e instalación real siguen pendientes por restricciones del entorno.
+- [x] Preparados plan/instalador Windows y verificador MySQL de carreras/rango extremo; verificador ejecutado en MySQL aislado. Instalación real pendiente.
 - [x] Gestión interna de clientes: editar, archivar/reactivar con confirmación, filtros, versiones, auditoría y recuperación; conservar deuda/documentos y sincronizar la venta en memoria.
 - [x] Consultas de clientes recuperables: reintento de página fallida y bloqueo de resultados anteriores durante búsqueda; 102 casos clientes/ventas y 78 Apartados revalidados.
 - [ ] Edición de pedidos guardados mediante enlace público; concurrencia MySQL de enlaces/gestión de clientes y aceptación en tablet física.
