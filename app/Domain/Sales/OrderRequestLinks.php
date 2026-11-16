@@ -6,6 +6,7 @@ use App\Domain\Business\AuditTrailService;
 use App\Domain\Business\IdempotentAction;
 use App\Domain\Business\StoreContext;
 use App\Domain\Media\ObjectStorage;
+use App\Domain\Media\VariantPhoto;
 use App\Models\BusinessProfile;
 use App\Models\Customer;
 use App\Models\ProductVariant;
@@ -124,10 +125,33 @@ final class OrderRequestLinks
 
     public function catalog(string $token, array $input): array
     {
-        $data = Validator::make($input, ['q' => ['nullable', 'string', 'max:120'], 'page' => ['nullable', 'integer', 'min:1', 'max:1000']])->validate();
+        $data = Validator::make($input, ['q' => ['nullable', 'string', 'max:120'], 'page' => ['nullable', 'integer', 'min:1', 'max:1000'], 'group_products' => ['nullable', 'boolean']])->validate();
         $link = $this->resolve($token);
         abort_unless($link->status === 'active', 409);
         $query = ProductVariant::with(['product.images.asset.renditions', 'attributeValues.attribute'])->whereIn('id', json_decode($link->variant_ids, true))->where('is_active', true)->whereHas('product', fn ($q) => $q->where('status', 'active'));
+        if ($data['group_products'] ?? false) {
+            $variants = $query->orderBy('id')->get();
+            $balances = DB::table('stock_balances')->where('warehouse_id', $link->warehouse_id)->whereIn('variant_id', $variants->pluck('id'))->get()->keyBy('variant_id');
+            $photoVariants = ProductVariant::with('attributeValues.attribute')->whereIn('id', $variants->flatMap(fn ($variant) => $variant->product->images->pluck('variant_id'))->filter()->unique())->get()->keyBy('id');
+            $search = trim($data['q'] ?? '');
+            $groups = $variants->groupBy('product_id')->filter(function ($items) use ($search) {
+                return $search === '' || mb_stripos($items->first()->product->name, $search) !== false || $items->contains(fn ($variant) => mb_stripos($variant->sku, $search) !== false || $variant->attributeValues->contains(fn ($value) => mb_stripos($value->value, $search) !== false));
+            })->values();
+            $page = (int) ($data['page'] ?? 1);
+            $rows = $groups->forPage($page, 12)->values()->map(function ($items) use ($balances, $photoVariants) {
+                $product = $items->first()->product;
+                $primary = $product->images->firstWhere('is_primary', true)?->asset?->renditions?->firstWhere('rendition', 'card');
+                $primaryUrl = $primary ? app(ObjectStorage::class)->url($primary) : null;
+
+                return ['id' => $product->id, 'name' => $product->name, 'image_url' => $primaryUrl, 'variants' => $items->map(function ($variant) use ($product, $balances, $photoVariants) {
+                    $balance = $balances->get($variant->id);
+
+                    return ['id' => $variant->id, 'sku' => $variant->sku, 'price' => $variant->sale_price, 'image_url' => app(VariantPhoto::class)->url($product, $variant, 'card', $photoVariants), 'available' => $product->track_stock ? bcsub((string) ($balance->on_hand ?? '0'), (string) ($balance->reserved ?? '0'), 4) : null, 'attributes' => $variant->attributeValues->map(fn ($v) => ['name' => $v->attribute->name, 'value' => $v->value])->all()];
+                })->values()->all()];
+            });
+
+            return ['data' => $rows->all(), 'meta' => ['current_page' => $page, 'last_page' => max(1, (int) ceil($groups->count() / 12)), 'total' => $groups->count()]];
+        }
         if (! empty($data['q'])) {
             $pattern = '%'.str_replace(['!', '%', '_'], ['!!', '!%', '!_'], trim($data['q'])).'%';
             $query->where(fn ($q) => $q->whereRaw("sku LIKE ? ESCAPE '!'", [$pattern])->orWhereHas('product', fn ($p) => $p->whereRaw("name LIKE ? ESCAPE '!'", [$pattern])));

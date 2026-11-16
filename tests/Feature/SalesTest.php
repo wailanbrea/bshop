@@ -7,7 +7,9 @@ use App\Domain\Business\StoreContext;
 use App\Domain\Catalog\ProductService;
 use App\Domain\Inventory\InventoryService;
 use App\Domain\Sales\InvoiceDocument;
+use App\Models\AttributeValue;
 use App\Models\Customer;
+use App\Models\ProductAttribute;
 use App\Models\ProductVariant;
 use App\Models\Role;
 use App\Models\SalesOrder;
@@ -83,6 +85,47 @@ class SalesTest extends TestCase
     private function change(int $id, string $action, int $version, array $extra = [])
     {
         return $this->postJson($this->root()."/sales/orders/$id/$action", ['request_key' => (string) Str::uuid(), 'version' => $version, ...$extra]);
+    }
+
+    public function test_clothing_variants_reserve_deliver_and_cancel_without_changing_other_combinations(): void
+    {
+        $color = ProductAttribute::create(['name' => 'Color', 'is_active' => true]);
+        $size = ProductAttribute::create(['name' => 'Talla', 'is_active' => true]);
+        $green = AttributeValue::create(['attribute_id' => $color->id, 'value' => 'Verde', 'is_active' => true]);
+        $black = AttributeValue::create(['attribute_id' => $color->id, 'value' => 'Negro', 'is_active' => true]);
+        $small = AttributeValue::create(['attribute_id' => $size->id, 'value' => 'S', 'is_active' => true]);
+        $medium = AttributeValue::create(['attribute_id' => $size->id, 'value' => 'M', 'is_active' => true]);
+        $product = app(ProductService::class)->create(['name' => 'Blusa', 'product_type' => 'physical', 'track_stock' => true, 'unit_code' => 'unit', 'status' => 'active', 'variants' => [
+            ['sku' => 'BLUSA-VS', 'sale_price' => '25', 'attribute_value_ids' => [$green->id, $small->id]],
+            ['sku' => 'BLUSA-VM', 'sale_price' => '25', 'attribute_value_ids' => [$green->id, $medium->id]],
+            ['sku' => 'BLUSA-NS', 'sale_price' => '25', 'attribute_value_ids' => [$black->id, $small->id]],
+            ['sku' => 'BLUSA-NM', 'sale_price' => '25', 'attribute_value_ids' => [$black->id, $medium->id]],
+        ]], $this->owner);
+        $ids = $product->variants()->pluck('id', 'sku');
+        $context = app(StoreContext::class);
+        $context->useStore(Store::findOrFail($this->store));
+        foreach (['BLUSA-VS' => '5', 'BLUSA-VM' => '3', 'BLUSA-NS' => '2'] as $sku => $stock) {
+            app(InventoryService::class)->move($context, ['warehouse_id' => $this->warehouse, 'variant_id' => $ids[$sku], 'operation' => 'receipt', 'quantity' => $stock, 'version' => 0, 'request_key' => (string) Str::uuid(), 'note' => 'Entrada inicial QA'], $this->owner);
+        }
+        $context->clear();
+        $balance = fn ($sku) => DB::table('stock_balances')->where('warehouse_id', $this->warehouse)->where('variant_id', $ids[$sku])->first();
+        $draft = ['warehouse_id' => $this->warehouse, 'customer_id' => $this->customer, 'lines' => [['variant_id' => $ids['BLUSA-VS'], 'quantity' => '1']], 'discount' => '0', 'shipping' => '0'];
+        $quote = $this->postJson($this->root().'/sales/quote', $draft)->assertOk()->json('data.quote_hash');
+        $this->assertSame('0.0000', bcadd((string) $balance('BLUSA-VS')->reserved, '0', 4));
+        $order = $this->create([...$draft, 'mode' => 'reservation', 'initial_payment' => '0', 'payment_method' => 'cash', 'request_key' => (string) Str::uuid(), 'quote_hash' => $quote])->assertCreated()->json('data.order');
+        $this->assertSame('5.0000', bcadd((string) $balance('BLUSA-VS')->on_hand, '0', 4));
+        $this->assertSame('1.0000', bcadd((string) $balance('BLUSA-VS')->reserved, '0', 4));
+        $this->assertSame('3.0000', bcadd((string) $balance('BLUSA-VM')->on_hand, '0', 4));
+        $this->assertSame('2.0000', bcadd((string) $balance('BLUSA-NS')->on_hand, '0', 4));
+        $this->change($order['id'], 'deliver', 0, ['item_id' => $order['items'][0]['id'], 'quantity' => '1'])->assertOk();
+        $this->assertSame('4.0000', bcadd((string) $balance('BLUSA-VS')->on_hand, '0', 4));
+        $this->assertSame('0.0000', bcadd((string) $balance('BLUSA-VS')->reserved, '0', 4));
+        $draft['lines'][0]['variant_id'] = $ids['BLUSA-VM'];
+        $quote = $this->postJson($this->root().'/sales/quote', $draft)->assertOk()->json('data.quote_hash');
+        $second = $this->create([...$draft, 'mode' => 'reservation', 'initial_payment' => '0', 'payment_method' => 'cash', 'request_key' => (string) Str::uuid(), 'quote_hash' => $quote])->assertCreated()->json('data.order.id');
+        $this->change($second, 'cancel', 0)->assertOk();
+        $this->assertSame('3.0000', bcadd((string) $balance('BLUSA-VM')->on_hand, '0', 4));
+        $this->assertSame('0.0000', bcadd((string) $balance('BLUSA-VM')->reserved, '0', 4));
     }
 
     public function test_receivables_count_orders_once_and_remove_settled_and_cancelled_balances(): void

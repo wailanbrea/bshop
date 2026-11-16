@@ -2,7 +2,7 @@
 import axios from 'axios';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { api, errorMessage } from '../api';
-import type { Business } from '../types';
+import type { Business, Store, Warehouse } from '../types';
 import type { CatalogOptions, CatalogProduct, CatalogVariant, VariantPage } from '../catalog';
 import { amount } from '../catalog';
 import ProductEditor from './ProductEditor.vue';
@@ -10,8 +10,9 @@ import VariantEditor from './VariantEditor.vue';
 import CatalogOptionsManager from './CatalogOptionsManager.vue';
 import CatalogImportView from './CatalogImportView.vue';
 import ProductGallery from './ProductGallery.vue';
+import { forgetPhotos, photoRecoveries } from '../lib/productPhotoRecovery';
 
-const props = defineProps<{ business: Business; permissions: string[] }>();
+const props = defineProps<{ business: Business; permissions: string[]; actorId:number; store?:Store; warehouses:Warehouse[] }>();
 const manage = computed(() => props.permissions.includes('catalog.manage'));
 const costs = computed(() => props.permissions.includes('catalog.costs'));
 const options = ref<CatalogOptions>({ categories: [], brands: [], attributes: [] });
@@ -20,6 +21,10 @@ const query = ref(''); const category = ref<number | ''>(''); const brand = ref<
 const loading = ref(true); const error = ref(''); const notice = ref(''); const organizing = ref(false);
 const importing = ref(false);
 const photosOpen = ref(false); const photoOpener = ref<HTMLElement | null>(null);
+const photoReminders=ref(photoRecoveries(props.actorId));
+function refreshPhotoReminders(){photoReminders.value=photoRecoveries(props.actorId);}
+async function reviewPendingPhotos(id:number,event:Event){photoOpener.value=event.currentTarget as HTMLElement;await detail(id);if(selected.value?.id===id)photosOpen.value=true;}
+function dismissPhotoReminder(id:number){try{forgetPhotos(props.actorId,id);refreshPhotoReminders();}catch{error.value='No se pudo actualizar el aviso en este navegador.';}}
 function openPhotos(event: Event) { photoOpener.value = event.currentTarget as HTMLElement; photosOpen.value = true; }
 async function photosChanged() { if (selected.value) await Promise.all([loadProducts(page.value), detail(selected.value.id, variants.value.current_page, true)]); }
 const selected = ref<CatalogProduct | null>(null); const variants = ref<VariantPage>({ data: [], current_page: 1, last_page: 1, total: 0 }); const detailLoading = ref(false);
@@ -65,6 +70,7 @@ onUnmounted(() => { ++request; ++detailRequest; controller?.abort(); clearTimeou
 <template>
     <p v-if="error" class="notice error" role="alert">{{ error }} <button type="button" class="text-button" @click="selected ? detail(selected.id) : loadProducts(page)">Reintentar</button></p>
     <p v-if="notice" class="notice success" role="status">{{ notice }}</p>
+    <div v-for="item in photoReminders" :key="item.productId" class="notice" role="status">El producto {{ item.name || `#${item.productId}` }} se guardó; revisa qué fotos ya se publicaron antes de volver a subir las pendientes. <button type="button" class="button secondary" @click="reviewPendingPhotos(item.productId,$event)">Revisar fotos</button> <button type="button" class="button secondary" @click="dismissPhotoReminder(item.productId)">Aviso revisado</button></div>
     <CatalogImportView v-if="importing && manage" :business="business" :options="options" :costs="costs" @back="importing = false" @changed="importChanged" @product="id => { importing = false; detail(id); }" />
     <CatalogOptionsManager v-else-if="organizing && manage" :options="options" @back="organizing = false" @changed="loadOptions" />
     <template v-else>
@@ -75,7 +81,7 @@ onUnmounted(() => { ++request; ++detailRequest; controller?.abort(); clearTimeou
             <section v-else-if="selected" class="panel">
                 <div class="panel-heading"><div><span class="eyebrow">{{ selected.category?.name || 'SIN CATEGORÍA' }} <span v-if="selected.brand">· {{ selected.brand.name }}</span></span><h2>{{ selected.name }}</h2><p class="muted">{{ selected.description || 'Sin descripción adicional.' }}</p></div><button v-if="manage" type="button" class="button secondary" @click="editProduct(selected, $event)">Editar producto</button></div>
                 <div class="catalog-tags"><span class="badge" :class="{ inactive: selected.status === 'archived' }">{{ selected.status === 'active' ? 'Activo' : 'Archivado' }}</span><span class="badge">{{ selected.product_type === 'service' ? 'Servicio' : 'Producto físico' }}</span><span class="muted">Unidad: {{ selected.unit_code }}</span></div>
-                <p class="catalog-stock-note">{{ selected.track_stock ? 'Seguimiento de existencias habilitado. Las operaciones de inventario se implementarán en su módulo.' : 'Este artículo se utiliza sin seguimiento de existencias.' }}</p>
+                <p class="catalog-stock-note">{{ selected.track_stock ? 'Seguimiento de existencias habilitado por variante y almacén. Consulta y ajusta las cantidades en Inventario.' : 'Este artículo se utiliza sin seguimiento de existencias.' }}</p>
                 <div class="panel-heading"><h3>Fotografías · {{ selected.images?.length || 0 }} / 5</h3><button type="button" class="button secondary" @click="openPhotos">{{ manage ? 'Administrar fotos' : 'Ver fotos' }}</button></div>
                 <div class="panel-heading catalog-section-heading"><div><h3>Variantes y precios</h3><p class="muted">{{ selected.active_variants_count }} activas · {{ variants.total }} visibles</p></div><button v-if="manage" type="button" class="button primary" :disabled="selected.status !== 'active'" @click="editVariant(null, $event)">+ Nueva variante</button></div>
                 <div class="record-list"><article v-for="variant in variants.data" :key="variant.id" class="record catalog-variant-record"><div class="record-main"><strong>{{ variant.sku }}</strong><p>{{ variant.attribute_values.map(v => `${v.attribute_name}: ${v.value}`).join(' · ') || 'Variante general' }}</p><p v-if="variant.barcode">Barras: {{ variant.barcode }}</p></div><div class="variant-price"><strong>{{ amount(variant.sale_price, business.default_currency) }}</strong><small v-if="costs">Costo: {{ amount(variant.cost_price, business.default_currency) }}</small><span class="badge" :class="{ inactive: !variant.is_active }">{{ variant.is_active ? 'Activa' : 'Inactiva' }}</span></div><button v-if="manage" type="button" class="button secondary" @click="editVariant(variant, $event)">Editar<span class="sr-only"> {{ variant.sku }}</span></button></article></div>
@@ -100,7 +106,7 @@ onUnmounted(() => { ++request; ++detailRequest; controller?.abort(); clearTimeou
             </template>
         </template>
     </template>
-    <ProductEditor v-if="manage" :open="productOpen" :product="productDraft" :options="options" :costs="costs" :opener="opener" @close="productOpen = false" @saved="savedProduct" />
+    <ProductEditor v-if="manage" :open="productOpen" :product="productDraft" :options="options" :costs="costs" :opener="opener" :actor-id="actorId" :store="store" :warehouses="warehouses" :inventory-manage="permissions.includes('inventory.manage')" @close="productOpen = false" @saved="savedProduct" @photo-recovery="refreshPhotoReminders" />
     <VariantEditor v-if="manage" :open="variantOpen" :product="selected" :variant="variantDraft" :options="options" :costs="costs" :opener="opener" @close="variantOpen = false" @saved="savedVariant" />
     <ProductGallery :open="photosOpen" :product="selected" :variants="variants.data" :manage="manage" :opener="photoOpener" @close="photosOpen = false" @changed="photosChanged" />
 </template>

@@ -61,6 +61,7 @@ jobs:
       - run: php scripts/bootstrap-financial-concurrency-ci.php
       - run: php scripts/verify-financial-concurrency-mysql.php --rounds=2
       - run: php scripts/verify-weekly-concurrency-mysql.php --rounds=2
+      - run: php scripts/verify-product-create-mysql.php
       - uses: actions/upload-artifact@v4
         if: always()
         with:

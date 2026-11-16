@@ -138,6 +138,23 @@ test('variant selection and zero stock prevent adding an unavailable item', asyn
     await dialog.getByRole('combobox', { name: 'Variante de Camiseta Básica', exact: true }).selectOption('1'); await dialog.getByRole('button', { name: 'Agregar a la venta', exact: true }).click(); await summary(page); await expect(page.getByRole('button', { name: 'Sumar CAM-M', exact: true })).toBeVisible(); expect(sales.orders).toHaveLength(0);
 });
 
+test('clothing selection chooses color before size and sends the exact variant', async ({ page, sales }) => {
+    sales.products.push({id:99,name:'Blusa',category_id:1,track_stock:true,unit_code:'unit',image:null,variants:[
+        {id:201,sku:'BLUSA-VS',price:'25.0000',available:'5.0000',attributes:[{name:'Color',value:'Verde'},{name:'Talla',value:'S'}]},
+        {id:202,sku:'BLUSA-VM',price:'25.0000',available:'3.0000',attributes:[{name:'Color',value:'Verde'},{name:'Talla',value:'M'}]},
+        {id:203,sku:'BLUSA-NS',price:'25.0000',available:'2.0000',attributes:[{name:'Color',value:'Negro'},{name:'Talla',value:'S'}]},
+        {id:204,sku:'BLUSA-NM',price:'25.0000',available:'0.0000',attributes:[{name:'Color',value:'Negro'},{name:'Talla',value:'M'}]},
+    ]});
+    await openSales(page);await selectMaria(page);await products(page);await page.getByRole('button',{name:'Elegir Blusa',exact:true}).click();
+    const dialog=page.getByRole('dialog',{name:'Elegir variante de Blusa'});const color=dialog.getByLabel('Color de Blusa');const size=dialog.getByLabel('Talla de Blusa');
+    await expect(size).toBeDisabled();await color.selectOption('Verde');await size.selectOption('M');await expect(dialog).toContainText('Disponible: 3');
+    await color.selectOption('Negro');await expect(size).toHaveValue('');await expect(size.locator('option[value="M"]')).toBeDisabled();await expect(size.locator('option[value="L"]')).toHaveCount(0);
+    await color.selectOption('Verde');await size.selectOption('S');await expect(dialog).toContainText('Cantidad inicial: 1');await expect(dialog).toContainText('Disponible: 5');
+    await dialog.getByRole('button',{name:'Agregar a la venta'}).click();await summary(page);expect(sales.writes).toHaveLength(0);
+    await page.getByRole('button',{name:'Guardar como apartado',exact:true}).click();await expect.poll(()=>sales.writes.length).toBe(1);
+    expect(sales.writes[0].lines).toEqual([{variant_id:201,quantity:'1.0000'}]);
+});
+
 test('cart and USD quote survive orientation changes without hidden horizontal overflow', async ({ page, sales }) => {
     await openSales(page); await selectMaria(page); await add(page, 'Jeans Mom Fit'); await summary(page);
     await expect(page.locator('.sales-total-emphasis')).toContainText('US$ 45.00');

@@ -34,6 +34,17 @@ const test=base.extend<{board:{orders:SavedOrder[];writes:any[];lost:boolean;con
 });
 async function board(page:import('@playwright/test').Page){await page.goto('/app/apartados');await expect(page.getByRole('heading',{name:'Tablero de Apartados',exact:true})).toBeVisible();await expect(page.locator('.basket-card')).toHaveCount(2);}
 
+test('editing a saved basket selects clothing color before its available size',async({page,board:state})=>{
+    await page.route('**/api/v1/business/stores/*/sales/catalog**',route=>route.fulfill({json:{data:[{id:9,name:'Blusa',track_stock:true,unit_code:'unit',category_id:1,image:null,variants:[
+        {id:21,sku:'BLUSA-VS',price:'15.0000',available:'5.0000',attributes:[{name:'Color',value:'Verde'},{name:'Talla',value:'S'}]},
+        {id:22,sku:'BLUSA-NM',price:'15.0000',available:'0.0000',attributes:[{name:'Color',value:'Negro'},{name:'Talla',value:'M'}]},
+    ]}],meta:{current_page:1,last_page:1,total:1}}}));
+    await board(page);await page.getByRole('button',{name:'Seleccionar apartado 1 de María Demo'}).click();await page.getByLabel('Buscar artículo para agregar').fill('Blusa');
+    const results=page.getByRole('region',{name:'Resultados de artículos'});await results.getByLabel('Color de Blusa').selectOption('Negro');await expect(results.getByLabel('Talla de Blusa').locator('option[value="M"]')).toBeDisabled();
+    await results.getByLabel('Color de Blusa').selectOption('Verde');await results.getByLabel('Talla de Blusa').selectOption('S');await results.getByRole('button',{name:'Agregar Blusa'}).click();
+    await expect(page.getByRole('region',{name:'Detalle del apartado'})).toContainText('BLUSA-VS');expect(state.writes).toHaveLength(0);
+});
+
 for(const kind of ['adjustment','credit'] as const){
     const buttonName=kind==='adjustment'?'Descargar comprobante de ajuste':'Descargar comprobante de crédito #1';
     async function scenario(page:import('@playwright/test').Page,state:{orders:SavedOrder[]},existing=false){

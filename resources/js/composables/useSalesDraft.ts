@@ -16,7 +16,7 @@ export function useSalesDraft(root: Ref<string>, warehouseId: Ref<number | ''>, 
         const existing = lines.value.find(line => line.variant_id === variant.id); const next = (existing ? units(existing.quantity)! : 0n) + 10000n;
         if (variant.available !== null && next > units(variant.available)!) { error.value = `Disponible para ${variant.sku}: ${variant.available}. No puedes añadir más unidades.`; return; }
         error.value = ''; if (existing) existing.quantity = decimal(next);
-        else lines.value.push({ variant_id: variant.id, product_id: product.id, name: product.name, sku: variant.sku, quantity: '1.0000', price: variant.price, available: variant.available, attributes: variant.attributes, image: product.image?.renditions.thumb.url || null });
+        else lines.value.push({ variant_id: variant.id, product_id: product.id, name: product.name, sku: variant.sku, quantity: '1.0000', price: variant.price, available: variant.available, attributes: variant.attributes, image: variant.thumb_url || product.image?.renditions.thumb.url || null });
     }
     function changeQuantity(variantId: number, step: number) {
         if (uncertain.value) return; const line = lines.value.find(line => line.variant_id === variantId); if (!line) return;

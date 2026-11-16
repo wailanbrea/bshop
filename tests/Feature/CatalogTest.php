@@ -8,10 +8,13 @@ use App\Models\Product;
 use App\Models\ProductAttribute;
 use App\Models\ProductVariant;
 use App\Models\Role;
+use App\Models\Store;
 use App\Models\User;
+use App\Models\Warehouse;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 class CatalogTest extends TestCase
@@ -54,6 +57,88 @@ class CatalogTest extends TestCase
         $this->assertDatabaseHas('product_variants', ['product_id' => $id, 'combination_key' => 'default']);
         $this->assertDatabaseHas('audit_logs', ['event' => 'catalog.product.created']);
         $this->assertDatabaseHas('audit_logs', ['event' => 'catalog.variant.created']);
+    }
+
+    public function test_product_creation_can_replay_same_request_without_duplicate_sku_or_product(): void
+    {
+        $body = [...$this->payload(), 'request_key' => (string) Str::uuid()];
+        $id = $this->postJson('/api/v1/business/products', $body)->assertCreated()->assertJsonPath('meta.replay', false)->json('data.id');
+        $this->postJson('/api/v1/business/products', $body)->assertOk()->assertJsonPath('meta.replay', true)->assertJsonPath('data.id', $id);
+        $this->postJson('/api/v1/business/products', [...$body, 'name' => 'Otro nombre'])->assertConflict();
+        $this->assertDatabaseCount('products', 1);
+        $this->assertDatabaseCount('product_variants', 1);
+    }
+
+    public function test_initial_stock_is_atomic_audited_and_replayed_without_duplicate_receipts(): void
+    {
+        $store = Store::firstOrFail();
+        $warehouse = Warehouse::firstOrFail();
+        $body = [...$this->payload(), 'request_key' => (string) Str::uuid(), 'initial_stock' => ['store_id' => $store->id, 'warehouse_id' => $warehouse->id, 'items' => [['sku' => 'QA-001', 'quantity' => '5', 'request_key' => (string) Str::uuid()]]]];
+        $id = $this->postJson('/api/v1/business/products', $body)->assertCreated()->json('data.id');
+        $this->postJson('/api/v1/business/products', $body)->assertOk()->assertJsonPath('meta.replay', true)->assertJsonPath('data.id', $id);
+        $variant = ProductVariant::where('product_id', $id)->firstOrFail();
+        $this->assertDatabaseHas('stock_balances', ['warehouse_id' => $warehouse->id, 'variant_id' => $variant->id, 'on_hand' => '5', 'reserved' => '0']);
+        $this->assertDatabaseHas('inventory_movements', ['variant_id' => $variant->id, 'movement_type' => 'receipt', 'performed_by_user_id' => $this->owner->id]);
+        $this->assertDatabaseCount('inventory_movements', 1);
+        $bad = [...$this->payload('QA-002'), 'request_key' => (string) Str::uuid(), 'initial_stock' => ['store_id' => $store->id, 'warehouse_id' => $warehouse->id, 'items' => [['sku' => 'QA-002', 'quantity' => '2', 'request_key' => (string) Str::uuid()], ['sku' => 'NO-EXISTE', 'quantity' => '1', 'request_key' => (string) Str::uuid()]]]];
+        $this->postJson('/api/v1/business/products', $bad)->assertUnprocessable();
+        $this->assertDatabaseCount('products', 1);
+        $this->assertDatabaseCount('inventory_movements', 1);
+    }
+
+    public function test_initial_stock_is_independent_per_new_variant_and_omitted_variant_starts_at_zero(): void
+    {
+        $color = ProductAttribute::create(['name' => 'Color', 'is_active' => true]);
+        $green = AttributeValue::create(['attribute_id' => $color->id, 'value' => 'Verde', 'is_active' => true]);
+        $black = AttributeValue::create(['attribute_id' => $color->id, 'value' => 'Negro', 'is_active' => true]);
+        $size = ProductAttribute::create(['name' => 'Talla', 'is_active' => true]);
+        $small = AttributeValue::create(['attribute_id' => $size->id, 'value' => 'S', 'is_active' => true]);
+        $medium = AttributeValue::create(['attribute_id' => $size->id, 'value' => 'M', 'is_active' => true]);
+        $payload = $this->payload('GREEN-S');
+        $payload['variants'][0]['attribute_value_ids'] = [$green->id, $small->id];
+        $payload['variants'][] = [...$payload['variants'][0], 'sku' => 'GREEN-M', 'attribute_value_ids' => [$green->id, $medium->id]];
+        $payload['variants'][] = [...$payload['variants'][0], 'sku' => 'BLACK-S', 'attribute_value_ids' => [$black->id, $small->id]];
+        $payload['variants'][] = [...$payload['variants'][0], 'sku' => 'BLACK-M', 'attribute_value_ids' => [$black->id, $medium->id]];
+        $body = [...$payload, 'request_key' => (string) Str::uuid(), 'initial_stock' => ['store_id' => Store::firstOrFail()->id, 'warehouse_id' => Warehouse::firstOrFail()->id, 'items' => [
+            ['sku' => 'GREEN-S', 'quantity' => '5', 'request_key' => (string) Str::uuid()],
+            ['sku' => 'GREEN-M', 'quantity' => '3', 'request_key' => (string) Str::uuid()],
+            ['sku' => 'BLACK-S', 'quantity' => '2', 'request_key' => (string) Str::uuid()],
+        ]]];
+        $id = $this->postJson('/api/v1/business/products', $body)->assertCreated()->json('data.id');
+        $variants = ProductVariant::where('product_id', $id)->pluck('id', 'sku');
+        $this->assertDatabaseHas('stock_balances', ['variant_id' => $variants['GREEN-S'], 'on_hand' => '5', 'reserved' => '0']);
+        $this->assertDatabaseHas('stock_balances', ['variant_id' => $variants['GREEN-M'], 'on_hand' => '3', 'reserved' => '0']);
+        $this->assertDatabaseHas('stock_balances', ['variant_id' => $variants['BLACK-S'], 'on_hand' => '2', 'reserved' => '0']);
+        $this->assertDatabaseMissing('stock_balances', ['variant_id' => $variants['BLACK-M']]);
+        $this->postJson('/api/v1/business/products', $body)->assertOk()->assertJsonPath('meta.replay', true);
+        $this->assertDatabaseCount('inventory_movements', 3);
+    }
+
+    public function test_initial_stock_requires_inventory_permission_and_an_authorized_store(): void
+    {
+        $store = Store::firstOrFail();
+        $warehouse = Warehouse::firstOrFail();
+        $role = Role::create(['code' => 'catalog-only', 'label' => 'Catálogo', 'permissions' => ['catalog.manage', 'catalog.view']]);
+        $user = User::factory()->create();
+        $user->roles()->attach($role->id);
+        DB::table('store_user')->insert(['user_id' => $user->id, 'store_id' => $store->id]);
+        $this->actingAs($user);
+        $payload = $this->payload();
+        unset($payload['variants'][0]['cost_price']);
+        $body = [...$payload, 'request_key' => (string) Str::uuid(), 'initial_stock' => ['store_id' => $store->id, 'warehouse_id' => $warehouse->id, 'items' => [['sku' => 'QA-001', 'quantity' => '5', 'request_key' => (string) Str::uuid()]]]];
+        $this->postJson('/api/v1/business/products', $body)->assertForbidden();
+        $this->assertDatabaseCount('products', 0);
+        $this->assertDatabaseCount('inventory_movements', 0);
+    }
+
+    public function test_initial_stock_cannot_target_an_unassigned_store(): void
+    {
+        $store = Store::create(['name' => 'Sucursal no autorizada', 'code' => 'OTHER']);
+        $warehouse = Warehouse::create(['store_id' => $store->id, 'name' => 'Almacén ajeno', 'is_default' => true]);
+        $body = [...$this->payload(), 'request_key' => (string) Str::uuid(), 'initial_stock' => ['store_id' => $store->id, 'warehouse_id' => $warehouse->id, 'items' => [['sku' => 'QA-001', 'quantity' => '5', 'request_key' => (string) Str::uuid()]]]];
+        $this->postJson('/api/v1/business/products', $body)->assertNotFound();
+        $this->assertDatabaseCount('products', 0);
+        $this->assertDatabaseCount('inventory_movements', 0);
     }
 
     public function test_decimal_validation_rejects_float_negative_exponent_and_excess_precision(): void

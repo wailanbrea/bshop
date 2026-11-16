@@ -6,8 +6,11 @@ import { amount } from '../catalog';
 import { readPending, savePending, clearPending } from '../lib/pendingRequests';
 import AppDialog from './AppDialog.vue';
 import DecimalStepper from './DecimalStepper.vue';
+import VariantSelector from './VariantSelector.vue';
+import { available, supportsColorSize } from '../lib/variantSelection';
+import type { SalesVariant } from '../sales';
 
-type Product={id:number; name:string; sku:string; price:string; available:boolean; attributes:{name:string;value:string}[]; image_url:string|null};
+type Product={id:number; name:string; image_url:string|null; variants:SalesVariant[]};
 type Line={id:number; name:string; price:string; quantity:string};
 type Quote={currency:string; subtotal:string; tax_total:string; shipping_total:string; grand_total:string; quote_hash:string; lines?:{variant_id:number;unit_price:string;line_total:string}[]};
 type Receipt={number:number|string;status:string;currency:string;total:string;items:{name:string;quantity:string;price:string;total:string}[];return_pending?:boolean;original_total?:string;return_credit_total?:string;credit_available?:string;refunded_total?:string};
@@ -16,13 +19,14 @@ const props=defineProps<{token:string}>();
 const endpoint=`/order-requests/${props.token}`;
 const storeName=ref('Pedido por enlace');const currency=ref('USD');const expires=ref('');const ready=ref(false);const error=ref('');const busy=ref(false);const loading=ref(false);
 const products=ref<Product[]>([]);const query=ref('');const page=ref(1);const lastPage=ref(1);const cart=ref<Line[]>([]);const quote=ref<Quote|null>(null);const receipt=ref<Receipt|null>(null);
+const selections=ref<Record<number,number|''>>({});
 const catalogError=ref('');
 const pending=ref<Pending|null>(null);const review=ref(false);const opener=ref<HTMLElement|null>(null);
 let journal='';let timer:ReturnType<typeof setTimeout>|undefined;let version=0;let controller:AbortController|undefined;
 const publicError=(e:unknown)=>axios.isAxiosError(e)&&e.response?.status===404 ? 'Este enlace ya no está disponible. Solicita uno vigente a la tienda.' : axios.isAxiosError(e)&&e.response?.status===419 ? 'Vuelve a abrir el enlace para renovar la sesión. Tu confirmación pendiente se conserva.' : errorMessage(e);
 async function catalog(target=1){
     const current=++version;controller?.abort();controller=new AbortController();loading.value=true;catalogError.value='';
-    try{const result=await api.get(`${endpoint}/catalog`,{signal:controller.signal,params:{q:query.value,page:target}});if(current===version){products.value=result.data.data;page.value=result.data.meta.current_page;lastPage.value=result.data.meta.last_page;}}
+    try{const result=await api.get(`${endpoint}/catalog`,{signal:controller.signal,params:{q:query.value,page:target,group_products:1}});if(current===version){products.value=result.data.data.map((item:any)=>Array.isArray(item.variants)?item:{id:item.id,name:item.name,image_url:item.image_url,variants:[{id:item.id,sku:item.sku,price:item.price,available:item.available?'1.0000':'0.0000',attributes:item.attributes,image_url:item.image_url}]});selections.value={};page.value=result.data.meta.current_page;lastPage.value=result.data.meta.last_page;}}
     catch(e){if(current===version&&!axios.isCancel(e))catalogError.value=publicError(e);}
     finally{if(current===version)loading.value=false;}
 }
@@ -33,7 +37,8 @@ async function info(){
     catch(e){error.value=publicError(e);}
     finally{busy.value=false;}
 }
-function add(product:Product){if(busy.value||pending.value||!product.available)return;const existing=cart.value.find(line=>line.id===product.id);if(existing)return;cart.value.push({id:product.id,name:[product.name,...product.attributes.map(a=>`${a.name}: ${a.value}`)].join(' · '),price:product.price,quantity:'1'});quote.value=null;}
+function selected(product:Product){return product.variants.length===1&&!supportsColorSize(product.variants)?product.variants[0]:product.variants.find(v=>v.id===selections.value[product.id]);}
+function add(product:Product){const variant=selected(product);if(busy.value||pending.value||!variant||!available(variant))return;const existing=cart.value.find(line=>line.id===variant.id);if(existing)return;cart.value.push({id:variant.id,name:[product.name,...variant.attributes.map(a=>`${a.name}: ${a.value}`)].join(' · '),price:variant.price,quantity:'1'});quote.value=null;}
 function remove(id:number){if(!busy.value&&!pending.value){cart.value=cart.value.filter(line=>line.id!==id);quote.value=null;}}
 async function preview(event:Event){
     if(busy.value||pending.value||!cart.value.length)return;opener.value=event.currentTarget as HTMLElement;busy.value=true;error.value='';
@@ -77,7 +82,7 @@ onUnmounted(()=>{++version;controller?.abort();clearTimeout(timer);});
     <template v-else-if="ready">
     <div class="public-order-layout"><section class="panel" aria-label="Catálogo autorizado"><h2>Artículos disponibles</h2><label>Buscar artículo<input v-model="query" type="search" maxlength="120" :disabled="busy||!!pending" placeholder="Nombre o código…"></label><p v-if="loading" role="status">Buscando artículos…</p>
         <p v-if="catalogError" class="notice error" role="alert">{{ catalogError }} <button type="button" class="button secondary" :disabled="loading||busy" @click="catalog(page)">Reintentar catálogo</button></p>
-        <div class="public-product-grid"><article v-for="product in products" :key="product.id" class="public-product"><img v-if="product.image_url" :src="product.image_url" :alt="product.name" loading="lazy"><h3>{{ product.name }}</h3><p>{{ product.attributes.map(a=>`${a.name}: ${a.value}`).join(' · ') || product.sku }}</p><strong>{{ amount(product.price,currency) }}</strong><p v-if="!product.available" class="muted">Sin disponibilidad</p><button type="button" class="button secondary" :disabled="busy||!!pending||loading||!!catalogError||!product.available||cart.some(line=>line.id===product.id)" :aria-label="`Agregar ${product.sku}`" @click="add(product)">{{ cart.some(line=>line.id===product.id) ? 'En tu pedido' : 'Agregar' }}</button></article></div>
+        <div class="public-product-grid"><article v-for="product in products" :key="product.id" class="public-product"><img v-if="selected(product)?.image_url || product.image_url" :src="selected(product)?.image_url || product.image_url || undefined" :alt="product.name" loading="lazy"><h3>{{ product.name }}</h3><VariantSelector v-if="product.variants.length>1 || supportsColorSize(product.variants)" v-model="selections[product.id]" :product-name="product.name" :variants="product.variants" :disabled="busy||!!pending||loading"/><p v-else>{{ product.variants[0]?.attributes.map(a=>`${a.name}: ${a.value}`).join(' · ') || product.variants[0]?.sku }}</p><strong>{{ amount(selected(product)?.price || product.variants[0]?.price,currency) }}</strong><p v-if="selected(product) && !available(selected(product)!)" class="muted">Sin disponibilidad</p><button type="button" class="button secondary" :disabled="busy||!!pending||loading||!!catalogError||!selected(product)||!available(selected(product)!)||cart.some(line=>line.id===selected(product)?.id)" :aria-label="`Agregar ${product.variants.length===1&&!supportsColorSize(product.variants)?product.variants[0].sku:product.name}`" @click="add(product)">{{ cart.some(line=>line.id===selected(product)?.id) ? 'En tu pedido' : 'Agregar' }}</button></article></div>
         <p v-if="!loading&&!products.length" class="muted">No hay artículos con esta búsqueda.</p><div v-if="lastPage>1" class="catalog-pagination"><button type="button" class="button secondary" :disabled="busy||loading||!!pending||page<=1" @click="catalog(page-1)">Anterior</button><span>{{ page }}/{{ lastPage }}</span><button type="button" class="button secondary" :disabled="busy||loading||!!pending||page>=lastPage" @click="catalog(page+1)">Siguiente</button></div>
     </section><section class="panel public-cart" aria-label="Tu pedido"><h2>Tu pedido</h2><p v-if="!cart.length" class="muted">Agrega artículos para comenzar.</p>
         <article v-for="line in cart" :key="line.id" class="public-cart-line"><strong>{{ line.name }}</strong><span>{{ amount(line.price,currency) }} por unidad</span><DecimalStepper v-model="line.quantity" :label="`Cantidad de ${line.name}`" positive :disabled="busy||!!pending"/><button type="button" class="text-button" :disabled="busy||!!pending" :aria-label="`Quitar ${line.name}`" @click="remove(line.id)">Quitar</button></article>

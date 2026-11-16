@@ -230,7 +230,7 @@ function add(product: SalesProduct, variant: SalesVariant) {
             price: variant.price,
             available: variant.available,
             attributes: variant.attributes,
-            image: product.image?.renditions.thumb.url || null,
+            image: variant.thumb_url || product.image?.renditions.thumb.url || null,
         });
 }
 async function commit(record: Record<string, any>) {

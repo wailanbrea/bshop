@@ -14,6 +14,8 @@ const rows = ref<StockRow[]>([]); const loading = ref(false); const page = ref(1
 const history = ref<Movement[]>([]); const historyOpen = ref(false); const historyVariant = ref<StockRow | null>(null); const historyLoading = ref(false); const historyPage = ref(1); const historyLastPage = ref(1);
 const selected = ref<StockRow | null>(null); const open = ref(false); const opener = ref<HTMLElement | null>(null); const operation = ref('receipt'); const amount = ref(''); const note = ref(''); const destination = ref<number | ''>('');
 const destinations = ref<{ id: number; name: string; store_name: string }[]>([]); const busy = ref(false); const formError = ref(''); const pending = ref<Record<string, unknown> | null>(null);
+const failedImages = ref<Set<number>>(new Set());
+function imageFailed(id: number) { failedImages.value = new Set([...failedImages.value, id]); }
 const warehouse = computed(() => props.warehouses.find(w => w.id === warehouseId.value));
 let sequence = 0; let historySequence = 0; let controller: AbortController | undefined; let timer: ReturnType<typeof setTimeout> | undefined;
 const root = computed(() => `/business/stores/${props.store?.id}`);
@@ -22,7 +24,7 @@ async function load(target = 1) {
     try {
         const response = await api.get(`${root.value}/warehouses/${warehouseId.value}/stock`, { signal: controller.signal, params: { q: query.value, filter: filter.value, page: target } });
         if (token !== sequence) return;
-        rows.value = response.data.data; page.value = response.data.meta.current_page; lastPage.value = response.data.meta.last_page; total.value = response.data.meta.total;
+        rows.value = response.data.data; failedImages.value = new Set(); page.value = response.data.meta.current_page; lastPage.value = response.data.meta.last_page; total.value = response.data.meta.total;
     } catch (e) { if (token === sequence && !axios.isCancel(e)) error.value = errorMessage(e); }
     finally { if (token === sequence) loading.value = false; }
 }
@@ -71,7 +73,7 @@ onUnmounted(() => { ++sequence; ++historySequence; controller?.abort(); clearTim
     <p v-if="error" class="notice error" role="alert">{{ error }}</p><p v-if="notice" class="notice success" role="status">{{ notice }}</p>
     <section class="panel inventory-filters" aria-label="Filtros de inventario">
         <label>Almacén<select v-model="warehouseId"><option v-for="item in warehouses" :key="item.id" :value="item.id">{{ item.name }}{{ item.is_active ? '' : ' · Inactivo' }}</option><option v-if="!warehouses.length" value="">Sin almacenes</option></select></label>
-        <label>Buscar existencias<input v-model="query" type="search" maxlength="120" placeholder="Producto, SKU o código de barras" autocomplete="off"></label>
+        <label>Buscar existencias<input v-model="query" type="search" maxlength="120" placeholder="Producto, SKU, color o talla" autocomplete="off"></label>
         <label>Disponibilidad<select v-model="filter"><option value="all">Todas</option><option value="available">Con disponible</option><option value="empty">Sin disponible</option></select></label>
         <button type="button" class="button secondary" :disabled="loading || !warehouseId" @click="load(page); historyOpen && loadHistory()">Actualizar inventario</button>
     </section>
@@ -80,7 +82,7 @@ onUnmounted(() => { ++sequence; ++historySequence; controller?.abort(); clearTim
     <div class="inventory-layout" :class="{ 'with-history': historyOpen }">
         <section class="panel" aria-label="Existencias por variante" :aria-busy="loading">
             <article v-for="row in rows" :key="row.variant_id" class="inventory-record">
-                <div><strong>{{ row.product_name }}</strong><p class="muted">{{ row.sku }} · {{ row.attributes.map(a => `${a.name}: ${a.value}`).join(' · ') || 'Variante general' }}</p><span v-if="!row.active" class="badge inactive">Inactivo</span></div>
+                <div class="inventory-identity"><div class="inventory-thumbnail"><img v-if="row.image_url && !failedImages.has(row.variant_id)" :src="row.image_url" :alt="`Foto de ${row.product_name}`" loading="lazy" @error="imageFailed(row.variant_id)"><span v-else role="img" aria-label="Sin fotografía">Sin foto</span></div><div><strong>{{ row.product_name }}</strong><p class="muted">{{ row.sku }} · {{ row.attributes.map(a => `${a.name}: ${a.value}`).join(' · ') || 'Variante general' }}</p><span v-if="!row.active" class="badge inactive">Inactivo</span></div></div>
                 <dl class="stock-metrics"><div><dt>Físico</dt><dd>{{ quantity(row.on_hand) }}</dd></div><div><dt>Reservado</dt><dd>{{ quantity(row.reserved) }}</dd></div><div><dt>Disponible</dt><dd :class="{ empty: row.available === '0.0000' }">{{ quantity(row.available) }}</dd></div></dl>
                 <div class="actions"><button type="button" class="button secondary" :aria-label="`Movimientos de ${row.sku}`" @click="viewHistory(row)">Movimientos</button><button v-if="manage" type="button" class="button primary" :disabled="!row.active || !warehouse?.is_active || !store?.is_active || loading" :aria-label="`Ajustar ${row.sku}`" @click="edit(row, $event)">Ajustar inventario</button></div>
             </article>
@@ -97,7 +99,7 @@ onUnmounted(() => { ++sequence; ++historySequence; controller?.abort(); clearTim
     </div>
     <AppDialog :open="open" title="Registrar movimiento de inventario" :busy="busy || !!pending" :return-focus="opener" @close="open = false">
         <p v-if="formError" class="notice error" role="alert">{{ formError }}</p>
-        <p v-if="selected" class="notice">{{ selected.product_name }} · {{ selected.sku }}<br>{{ store?.name }} / {{ warehouse?.name }}<br>Físico {{ quantity(selected.on_hand) }} · Reservado {{ quantity(selected.reserved) }} · Disponible {{ quantity(selected.available) }}</p>
+        <div v-if="selected" class="notice inventory-identity"><div class="inventory-thumbnail"><img v-if="selected.image_url && !failedImages.has(selected.variant_id)" :src="selected.image_url" :alt="`Foto de ${selected.product_name}`" @error="imageFailed(selected.variant_id)"><span v-else role="img" aria-label="Sin fotografía">Sin foto</span></div><div><strong>{{ selected.product_name }} · {{ selected.sku }}</strong><p>{{ selected.attributes.map(a => `${a.name}: ${a.value}`).join(' · ') || 'Variante general' }}</p><p>{{ store?.name }} / {{ warehouse?.name }}</p><p>Físico {{ quantity(selected.on_hand) }} · Reservado {{ quantity(selected.reserved) }} · Disponible {{ quantity(selected.available) }}</p></div></div>
         <p v-if="pending && !busy" class="notice" role="status">La respuesta no se pudo confirmar. Pulsa Reintentar operación para comprobar el resultado.</p>
         <form id="inventory-move" @submit.prevent="submit">
             <fieldset class="form-fields" :disabled="busy || !!pending">
@@ -120,6 +122,10 @@ onUnmounted(() => { ++sequence; ++historySequence; controller?.abort(); clearTim
 .inventory-record:first-child { padding-top: 0; }
 .inventory-record:last-child { border-bottom: 0; }
 .inventory-record strong { font-size: 17px; }
+.inventory-identity { display: flex; align-items: center; gap: 14px; min-width: 0; overflow-wrap: anywhere; }
+.inventory-identity > div:last-child { min-width: 0; }
+.inventory-thumbnail { width: 72px; height: 72px; flex: 0 0 72px; display: grid; place-items: center; overflow: hidden; border-radius: 12px; background: #f0edf7; color: #625a72; font-size: 12px; text-align: center; }
+.inventory-thumbnail img { width: 100%; height: 100%; object-fit: contain; }
 .stock-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .stock-metrics > div { border: 1px solid var(--line); background: #f9f8fe; padding: 12px; border-radius: 12px; min-width: 0; }
 dt { color: var(--muted); font-size: 13px; }

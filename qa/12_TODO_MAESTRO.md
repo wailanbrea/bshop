@@ -84,3 +84,9 @@ Decisión vigente: una instalación para KeylaShop y sus sucursales. Ver
 No se incluyen suscripciones SaaS, gestión de otros negocios ni administrador de
 plataforma. Los resultados previos al cambio de arquitectura se conservan como
 históricos y no sustituyen las pruebas del modelo actual.
+
+## Solicitud de ropa y fotografías
+- [x] Selección color/talla y disponibilidad por combinación en ventas, apartados y catálogo por enlace.
+- [x] Creación desde fotografías y existencia inicial opcional por variante con recuperación idempotente.
+- [x] Inventario visual por variante con miniatura y atributos en lista y ajuste.
+- [ ] Aceptación física, R2 real y publicación; evidencia y límites en `docs/ROPA_FOTOS_INVENTARIO.md`.

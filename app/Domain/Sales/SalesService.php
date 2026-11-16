@@ -6,7 +6,7 @@ use App\Domain\Business\AuditTrailService;
 use App\Domain\Business\IdempotentAction;
 use App\Domain\Business\StoreContext;
 use App\Domain\Inventory\StockLedger;
-use App\Domain\Media\ObjectStorage;
+use App\Domain\Media\VariantPhoto;
 use App\Models\BusinessProfile;
 use App\Models\Customer;
 use App\Models\Product;
@@ -148,10 +148,11 @@ final class SalesService
             $deadline = $data['mode'] === 'reservation' ? app(ReservationExpiry::class)->deadline() : null;
             foreach ($quote['lines'] as $line) {
                 $item = $order->items()->create(['store_id' => $order->store_id, 'variant_id' => $line['variant_id'], 'quantity' => $line['quantity'], 'unit_price' => $line['unit_price'], 'line_total' => $line['line_total'], 'product_name_snapshot' => $line['product_name'], 'sku_snapshot' => $line['sku'], 'variant_snapshot' => $line['variant']]);
-                $photo = $variants[$line['variant_id']]->product->images()->with('asset.renditions')->where('is_primary', true)->first();
-                $thumb = $photo?->asset?->renditions?->firstWhere('rendition', 'thumb');
-                if ($thumb) {
-                    $item->image_url_snapshot = app(ObjectStorage::class)->url($thumb);
+                $variant = $variants[$line['variant_id']];
+                $variant->product->loadMissing(['images.asset.renditions', 'variants.attributeValues.attribute']);
+                $thumbnail = app(VariantPhoto::class)->url($variant->product, $variant, 'thumb');
+                if ($thumbnail) {
+                    $item->image_url_snapshot = $thumbnail;
                     $item->save();
                 }
                 if (! $line['track_stock']) {

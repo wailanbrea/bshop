@@ -2,7 +2,11 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Domain\Business\IdempotentAction;
+use App\Domain\Business\StoreAuthorizationService;
+use App\Domain\Business\StoreContext;
 use App\Domain\Catalog\ProductService;
+use App\Domain\Inventory\InventoryService;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\ProductRequest;
 use App\Http\Requests\VariantRequest;
@@ -10,8 +14,12 @@ use App\Http\Resources\CatalogProductResource;
 use App\Http\Resources\CatalogVariantResource;
 use App\Models\Product;
 use App\Models\ProductVariant;
+use App\Models\User;
+use App\Rules\DecimalAmount;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class CatalogController extends Controller
 {
@@ -58,11 +66,53 @@ class CatalogController extends Controller
         return response()->json(['data' => ['product' => (new CatalogProductResource($product))->resolve($request), 'variants' => ['data' => CatalogVariantResource::collection($variants->items())->resolve($request), 'current_page' => $variants->currentPage(), 'last_page' => $variants->lastPage(), 'total' => $variants->total()]]]);
     }
 
-    public function create(ProductRequest $request, ProductService $service)
+    public function create(Request $request, ProductService $service, IdempotentAction $once, InventoryService $inventory, StoreAuthorizationService $stores)
     {
-        $product = $service->create($request->validated(), $request->user());
+        $key = $request->validate(['request_key' => ['sometimes', 'required', 'uuid']])['request_key'] ?? null;
+        $stock = $request->validate(['initial_stock' => ['sometimes', 'required', 'array'], 'initial_stock.store_id' => ['required_with:initial_stock', 'integer', 'min:1'], 'initial_stock.warehouse_id' => ['required_with:initial_stock', 'integer', 'min:1'], 'initial_stock.items' => ['required_with:initial_stock', 'array', 'min:1', 'max:100'], 'initial_stock.items.*.sku' => ['required', 'string', 'max:90'], 'initial_stock.items.*.quantity' => ['required', new DecimalAmount], 'initial_stock.items.*.request_key' => ['required', 'uuid', 'distinct']])['initial_stock'] ?? null;
+        if ($stock !== null && $key === null) {
+            throw ValidationException::withMessages(['request_key' => 'La existencia inicial requiere una clave de recuperación.']);
+        }
+        $create = function () use ($request, $service, $inventory, $stores, $stock) {
+            // Validate inside the idempotent transaction so a completed replay is not rejected by SKU uniqueness.
+            $form = ProductRequest::createFrom($request);
+            $form->setContainer(app())->setRedirector(app('redirect'));
+            $form->validateResolved();
 
-        return response()->json(['data' => (new CatalogProductResource($this->products()->findOrFail($product->id)))->resolve($request)], 201);
+            $product = $service->create($form->validated(), $request->user());
+            if ($stock !== null) {
+                $context = new StoreContext;
+                $context->useStore($stores->authorize($request->user(), (int) $stock['store_id']));
+                $variants = $product->variants()->get()->keyBy('sku');
+                $seen = [];
+                foreach ($stock['items'] as $item) {
+                    $sku = mb_strtoupper(trim($item['sku']));
+                    if (isset($seen[$sku]) || ! $variants->has($sku) || bccomp($item['quantity'], '0', 4) <= 0) {
+                        throw ValidationException::withMessages(['initial_stock' => 'Cada existencia debe corresponder a una variante nueva, única y con cantidad positiva.']);
+                    }
+                    $seen[$sku] = true;
+                    $inventory->move($context, ['warehouse_id' => (int) $stock['warehouse_id'], 'variant_id' => $variants[$sku]->id, 'operation' => 'receipt', 'quantity' => $item['quantity'], 'version' => 0, 'note' => 'Existencia inicial del producto', 'request_key' => $item['request_key']], $request->user());
+                }
+            }
+
+            return $product;
+        };
+        if ($key === null) {
+            $product = $create();
+
+            return response()->json(['data' => (new CatalogProductResource($this->products()->findOrFail($product->id)))->resolve($request)], 201);
+        }
+        $result = $once->run('catalog.product.create', $key, [$request->user()->id], $request->except('request_key'),
+            function () use ($request, $stock) {
+                $actor = User::whereKey($request->user()->id)->sharedLock()->firstOrFail();
+                abort_unless($actor->permits('catalog.manage') && ($stock === null || $actor->permits('inventory.manage')), 403);
+                if ($stock !== null) {
+                    abort_unless(DB::table('store_user')->where('user_id', $actor->id)->where('store_id', $stock['store_id'])->sharedLock()->first(), 404);
+                }
+            },
+            fn () => ['product_id' => $create()->id]);
+
+        return response()->json(['data' => (new CatalogProductResource($this->products()->findOrFail($result['product_id'])))->resolve($request), 'meta' => ['replay' => $result['replay']]], $result['replay'] ? 200 : 201);
     }
 
     public function update(ProductRequest $request, ProductService $service)

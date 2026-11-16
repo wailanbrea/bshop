@@ -6,11 +6,17 @@ use App\Domain\Business\InstallBusiness;
 use App\Domain\Media\GalleryService;
 use App\Domain\Media\MediaUploadService;
 use App\Domain\Media\ObjectStorage;
+use App\Models\AttributeValue;
+use App\Models\Customer;
 use App\Models\MediaAsset;
 use App\Models\MediaUploadSession;
+use App\Models\ProductAttribute;
+use App\Models\ProductVariant;
 use App\Models\Role;
 use App\Models\StorageQuota;
+use App\Models\Store;
 use App\Models\User;
+use App\Models\Warehouse;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Auth;
@@ -68,6 +74,52 @@ class MediaTest extends TestCase
         $this->get(str_replace('thumb/', 'original/', $image['renditions']['thumb']['url']))->assertNotFound();
         $this->getJson("/api/v1/business/products/{$this->product}")->assertOk()->assertJsonPath('data.product.images.0.id', $image['id']);
         $this->assertDatabaseHas('audit_logs', ['event' => 'media.published']);
+    }
+
+    public function test_inventory_uses_variant_thumbnail_then_primary_and_searches_attributes(): void
+    {
+        $color = ProductAttribute::create(['name' => 'Color', 'is_active' => true]);
+        $green = AttributeValue::create(['attribute_id' => $color->id, 'value' => 'Verde', 'is_active' => true]);
+        $black = AttributeValue::create(['attribute_id' => $color->id, 'value' => 'Negro', 'is_active' => true]);
+        $size = ProductAttribute::create(['name' => 'Talla', 'is_active' => true]);
+        $small = AttributeValue::create(['attribute_id' => $size->id, 'value' => 'S', 'is_active' => true]);
+        $medium = AttributeValue::create(['attribute_id' => $size->id, 'value' => 'M', 'is_active' => true]);
+        $material = ProductAttribute::create(['name' => 'Material', 'is_active' => true]);
+        $cotton = AttributeValue::create(['attribute_id' => $material->id, 'value' => 'Algodón', 'is_active' => true]);
+        $silk = AttributeValue::create(['attribute_id' => $material->id, 'value' => 'Seda', 'is_active' => true]);
+        $this->product = $this->postJson('/api/v1/business/products', ['name' => 'Blusa QA', 'product_type' => 'physical', 'track_stock' => true, 'unit_code' => 'unit', 'status' => 'active', 'variants' => [
+            ['sku' => 'PHOTO-BLACK', 'sale_price' => '25', 'attribute_value_ids' => [$black->id, $small->id, $cotton->id]],
+            ['sku' => 'PHOTO-GREEN', 'sale_price' => '25', 'attribute_value_ids' => [$green->id, $small->id, $cotton->id]],
+            ['sku' => 'PHOTO-GREEN-M', 'sale_price' => '25', 'attribute_value_ids' => [$green->id, $medium->id, $cotton->id]],
+            ['sku' => 'PHOTO-GREEN-SILK', 'sale_price' => '25', 'attribute_value_ids' => [$green->id, $medium->id, $silk->id]],
+        ]])->assertCreated()->json('data.id');
+        $variant = ProductVariant::where('sku', 'PHOTO-GREEN')->firstOrFail()->id;
+        $this->upload()->assertCreated();
+        $this->postJson("/api/v1/business/products/{$this->product}/images", ['request_key' => (string) Str::uuid(), 'file' => UploadedFile::fake()->image('green.jpg', 80, 80), 'variant_id' => $variant])->assertCreated();
+        $images = $this->gallery()['images'];
+        $primary = collect($images)->firstWhere('is_primary', true);
+        $specific = collect($images)->firstWhere('variant_id', $variant);
+        $root = '/api/v1/business/stores/'.Store::firstOrFail()->id.'/warehouses/'.Warehouse::firstOrFail()->id.'/stock';
+        $rows = collect($this->getJson($root)->assertOk()->json('data'))->keyBy('sku');
+        $this->assertSame($primary['renditions']['thumb']['url'], $rows['PHOTO-BLACK']['image_url']);
+        $this->assertSame($specific['renditions']['thumb']['url'], $rows['PHOTO-GREEN']['image_url']);
+        $this->assertSame($specific['renditions']['thumb']['url'], $rows['PHOTO-GREEN-M']['image_url']);
+        $this->assertSame($primary['renditions']['thumb']['url'], $rows['PHOTO-GREEN-SILK']['image_url']);
+        $this->getJson($root.'?q=Verde')->assertOk()->assertJsonCount(3, 'data');
+        $this->getJson($root.'?q=Color')->assertOk()->assertJsonCount(4, 'data');
+        $salesRoot = '/api/v1/business/stores/'.Store::firstOrFail()->id;
+        $catalog = collect($this->getJson($salesRoot.'/sales/catalog?warehouse_id='.Warehouse::firstOrFail()->id)->assertOk()->json('data'))->firstWhere('id', $this->product);
+        $sales = collect($catalog['variants'])->keyBy('sku');
+        $this->assertSame($specific['renditions']['card']['url'], $sales['PHOTO-GREEN-M']['image_url']);
+        $this->assertSame($specific['renditions']['thumb']['url'], $sales['PHOTO-GREEN-M']['thumb_url']);
+        $customer = Customer::factory()->create();
+        $greenMedium = ProductVariant::where('sku', 'PHOTO-GREEN-M')->firstOrFail()->id;
+        $this->postJson($salesRoot.'/inventory/movements', ['request_key' => (string) Str::uuid(), 'warehouse_id' => Warehouse::firstOrFail()->id, 'variant_id' => $greenMedium, 'operation' => 'receipt', 'quantity' => '2', 'version' => 0, 'note' => 'Entrada QA'])->assertCreated();
+        $draft = ['warehouse_id' => Warehouse::firstOrFail()->id, 'customer_id' => $customer->id, 'lines' => [['variant_id' => $greenMedium, 'quantity' => '1']], 'discount' => '0', 'shipping' => '0'];
+        $hash = $this->postJson($salesRoot.'/sales/quote', $draft)->assertOk()->json('data.quote_hash');
+        $this->postJson($salesRoot.'/sales/orders', [...$draft, 'mode' => 'reservation', 'initial_payment' => '0', 'payment_method' => 'cash', 'request_key' => (string) Str::uuid(), 'quote_hash' => $hash])->assertCreated()->assertJsonPath('data.order.items.0.image_url_snapshot', $specific['renditions']['thumb']['url']);
+        $link = $this->postJson($salesRoot.'/order-request-links', ['request_key' => (string) Str::uuid(), 'customer_id' => $customer->id, 'warehouse_id' => Warehouse::firstOrFail()->id, 'variant_ids' => [ProductVariant::where('sku', 'PHOTO-GREEN-M')->firstOrFail()->id], 'hours' => 24, 'shipping' => '0'])->assertCreated()->json('data.path');
+        $this->getJson('/api/v1/order-requests/'.basename($link).'/catalog?group_products=1')->assertOk()->assertJsonPath('data.0.variants.0.image_url', $specific['renditions']['card']['url']);
     }
 
     public function test_same_request_is_idempotent_and_different_source_conflicts(): void

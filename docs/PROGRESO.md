@@ -2296,3 +2296,18 @@ Fixtures y artefactos privados: `.runtime/reservation-qa-D28846BBAA97`.
 `testing/sqlite/:memory:`; Pint completo aprobado tras corregir formato. Ambos
 escenarios de límites de enlaces están validados en MySQL aislado; otras carreras
 y aceptación en el destino siguen pendientes. No se imprimieron tokens.
+
+## 2026-11-16 - Ropa, fotos y existencia inicial
+
+Se incorporaron selección color/talla por variante en ventas, edición de apartados
+y catálogo por enlace; miniaturas por variante/color en inventario y movimientos;
+y creación desde fotos con existencia inicial opcional por variante. El alta de
+producto y las entradas se confirman como una unidad idempotente; las fotos usan
+sus claves de carga y conservan un aviso por pestaña si requieren revisión.
+
+Verificación: `npm run build`, 287 pruebas PHP / 3.786 aserciones en SQLite de
+memoria y 820/820 casos de navegador emulado con API simulada; Pint aprobado.
+En MySQL 8.4 aislado, dos usuarios compitieron por la última unidad con resultado
+201/409; la creación con stock verificó replay y rollback. Las fechas, usuario,
+alcance, limitaciones y checklist están en `ROPA_FOTOS_INVENTARIO.md`. Pendientes
+la aceptación física, R2 real, CI remota y publicación en el destino.

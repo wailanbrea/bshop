@@ -13,6 +13,8 @@ import OrderShareLinks from './OrderShareLinks.vue';
 import PaymentHistory from './PaymentHistory.vue';
 import SalesReturnReceipt from './SalesReturnReceipt.vue';
 import CreditApplication from './CreditApplication.vue';
+import VariantSelector from './VariantSelector.vue';
+import { available, supportsColorSize } from '../lib/variantSelection';
 const props = defineProps<{
     order: SavedOrder;
     actorId: number;
@@ -43,6 +45,7 @@ const emit = defineEmits<{
 function editable(order: SavedOrder) { return props.permissions.includes('sales.create') && domainEditable(order); }
 const query = ref('');
 const products = ref<SalesProduct[]>([]);
+const selectedVariants = ref<Record<number, number | ''>>({});
 const searching = ref(false);
 const searchError = ref('');
 let timer: ReturnType<typeof setTimeout> | undefined;
@@ -53,6 +56,7 @@ watch(query, (value) => {
     controller?.abort();
     const token = ++version;
     products.value = [];
+    selectedVariants.value = {};
     if (!value.trim()) return;
     timer = setTimeout(async () => {
         searching.value = true;
@@ -152,13 +156,18 @@ onUnmounted(() => {
         <p v-if="searching" role="status">Buscando artículos…</p>
         <p v-if="searchError" class="notice error">{{ searchError }}</p>
         <section v-if="query.trim()" class="basket-product-results" aria-label="Resultados de artículos">
-            <template v-for="product in products.slice(0, 8)" :key="product.id"
-                ><button
+            <template v-for="product in products.slice(0, 8)" :key="product.id">
+                <div v-if="supportsColorSize(product.variants)" class="basket-product-result basket-variant-group">
+                    <strong>{{ product.name }}</strong>
+                    <VariantSelector v-model="selectedVariants[product.id]" :product-name="product.name" :variants="product.variants" :disabled="busy" />
+                    <button type="button" class="button secondary" :disabled="busy || !product.variants.find(v=>v.id===selectedVariants[product.id] && available(v))" :aria-label="`Agregar ${product.name}`" @click="emit('add',product,product.variants.find(v=>v.id===selectedVariants[product.id])!); query=''">Agregar artículo</button>
+                </div>
+                <button v-else
                     v-for="variant in product.variants"
                     :key="variant.id"
                     type="button"
                     class="basket-product-result"
-                    :disabled="busy || variant.available === '0.0000'"
+                    :disabled="busy || !available(variant)"
                     @click="
                         emit('add', product, variant);
                         query = '';
@@ -174,8 +183,7 @@ onUnmounted(() => {
                                 : `Disponible adicional: ${variant.available}`
                         }}</span
                     >
-                </button></template
-            >
+                </button></template>
             <p v-if="!searching && !products.length" class="muted">No hay artículos disponibles con esta búsqueda.</p>
         </section>
         <BasketItemsList

@@ -6,7 +6,7 @@ use App\Domain\Business\AuditTrailService;
 use App\Domain\Business\IdempotentAction;
 use App\Domain\Business\StoreContext;
 use App\Domain\Inventory\StockLedger;
-use App\Domain\Media\ObjectStorage;
+use App\Domain\Media\VariantPhoto;
 use App\Models\BusinessProfile;
 use App\Models\Customer;
 use App\Models\ProductVariant;
@@ -146,10 +146,10 @@ final class BasketService
                 $item = $old;
                 if ($target && ! $item) {
                     $item = $order->items()->create(['store_id' => $order->store_id, 'variant_id' => $variantId, 'quantity' => $target['quantity'], 'unit_price' => $target['unit_price'], 'line_total' => $target['line_total'], 'product_name_snapshot' => $variant->product->name, 'sku_snapshot' => $variant->sku, 'variant_snapshot' => $variant->attributeValues->map(fn ($v) => ['name' => $v->attribute->name, 'value' => $v->value])->all()]);
-                    $photo = $variant->product->images()->with('asset.renditions')->where('is_primary', true)->first();
-                    $thumb = $photo?->asset?->renditions?->firstWhere('rendition', 'thumb');
-                    if ($thumb) {
-                        $item->image_url_snapshot = app(ObjectStorage::class)->url($thumb);
+                    $variant->product->loadMissing(['images.asset.renditions', 'variants.attributeValues.attribute']);
+                    $thumbnail = app(VariantPhoto::class)->url($variant->product, $variant, 'thumb');
+                    if ($thumbnail) {
+                        $item->image_url_snapshot = $thumbnail;
                         $item->save();
                     }
                 }

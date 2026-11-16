@@ -6,6 +6,7 @@ use App\Domain\Business\StoreAuthorizationService;
 use App\Domain\Business\StoreContext;
 use App\Domain\Inventory\InventoryReconciliation;
 use App\Domain\Inventory\InventoryService;
+use App\Domain\Media\VariantPhoto;
 use App\Http\Controllers\Controller;
 use App\Models\InventoryMovement;
 use App\Models\ProductVariant;
@@ -36,13 +37,13 @@ class InventoryController extends Controller
     {
         $warehouse = $this->warehouse($request, $context);
         $data = $request->validate(['q' => ['nullable', 'string', 'max:120'], 'page' => ['nullable', 'integer', 'min:1'], 'filter' => ['nullable', 'in:all,available,empty']]);
-        $query = ProductVariant::withTrashed()->with(['product' => fn ($q) => $q->withTrashed(), 'attributeValues.attribute'])
+        $query = ProductVariant::withTrashed()->with(['product' => fn ($q) => $q->withTrashed()->with('images.asset.renditions'), 'attributeValues.attribute'])
             ->leftJoin('stock_balances as stock', fn ($join) => $join->on('stock.variant_id', '=', 'product_variants.id')->where('stock.warehouse_id', $warehouse->id))
             ->where(fn ($q) => $q->whereHas('product', fn ($p) => $p->where('status', 'active')->where('product_type', 'physical')->where('track_stock', true))->orWhereNotNull('stock.variant_id'))
             ->select('product_variants.*', 'stock.on_hand', 'stock.reserved', 'stock.version as stock_version');
         if (! empty($data['q'])) {
             $search = '%'.str_replace(['!', '%', '_'], ['!!', '!%', '!_'], trim($data['q'])).'%';
-            $query->where(fn ($q) => $q->whereRaw("product_variants.sku LIKE ? ESCAPE '!'", [$search])->orWhereRaw("product_variants.barcode LIKE ? ESCAPE '!'", [$search])->orWhereHas('product', fn ($p) => $p->withTrashed()->whereRaw("name LIKE ? ESCAPE '!'", [$search])));
+            $query->where(fn ($q) => $q->whereRaw("product_variants.sku LIKE ? ESCAPE '!'", [$search])->orWhereRaw("product_variants.barcode LIKE ? ESCAPE '!'", [$search])->orWhereHas('product', fn ($p) => $p->withTrashed()->whereRaw("name LIKE ? ESCAPE '!'", [$search]))->orWhereHas('attributeValues', fn ($v) => $v->whereRaw("value LIKE ? ESCAPE '!'", [$search])->orWhereHas('attribute', fn ($a) => $a->whereRaw("name LIKE ? ESCAPE '!'", [$search]))));
         }
         if (($data['filter'] ?? '') === 'available') {
             $query->whereRaw('COALESCE(stock.on_hand, 0) > COALESCE(stock.reserved, 0)');
@@ -51,11 +52,12 @@ class InventoryController extends Controller
             $query->whereRaw('COALESCE(stock.on_hand, 0) = COALESCE(stock.reserved, 0)');
         }
         $page = $query->orderBy('product_variants.sku')->paginate(24);
-        $rows = $page->getCollection()->map(function ($variant) use ($warehouse) {
+        $photoVariants = ProductVariant::with('attributeValues.attribute')->whereIn('id', $page->getCollection()->flatMap(fn ($v) => $v->product->images->pluck('variant_id'))->filter()->unique())->get()->keyBy('id');
+        $rows = $page->getCollection()->map(function ($variant) use ($warehouse, $photoVariants) {
             $onHand = bcadd((string) ($variant->on_hand ?? '0'), '0', 4);
             $reserved = bcadd((string) ($variant->reserved ?? '0'), '0', 4);
 
-            return ['variant_id' => $variant->id, 'warehouse_id' => $warehouse->id, 'sku' => $variant->sku, 'barcode' => $variant->barcode, 'product_name' => $variant->product->name, 'product_id' => $variant->product_id, 'unit_code' => $variant->product->unit_code, 'active' => ! $variant->trashed() && ! $variant->product->trashed() && $variant->is_active && $variant->product->status === 'active', 'attributes' => $variant->attributeValues->map(fn ($v) => ['name' => $v->attribute->name, 'value' => $v->value])->all(), 'on_hand' => $onHand, 'reserved' => $reserved, 'available' => bcsub($onHand, $reserved, 4), 'version' => (int) ($variant->stock_version ?? 0)];
+            return ['variant_id' => $variant->id, 'warehouse_id' => $warehouse->id, 'sku' => $variant->sku, 'barcode' => $variant->barcode, 'product_name' => $variant->product->name, 'product_id' => $variant->product_id, 'unit_code' => $variant->product->unit_code, 'image_url' => app(VariantPhoto::class)->url($variant->product, $variant, 'thumb', $photoVariants), 'active' => ! $variant->trashed() && ! $variant->product->trashed() && $variant->is_active && $variant->product->status === 'active', 'attributes' => $variant->attributeValues->map(fn ($v) => ['name' => $v->attribute->name, 'value' => $v->value])->all(), 'on_hand' => $onHand, 'reserved' => $reserved, 'available' => bcsub($onHand, $reserved, 4), 'version' => (int) ($variant->stock_version ?? 0)];
         });
 
         return response()->json(['data' => $rows, 'meta' => ['current_page' => $page->currentPage(), 'last_page' => $page->lastPage(), 'total' => $page->total()]]);

@@ -1,0 +1,55 @@
+# Ropa, fotos y existencia inicial
+
+## Operación
+
+- En ventas, apartados y el catálogo por enlace, los productos cuyas variantes
+  usan exactamente los atributos Color y Talla se seleccionan primero por color
+  y después por talla. Se muestran solo combinaciones existentes y la talla sin
+  disponible no se puede agregar. Cambiar color limpia la talla. Otros atributos
+  continúan usando la selección de variantes existente.
+- Las imágenes muestran la asociación de la variante exacta; si no existe, se
+  busca otra del mismo color y con los mismos atributos salvo talla, y finalmente
+  la principal. Así no se confunden, por ejemplo, materiales diferentes.
+  Inventario utiliza el derivado `thumb`; ventas y catálogo comprador usan `card`.
+- Inventario permite buscar por nombre de atributo o valor y muestra foto, SKU,
+  atributos, físico, reservado y disponible, también en el formulario de ajuste.
+  Si la imagen no está disponible se muestra `Sin foto`.
+- En Nuevo producto se pueden elegir hasta cinco fotos del mismo artículo,
+  previsualizarlas, cambiar la principal o retirarlas antes de guardar. Se siguen
+  aplicando las validaciones y el procesamiento de imágenes existentes.
+- La sección opcional Existencia inicial requiere `inventory.manage`, sucursal y
+  almacén autorizados. Las cantidades vacías o cero no producen movimientos. La
+  creación y las entradas por variante se confirman atómicamente mediante el
+  servicio de inventario; las claves de recuperación evitan duplicados.
+- Las fotos se envían después de crear el producto. Si una falla, se reintenta
+  con la misma clave sin crear otro producto. Tras recargar, la pestaña conserva
+  un aviso para revisar la galería del producto guardado; los archivos del
+  selector no sobreviven a la recarga y deben elegirse de nuevo si faltan.
+
+## Checklist de aceptación
+
+- [x] Color antes de talla, cambio de color, combinación inexistente y talla agotada.
+- [x] Variante exacta en ventas, apartado guardado y catálogo autorizado por enlace.
+- [x] Reserva, entrega y cancelación por variante; otros saldos conservados.
+- [x] Competencia de dos procesos por la última unidad en MySQL aislado (201/409).
+- [x] Fotos primero, principal, fallo de carga y reintento sin duplicar producto.
+- [x] Miniatura, atributos y marcador sin imagen en lista y ajuste de inventario.
+- [x] Existencia inicial por variante, movimientos y reintentos; permisos y rollback.
+- [x] Build, pruebas PHP y navegador en perfiles tablet, escritorio y móvil emulados.
+- [ ] Aceptación en los teléfonos y tablets físicos de la clienta.
+- [ ] Verificación de carga contra el proveedor R2 real cuando esté configurado.
+- [ ] Verificación remota de CI y publicación en la instalación de la clienta.
+
+## Evidencia local
+
+`npm run build`: aprobado. Suite PHP: 287 pruebas / 3.786 aserciones en
+`testing/sqlite/:memory:`. Navegadores: 820/820 en seis perfiles usando API
+simulada. `scripts/verify-sales-concurrency.php`: dos usuarios/procesos por la
+última unidad, 201/409, físico 1 y reservado 1. `scripts/verify-product-create-mysql.php`:
+alta con existencia por variante, replay y rollback de lote inválido aprobados.
+Ambos scripts verificaron MySQL 8.4 aislado en `127.0.0.1:33078`, base
+`bshop_testing_single`; no utilizaron datos del VPS ni la demo de la clienta.
+La prueba de concurrencia usa un producto sintético; la prueba de alta revierte
+su transacción de QA. Estas suites se ejecutaron sobre el árbol de trabajo completo,
+que también contenía cambios locales de fases anteriores; no son evidencia de CI
+del commit separado de esta solicitud.

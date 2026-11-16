@@ -4,7 +4,9 @@ namespace Tests\Feature;
 
 use App\Domain\Business\InstallBusiness;
 use App\Domain\Catalog\ProductService;
+use App\Models\AttributeValue;
 use App\Models\Customer;
+use App\Models\ProductAttribute;
 use App\Models\ProductVariant;
 use App\Models\SalesOrder;
 use App\Models\Store;
@@ -91,6 +93,32 @@ class OrderRequestLinksTest extends TestCase
         $this->assertDatabaseCount('stock_reservations', 0);
         $this->assertDatabaseCount('inventory_movements', 1);
         $this->assertDatabaseHas('share_links', ['id' => $link['link']['id'], 'status' => 'active', 'used_at' => null]);
+    }
+
+    public function test_grouped_catalog_contains_only_authorized_color_size_variants_and_real_availability(): void
+    {
+        $color = ProductAttribute::create(['name' => 'Color', 'is_active' => true]);
+        $size = ProductAttribute::create(['name' => 'Talla', 'is_active' => true]);
+        $green = AttributeValue::create(['attribute_id' => $color->id, 'value' => 'Verde', 'is_active' => true]);
+        $black = AttributeValue::create(['attribute_id' => $color->id, 'value' => 'Negro', 'is_active' => true]);
+        $small = AttributeValue::create(['attribute_id' => $size->id, 'value' => 'S', 'is_active' => true]);
+        $medium = AttributeValue::create(['attribute_id' => $size->id, 'value' => 'M', 'is_active' => true]);
+        $product = app(ProductService::class)->create(['name' => 'Blusa', 'product_type' => 'physical', 'track_stock' => true, 'unit_code' => 'unit', 'status' => 'active', 'variants' => [
+            ['sku' => 'PUBLIC-VS', 'sale_price' => '25', 'attribute_value_ids' => [$green->id, $small->id]],
+            ['sku' => 'PUBLIC-VM', 'sale_price' => '25', 'attribute_value_ids' => [$green->id, $medium->id]],
+            ['sku' => 'PUBLIC-NS', 'sale_price' => '25', 'attribute_value_ids' => [$black->id, $small->id]],
+        ]], $this->owner);
+        $ids = $product->variants()->pluck('id', 'sku');
+        $this->postJson($this->root().'/inventory/movements', ['request_key' => (string) Str::uuid(), 'warehouse_id' => $this->warehouse, 'variant_id' => $ids['PUBLIC-VS'], 'operation' => 'receipt', 'quantity' => '5', 'version' => 0, 'note' => 'Entrada QA'])->assertCreated();
+        $link = $this->issue(extra: ['variant_ids' => [$ids['PUBLIC-VS'], $ids['PUBLIC-NS']]])->assertCreated()->json('data');
+        $endpoint = $this->endpoint($link['path']);
+        $this->guest();
+        $response = $this->getJson($endpoint.'/catalog?group_products=1&q=Verde')->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.name', 'Blusa')->assertJsonCount(2, 'data.0.variants')->assertDontSee('PUBLIC-VM');
+        $rows = collect($response->json('data.0.variants'))->keyBy('sku');
+        $this->assertSame('5.0000', $rows['PUBLIC-VS']['available']);
+        $this->assertSame('0.0000', $rows['PUBLIC-NS']['available']);
+        $this->postJson($endpoint.'/quote', ['lines' => [['variant_id' => $ids['PUBLIC-VM'], 'quantity' => '1']]])->assertUnprocessable();
+        $this->assertDatabaseCount('stock_reservations', 0);
     }
 
     public function test_public_confirmation_is_once_bound_to_the_link_and_cannot_set_price_customer_or_payment(): void

@@ -161,7 +161,7 @@ onUnmounted(() => { unlockMenu?.(); drawerQuery.removeEventListener('change', sy
                         </template>
                     </template>
                     <SalesControlView v-else-if="page==='history'&&workspace.permissions.includes('sales.view')" :key="store?.id||'none'" :store="store" :business="workspace.business" @open-order="openSavedOrder" />
-                    <CatalogView v-else-if="page === 'catalog' && workspace.permissions.includes('catalog.view')" :business="workspace.business" :permissions="workspace.permissions" />
+                    <CatalogView v-else-if="page === 'catalog' && workspace.permissions.includes('catalog.view')" :business="workspace.business" :permissions="workspace.permissions" :actor-id="session.user.id" :store="store" :warehouses="warehouses" />
                     <InventoryView v-else-if="page === 'inventory' && workspace.permissions.includes('inventory.view')" :key="store?.id || 'none'" :store="store" :warehouses="warehouses" :permissions="workspace.permissions" />
                     <CustomersView v-else-if="page === 'customers' && workspace.permissions.includes('customers.view')" :key="store?.id || 'none'" :actor-id="session.user.id" :business="workspace.business" :store="store" :permissions="workspace.permissions" @open-order="openSavedOrder" />
                     <WeeklyAccountsView v-else-if="page==='weekly'&&workspace.permissions.includes('sales.view')&&workspace.permissions.includes('customers.view')" :key="store?.id||'none'" :actor-id="session.user.id" :store="store" :business="workspace.business" :permissions="workspace.permissions" @context-locked="weeklyContextLocked=$event" @open-order="openSavedOrder" />

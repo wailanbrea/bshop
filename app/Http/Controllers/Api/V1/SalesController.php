@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Domain\Business\StoreContext;
+use App\Domain\Media\VariantPhoto;
 use App\Domain\Sales\InvoiceDocument;
 use App\Domain\Sales\OrderInvoice;
 use App\Domain\Sales\OrderSettlement;
@@ -52,7 +53,7 @@ class SalesController extends Controller
                 'variants' => $product->variants->map(function ($variant) use ($product, $balances) {
                     $balance = $balances->get($variant->id);
 
-                    return ['id' => $variant->id, 'sku' => $variant->sku, 'price' => $variant->sale_price, 'available' => $product->track_stock ? bcsub((string) ($balance->on_hand ?? '0'), (string) ($balance->reserved ?? '0'), 4) : null, 'attributes' => $variant->attributeValues->map(fn ($v) => ['name' => $v->attribute->name, 'value' => $v->value])->all()];
+                    return ['id' => $variant->id, 'sku' => $variant->sku, 'price' => $variant->sale_price, 'image_url' => app(VariantPhoto::class)->url($product, $variant, 'card'), 'thumb_url' => app(VariantPhoto::class)->url($product, $variant, 'thumb'), 'available' => $product->track_stock ? bcsub((string) ($balance->on_hand ?? '0'), (string) ($balance->reserved ?? '0'), 4) : null, 'attributes' => $variant->attributeValues->map(fn ($v) => ['name' => $v->attribute->name, 'value' => $v->value])->all()];
                 })->all()];
         });
 
