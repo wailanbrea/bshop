@@ -78,3 +78,7 @@ catálogo y fotos. Dos procesos en MySQL 8.4 aislado crearon prendas simultánea
 reutilizando un único color y talla; evidencia privada
 `.runtime/clothing-options-638B42CBFD5A`. La instalación pública no se actualizó:
 el usuario técnico no tiene acceso a `C:\xampp\htdocs\keylashop` en el VPS.
+
+CI del commit `b922154`: [43893213824](https://github.com/wailanbrea/bshop/actions/runs/43893213824)
+completada con éxito, incluidos MySQL y los seis perfiles de navegador. La CI
+verifica el código del repositorio; no acredita el despliegue en la página pública.
