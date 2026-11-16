@@ -11,7 +11,7 @@ Route::get('/s/order/{token}', [SharedOrderController::class, 'show'])->middlewa
 Route::view('/s/{token}', 'app')->where('token', '[a-f0-9]{64}')->middleware(ProtectPublicOrder::class);
 Route::get('/webhooks/whatsapp', [WhatsAppWebhookController::class, 'verify']);
 Route::post('/webhooks/whatsapp', [WhatsAppWebhookController::class, 'receive']);
-Route::get('/media/catalog/{asset}/{rendition}/{hash}.webp', CatalogImageController::class)->whereNumber('asset')->where('rendition', 'thumb|card|detail')->where('hash', '[a-f0-9]{64}');
+Route::get('/media/catalog/{asset}/{rendition}/{hash}.webp', CatalogImageController::class)->withoutMiddleware('web')->whereNumber('asset')->where('rendition', 'thumb|card|detail')->where('hash', '[a-f0-9]{64}');
 
 Route::view('/reset-password/{token}', 'app')->name('password.reset');
 Route::view('/login', 'app')->name('login');

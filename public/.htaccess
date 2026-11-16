@@ -1,3 +1,10 @@
+<IfModule mod_headers.c>
+    # Only content-addressed public assets may override the vhost's no-store policy.
+    # Keep API responses, documents, sessions and failed media requests private.
+    Header onsuccess unset Cache-Control "expr=%{REQUEST_STATUS} == 200 && %{THE_REQUEST} =~ m#\s/(build/assets/[^/]+-[A-Za-z0-9_-]+\.(js|css)|media/catalog/[0-9]+/(thumb|card|detail)/[a-f0-9]{64}\.webp)(?:\?[^\s]*)?\s#"
+    Header always set Cache-Control "public, max-age=31536000, immutable" "expr=%{REQUEST_STATUS} == 200 && %{THE_REQUEST} =~ m#\s/(build/assets/[^/]+-[A-Za-z0-9_-]+\.(js|css)|media/catalog/[0-9]+/(thumb|card|detail)/[a-f0-9]{64}\.webp)(?:\?[^\s]*)?\s#"
+</IfModule>
+
 <IfModule mod_rewrite.c>
     <IfModule mod_negotiation.c>
         Options -MultiViews -Indexes

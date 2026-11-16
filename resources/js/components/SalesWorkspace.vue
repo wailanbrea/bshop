@@ -144,20 +144,9 @@ watch(() => saved.value?.id, () => {
         emit('openApartados', saved.value.id);
     }
 });
-watch(mode, (value) => {
-    if (!saved.value) history.replaceState({}, '', value === 'sale' ? '/app/ventas' : '/app/apartados/nuevo');
-});
-watch(mode, (value) => {
-    if (value === 'reservation' && props.active) emit('openApartados', saved.value?.id);
-});
-if (location.pathname.includes('/apartados/')) mode.value = 'reservation';
 
 function start(target: 'sale' | 'reservation') {
     if (locked.value) return;
-    if (target === 'reservation') {
-        emit('openApartados');
-        return;
-    }
     if (saved.value) draft.reset(target);
     else mode.value = target;
     mobilePanel.value = 'products';
@@ -169,10 +158,7 @@ function selectCustomer(value: SalesCustomer) {
 }
 function chooseCustomer() {
     customerOpener.value = document.activeElement as HTMLElement;
-    if (mode.value === 'reservation') {
-        mobilePanel.value = 'customers';
-        document.querySelector('.sales-customers input')?.scrollIntoView({ block: 'nearest' });
-    } else customerPicker.value = true;
+    customerPicker.value = true;
 }
 async function openHistory(target = 1) {
     emit('openApartados');
@@ -376,7 +362,7 @@ async function share() {
                     v-if="mode === 'reservation'"
                     type="button"
                     :class="{ active: mobilePanel === 'customers' }"
-                    @click="mobilePanel = 'customers'"
+                    @click="chooseCustomer"
                 >
                     Cliente</button
                 ><button type="button" :class="{ active: mobilePanel === 'summary' }" @click="mobilePanel = 'summary'">
@@ -386,20 +372,8 @@ async function share() {
             <div
                 v-if="warehouseId"
                 class="sales-layout"
-                :class="[{ reservation: mode === 'reservation' }, `show-${mobilePanel}`]"
+                :class="`show-${mobilePanel}`"
             >
-                <div v-if="mode === 'reservation'" class="sales-customers-pane">
-                    <SalesCustomers
-                        :root="root"
-                        :actor-id="actorId"
-                        :selected="customer"
-                        :manage="permissions.includes('customers.manage')"
-                        :currency="business.default_currency"
-                        :refresh="refresh"
-                        @select="selectCustomer"
-                        @open-order="openOrder"
-                    />
-                </div>
                 <div class="sales-products-pane">
                     <SalesProducts
                         :root="root"
@@ -407,7 +381,7 @@ async function share() {
                         :currency="business.default_currency"
                         :disabled="locked || !!saved || !canCreate"
                         :refresh="refresh"
-                        :mode="mode"
+                        mode="sale"
                         @add="draft.add"
                     />
                 </div>
