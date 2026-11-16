@@ -333,8 +333,6 @@ async function share() {
                 >
                 <div class="actions">
                     <button class="button secondary" :disabled="locked" @click="start('sale')">Nueva venta</button
-                    ><button class="button secondary" :disabled="locked" @click="start('reservation')">
-                        Nuevo apartado</button
                     ><button
                         class="button secondary"
                         :disabled="locked"

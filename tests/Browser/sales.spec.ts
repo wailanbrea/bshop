@@ -245,19 +245,19 @@ test('failed private PDF download stays visible and retries without issuing anot
 });
 
 for (const target of ['reservation', 'sale'] as const) {
-    test('cart mode preserves items and customer before ' + target, async ({page, sales}) => {
+    test('single cart preserves items and customer before ' + target, async ({page, sales}) => {
         await openSales(page);
         await add(page, 'Gafas de Sol');
         await summary(page);
         const url = page.url();
-        await page.locator('.sales-mode-switch').getByRole('button', {name:'Apartado', exact:true}).click();
+        await expect(page.locator('.sales-mode-switch')).toHaveCount(0);
+        await expect(page.getByRole('button', {name:'Nuevo apartado', exact:true})).toHaveCount(0);
         await expect(page).toHaveURL(url);
         await expect(page.locator('.sales-order-lines')).toContainText('Gafas de Sol');
         expect(sales.orders).toHaveLength(0);
         await selectMaria(page);
         await summary(page);
         await expect(page.locator('button.sales-selected-customer')).toContainText('María Demo');
-        if (target === 'sale') await page.locator('.sales-mode-switch').getByRole('button', {name:'Venta', exact:true}).click();
         await page.getByRole('button', {name:target === 'sale' ? 'Facturar y enviar' : 'Guardar como apartado', exact:true}).click();
         await expect.poll(() => sales.orders.length).toBe(1);
         expect(sales.writes[0].mode).toBe(target);
