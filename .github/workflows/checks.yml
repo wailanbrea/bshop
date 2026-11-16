@@ -62,6 +62,7 @@ jobs:
       - run: php scripts/verify-financial-concurrency-mysql.php --rounds=2
       - run: php scripts/verify-weekly-concurrency-mysql.php --rounds=2
       - run: php scripts/verify-product-create-mysql.php
+      - run: php scripts/verify-clothing-options-concurrency-mysql.php
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -75,6 +76,8 @@ jobs:
             .runtime/weekly-race-*/*.overlap.json
             .runtime/weekly-race-*/*.out
             .runtime/weekly-race-*/*.err
+            .runtime/clothing-options-*/*.out
+            .runtime/clothing-options-*/*.err
           include-hidden-files: true
           if-no-files-found: ignore
       - name: Stop owned QA container

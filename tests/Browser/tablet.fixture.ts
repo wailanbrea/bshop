@@ -11,6 +11,7 @@ async function mockAppAssets(page: Page) {
     const html = `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="csrf-token" content="browser-test">${css.map(file => `<link rel="stylesheet" href="/build/${file}">`).join('')}<script type="module" src="/build/${entry.file}"></script></head><body><div id="app"></div></body></html>`;
     await page.route('**/*', async route => {
         const request = route.request();
+        if (request.url().startsWith('blob:') || request.url().startsWith('data:')) return route.continue();
         if (request.isNavigationRequest()) return route.fulfill({ contentType: 'text/html', body: html });
         const url = new URL(request.url());
         if (url.pathname.startsWith('/api/')) return route.fallback();

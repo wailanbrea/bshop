@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Domain\Business\InstallBusiness;
 use App\Models\AttributeValue;
+use App\Models\Customer;
 use App\Models\Product;
 use App\Models\ProductAttribute;
 use App\Models\ProductVariant;
@@ -112,6 +113,84 @@ class CatalogTest extends TestCase
         $this->assertDatabaseMissing('stock_balances', ['variant_id' => $variants['BLACK-M']]);
         $this->postJson('/api/v1/business/products', $body)->assertOk()->assertJsonPath('meta.replay', true);
         $this->assertDatabaseCount('inventory_movements', 3);
+    }
+
+    public function test_clothing_creation_builds_reusable_color_size_variants_and_atomic_stock(): void
+    {
+        $body = $this->payload();
+        unset($body['variants']);
+        $body['request_key'] = (string) Str::uuid();
+        $body['clothing_variants'] = [
+            ['sku' => 'BLUSA-VS', 'sale_price' => '25', 'cost_price' => '12.50', 'color' => 'Verde', 'size' => 'S'],
+            ['sku' => 'BLUSA-VM', 'sale_price' => '25', 'color' => 'Verde', 'size' => 'M'],
+            ['sku' => 'BLUSA-NS', 'sale_price' => '25', 'color' => 'Negro', 'size' => 'S'],
+            ['sku' => 'BLUSA-NM', 'sale_price' => '25', 'color' => 'Negro', 'size' => 'M'],
+        ];
+        $body['initial_stock'] = ['store_id' => Store::firstOrFail()->id, 'warehouse_id' => Warehouse::firstOrFail()->id, 'items' => [
+            ['sku' => 'BLUSA-VS', 'quantity' => '5', 'request_key' => (string) Str::uuid()],
+            ['sku' => 'BLUSA-VM', 'quantity' => '3', 'request_key' => (string) Str::uuid()],
+            ['sku' => 'BLUSA-NS', 'quantity' => '2', 'request_key' => (string) Str::uuid()],
+        ]];
+        $id = $this->postJson('/api/v1/business/products', $body)->assertCreated()->json('data.id');
+        $this->postJson('/api/v1/business/products', $body)->assertOk()->assertJsonPath('meta.replay', true)->assertJsonPath('data.id', $id);
+        $ids = ProductVariant::where('product_id', $id)->pluck('id', 'sku');
+        $this->assertDatabaseCount('product_attributes', 2);
+        $this->assertDatabaseCount('attribute_values', 4);
+        $this->assertDatabaseCount('product_variants', 4);
+        $this->assertDatabaseHas('product_variants', ['id' => $ids['BLUSA-VS'], 'cost_price' => '12.5']);
+        $this->assertDatabaseCount('inventory_movements', 3);
+        foreach (['BLUSA-VS' => '5', 'BLUSA-VM' => '3', 'BLUSA-NS' => '2'] as $sku => $amount) {
+            $this->assertDatabaseHas('stock_balances', ['variant_id' => $ids[$sku], 'on_hand' => $amount, 'reserved' => '0']);
+        }
+        $this->assertDatabaseMissing('stock_balances', ['variant_id' => $ids['BLUSA-NM']]);
+        $root = '/api/v1/business/stores/'.Store::firstOrFail()->id;
+        $catalog = collect($this->getJson($root.'/sales/catalog?warehouse_id='.Warehouse::firstOrFail()->id)->assertOk()->json('data'))->firstWhere('id', $id);
+        $salesVariants = collect($catalog['variants'])->keyBy('sku');
+        $this->assertSame('5.0000', $salesVariants['BLUSA-VS']['available']);
+        $this->assertSame('0.0000', $salesVariants['BLUSA-NM']['available']);
+        $this->assertEqualsCanonicalizing([['name' => 'Color', 'value' => 'Verde'], ['name' => 'Talla', 'value' => 'S']], $salesVariants['BLUSA-VS']['attributes']);
+        $draft = ['warehouse_id' => Warehouse::firstOrFail()->id, 'customer_id' => Customer::factory()->create()->id, 'lines' => [['variant_id' => $ids['BLUSA-VS'], 'quantity' => '1']], 'discount' => '0', 'shipping' => '0'];
+        $quote = $this->postJson($root.'/sales/quote', $draft)->assertOk()->json('data.quote_hash');
+        $this->postJson($root.'/sales/orders', [...$draft, 'mode' => 'reservation', 'initial_payment' => '0', 'payment_method' => 'cash', 'request_key' => (string) Str::uuid(), 'quote_hash' => $quote])->assertCreated();
+        $this->assertDatabaseHas('stock_balances', ['variant_id' => $ids['BLUSA-VS'], 'on_hand' => '5', 'reserved' => '1']);
+        $this->assertDatabaseHas('stock_balances', ['variant_id' => $ids['BLUSA-VM'], 'on_hand' => '3', 'reserved' => '0']);
+    }
+
+    public function test_clothing_creation_reuses_existing_values_and_rolls_back_duplicate_combinations(): void
+    {
+        $color = ProductAttribute::create(['name' => 'COLOR', 'is_active' => true]);
+        $green = AttributeValue::create(['attribute_id' => $color->id, 'value' => 'verde', 'is_active' => true]);
+        $body = $this->payload();
+        unset($body['variants']);
+        $body['request_key'] = (string) Str::uuid();
+        $body['clothing_variants'] = [['sku' => 'GREEN-S', 'sale_price' => '25', 'color' => 'Verde', 'size' => 'S']];
+        $id = $this->postJson('/api/v1/business/products', $body)->assertCreated()->json('data.id');
+        $variant = ProductVariant::where('product_id', $id)->firstOrFail();
+        $this->assertDatabaseHas('variant_attribute_values', ['variant_id' => $variant->id, 'value_id' => $green->id]);
+        $this->assertDatabaseCount('product_attributes', 2);
+        $this->assertDatabaseCount('attribute_values', 2);
+        $bad = $body;
+        $bad['request_key'] = (string) Str::uuid();
+        $bad['clothing_variants'] = [['sku' => 'DUP-A', 'sale_price' => '25', 'color' => 'Azul', 'size' => 'L'], ['sku' => 'DUP-B', 'sale_price' => '25', 'color' => 'azul', 'size' => 'l']];
+        $this->postJson('/api/v1/business/products', $bad)->assertUnprocessable();
+        $this->assertDatabaseCount('products', 1);
+        $this->assertDatabaseMissing('attribute_values', ['attribute_id' => $color->id, 'value' => 'Azul']);
+    }
+
+    public function test_clothing_creation_rejects_cost_without_permission_and_rolls_back_new_options(): void
+    {
+        $role = Role::create(['code' => 'clothing-no-cost', 'label' => 'Catálogo sin costos', 'permissions' => ['catalog.view', 'catalog.manage']]);
+        $user = User::factory()->create();
+        $user->roles()->attach($role->id);
+        $this->actingAs($user);
+        $body = $this->payload();
+        unset($body['variants']);
+        $body['request_key'] = (string) Str::uuid();
+        $body['clothing_variants'] = [['sku' => 'NO-COST', 'sale_price' => '25', 'cost_price' => '5', 'color' => 'Verde', 'size' => 'S']];
+        $this->postJson('/api/v1/business/products', $body)->assertUnprocessable();
+        $this->assertDatabaseCount('products', 0);
+        $this->assertDatabaseCount('product_attributes', 0);
+        $this->assertDatabaseCount('attribute_values', 0);
     }
 
     public function test_initial_stock_requires_inventory_permission_and_an_authorized_store(): void

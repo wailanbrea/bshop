@@ -17,6 +17,12 @@
 - En Nuevo producto se pueden elegir hasta cinco fotos del mismo artículo,
   previsualizarlas, cambiar la principal o retirarlas antes de guardar. Se siguen
   aplicando las validaciones y el procesamiento de imágenes existentes.
+- Al activar **Esta prenda tiene colores y tallas**, se presentan colores y tallas
+  habituales para seleccionar y campos para añadir otros desde el mismo formulario.
+  La foto seleccionada permanece en una franja de referencia al desplazarse. Cada
+  combinación recibe un SKU automático editable, precio y cantidad propios del
+  producto; los valores de catálogo seleccionados se reutilizan o se crean de forma
+  transaccional al guardar. No se crean por anticipado todas las opciones sugeridas.
 - La sección opcional Existencia inicial requiere `inventory.manage`, sucursal y
   almacén autorizados. Las cantidades vacías o cero no producen movimientos. La
   creación y las entradas por variante se confirman atómicamente mediante el
@@ -60,3 +66,15 @@ intento 2: éxito en aplicación, MySQL y los seis perfiles de navegador. En el
 primer intento falló una prueba táctil de invitación de equipo; esa prueba pasó
 15 repeticiones locales y el perfil completo aprobó en el segundo intento. La
 instalación pública y los dispositivos físicos no se verificaron con este commit.
+
+### Mejora guiada posterior
+
+El formulario guiado se verificó localmente con atributos inicialmente ausentes,
+colores y tallas personalizados, reutilización de opciones, stock por combinación,
+reintento y conservación de la foto en pantalla al desplazarse. La suite PHP aprobó
+290 pruebas / 3.818 aserciones y la regresión de navegador 832/832 en seis perfiles;
+después de ajustar el fixture de imágenes `blob:` se repitieron 56 pruebas de
+catálogo y fotos. Dos procesos en MySQL 8.4 aislado crearon prendas simultáneas
+reutilizando un único color y talla; evidencia privada
+`.runtime/clothing-options-638B42CBFD5A`. La instalación pública no se actualizó:
+el usuario técnico no tiene acceso a `C:\xampp\htdocs\keylashop` en el VPS.

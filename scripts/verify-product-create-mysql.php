@@ -2,6 +2,7 @@
 
 use App\Domain\Business\IdempotentAction;
 use App\Domain\Business\StoreAuthorizationService;
+use App\Domain\Catalog\ClothingVariants;
 use App\Domain\Catalog\ProductService;
 use App\Domain\Inventory\InventoryService;
 use App\Http\Controllers\Api\V1\CatalogController;
@@ -31,7 +32,7 @@ function productQaCreate(array $body, User $owner)
     $request->headers->set('Accept', 'application/json');
     $request->setUserResolver(fn () => $owner);
 
-    return app(CatalogController::class)->create($request, app(ProductService::class), app(IdempotentAction::class), app(InventoryService::class), app(StoreAuthorizationService::class));
+    return app(CatalogController::class)->create($request, app(ProductService::class), app(IdempotentAction::class), app(InventoryService::class), app(StoreAuthorizationService::class), app(ClothingVariants::class));
 }
 
 $owner = User::where('is_active', true)->whereHas('roles', fn ($q) => $q->where('code', 'owner'))->firstOrFail();
@@ -55,6 +56,30 @@ try {
     productQaAssert($balance && bccomp((string) $balance->on_hand, '5', 4) === 0 && bccomp((string) $balance->reserved, '0', 4) === 0, 'Initial stock mismatch.');
     productQaAssert(! DB::table('stock_balances')->where('warehouse_id', $warehouse->id)->where('variant_id', $variants['INIT-'.$tag.'-N'])->exists(), 'Omitted variant unexpectedly received stock.');
     productQaAssert(DB::table('inventory_movements')->where('variant_id', $variants['INIT-'.$tag.'-V'])->where('movement_type', 'receipt')->count() === 1, 'Initial receipt was duplicated.');
+    $clothing = ['name' => 'Blusa QA '.$tag, 'product_type' => 'physical', 'track_stock' => true, 'unit_code' => 'unit', 'status' => 'active', 'request_key' => (string) Str::uuid(),
+        'clothing_variants' => [
+            ['sku' => 'CLOTH-'.$tag.'-VS', 'sale_price' => '25', 'color' => 'Verde', 'size' => 'S'],
+            ['sku' => 'CLOTH-'.$tag.'-VM', 'sale_price' => '25', 'color' => 'Verde', 'size' => 'M'],
+            ['sku' => 'CLOTH-'.$tag.'-NS', 'sale_price' => '25', 'color' => 'Negro', 'size' => 'S'],
+            ['sku' => 'CLOTH-'.$tag.'-NM', 'sale_price' => '25', 'color' => 'Negro', 'size' => 'M'],
+        ], 'initial_stock' => ['store_id' => $store->id, 'warehouse_id' => $warehouse->id, 'items' => [
+            ['sku' => 'CLOTH-'.$tag.'-VS', 'quantity' => '5', 'request_key' => (string) Str::uuid()],
+            ['sku' => 'CLOTH-'.$tag.'-VM', 'quantity' => '3', 'request_key' => (string) Str::uuid()],
+            ['sku' => 'CLOTH-'.$tag.'-NS', 'quantity' => '2', 'request_key' => (string) Str::uuid()],
+        ]]];
+    $createdClothing = productQaCreate($clothing, $owner);
+    $replayedClothing = productQaCreate($clothing, $owner);
+    $clothingId = $createdClothing->getData(true)['data']['id'];
+    productQaAssert($createdClothing->getStatusCode() === 201 && $replayedClothing->getStatusCode() === 200 && $replayedClothing->getData(true)['data']['id'] === $clothingId, 'Clothing replay failed.');
+    $clothingVariants = ProductVariant::where('product_id', $clothingId)->pluck('id', 'sku');
+    productQaAssert($clothingVariants->count() === 4, 'Clothing combinations missing.');
+    foreach (['VS' => '5', 'VM' => '3', 'NS' => '2'] as $suffix => $quantity) {
+        $variantId = $clothingVariants['CLOTH-'.$tag.'-'.$suffix];
+        $row = DB::table('stock_balances')->where('warehouse_id', $warehouse->id)->where('variant_id', $variantId)->first();
+        productQaAssert($row && bccomp((string) $row->on_hand, $quantity, 4) === 0 && bccomp((string) $row->reserved, '0', 4) === 0, 'Clothing variant balance mismatch.');
+        productQaAssert(DB::table('inventory_movements')->where('variant_id', $variantId)->count() === 1, 'Clothing receipt was duplicated.');
+    }
+    productQaAssert(! DB::table('stock_balances')->where('variant_id', $clothingVariants['CLOTH-'.$tag.'-NM'])->exists(), 'Unspecified clothing stock was invented.');
     $bad = $body;
     $bad['name'] = 'Producto fallido QA '.$tag;
     $bad['request_key'] = (string) Str::uuid();

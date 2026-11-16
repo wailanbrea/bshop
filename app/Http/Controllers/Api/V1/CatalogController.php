@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Domain\Business\IdempotentAction;
 use App\Domain\Business\StoreAuthorizationService;
 use App\Domain\Business\StoreContext;
+use App\Domain\Catalog\ClothingVariants;
 use App\Domain\Catalog\ProductService;
 use App\Domain\Inventory\InventoryService;
 use App\Http\Controllers\Controller;
@@ -66,17 +67,24 @@ class CatalogController extends Controller
         return response()->json(['data' => ['product' => (new CatalogProductResource($product))->resolve($request), 'variants' => ['data' => CatalogVariantResource::collection($variants->items())->resolve($request), 'current_page' => $variants->currentPage(), 'last_page' => $variants->lastPage(), 'total' => $variants->total()]]]);
     }
 
-    public function create(Request $request, ProductService $service, IdempotentAction $once, InventoryService $inventory, StoreAuthorizationService $stores)
+    public function create(Request $request, ProductService $service, IdempotentAction $once, InventoryService $inventory, StoreAuthorizationService $stores, ClothingVariants $clothing)
     {
         $key = $request->validate(['request_key' => ['sometimes', 'required', 'uuid']])['request_key'] ?? null;
+        $clothingRows = $request->validate(['clothing_variants' => ['sometimes', 'required', 'array', 'list', 'min:1', 'max:100'], 'clothing_variants.*.color' => ['required', 'string', 'max:120'], 'clothing_variants.*.size' => ['required', 'string', 'max:120'], 'clothing_variants.*.sku' => ['required', 'string', 'max:90'], 'clothing_variants.*.sale_price' => ['required', new DecimalAmount], 'clothing_variants.*.barcode' => ['nullable', 'string', 'max:100'], 'clothing_variants.*.cost_price' => $request->user()->permits('catalog.costs') ? ['nullable', new DecimalAmount] : ['missing'], 'clothing_variants.*.is_active' => ['sometimes', 'boolean']])['clothing_variants'] ?? null;
+        if ($clothingRows !== null && ($key === null || $request->has('variants'))) {
+            throw ValidationException::withMessages(['clothing_variants' => 'La ropa requiere una clave de recuperación y no puede mezclar variantes manuales.']);
+        }
         $stock = $request->validate(['initial_stock' => ['sometimes', 'required', 'array'], 'initial_stock.store_id' => ['required_with:initial_stock', 'integer', 'min:1'], 'initial_stock.warehouse_id' => ['required_with:initial_stock', 'integer', 'min:1'], 'initial_stock.items' => ['required_with:initial_stock', 'array', 'min:1', 'max:100'], 'initial_stock.items.*.sku' => ['required', 'string', 'max:90'], 'initial_stock.items.*.quantity' => ['required', new DecimalAmount], 'initial_stock.items.*.request_key' => ['required', 'uuid', 'distinct']])['initial_stock'] ?? null;
         if ($stock !== null && $key === null) {
             throw ValidationException::withMessages(['request_key' => 'La existencia inicial requiere una clave de recuperación.']);
         }
-        $create = function () use ($request, $service, $inventory, $stores, $stock) {
+        $create = function () use ($request, $service, $inventory, $stores, $stock, $clothing, $clothingRows) {
             // Validate inside the idempotent transaction so a completed replay is not rejected by SKU uniqueness.
             $form = ProductRequest::createFrom($request);
             $form->setContainer(app())->setRedirector(app('redirect'));
+            if ($clothingRows !== null) {
+                $form->merge(['variants' => $clothing->resolve($clothingRows, $request->user())]);
+            }
             $form->validateResolved();
 
             $product = $service->create($form->validated(), $request->user());

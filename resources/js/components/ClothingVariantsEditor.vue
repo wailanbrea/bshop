@@ -1,0 +1,42 @@
+<script setup lang="ts">
+import { computed, ref, watch } from 'vue';
+import type { CatalogOptions, ClothingDraft } from '../catalog';
+
+const props=defineProps<{options:CatalogOptions;modelValue:ClothingDraft[];disabled:boolean;inventoryManage:boolean;showStock:boolean}>();
+const emit=defineEmits<{ 'update:modelValue':[ClothingDraft[]]; valid:[boolean] }>();
+const defaultColors=['Negro','Blanco','Verde','Azul','Celeste','Rojo','Vino','Rosado','Beige','Crema','Gris','Marrón','Amarillo','Naranja','Morado','Dorado','Plateado','Multicolor'];
+const defaultSizes=['XXS','XS','S','M','L','XL','XXL','XXXL','4XL','5XL','Única'];
+const extraColors=ref<string[]>([]);const extraSizes=ref<string[]>([]);const customColor=ref('');const customSize=ref<Record<string,string>>({});const error=ref('');
+const normalize=(value:string)=>value.trim().toLocaleLowerCase('es');
+function choices(defaults:string[],attribute:string,extra:string[]){const existing=props.options.attributes.find(item=>normalize(item.name)===attribute&&item.is_active)?.values.filter(item=>item.is_active).map(item=>item.value)||[];const seen=new Set<string>();return [...defaults,...existing,...extra].filter(item=>{const key=normalize(item);if(!key||seen.has(key))return false;seen.add(key);return true;});}
+const colors=computed(()=>choices(defaultColors,'color',[...extraColors.value,...props.modelValue.map(item=>item.color)]));
+const sizes=computed(()=>choices(defaultSizes,'talla',[...extraSizes.value,...props.modelValue.map(item=>item.size)]));
+const selectedColors=ref<string[]>([...new Set(props.modelValue.map(item=>item.color))]);
+const remembered=ref<Record<string,ClothingDraft>>({});
+const paused=ref<Record<string,ClothingDraft[]>>({});
+const id=(color:string,size:string)=>`${normalize(color)}\u0000${normalize(size)}`;
+function row(color:string,size:string){return props.modelValue.find(item=>id(item.color,item.size)===id(color,size));}
+function publish(rows:ClothingDraft[]){emit('update:modelValue',rows);}
+function toggleColor(color:string){if(props.disabled)return;error.value='';const key=normalize(color);if(selectedColors.value.some(item=>normalize(item)===key)){const previous=props.modelValue.filter(item=>normalize(item.color)===key).map(item=>({...item}));paused.value[key]=previous;for(const item of previous)remembered.value[id(item.color,item.size)]={...item};selectedColors.value=selectedColors.value.filter(item=>normalize(item)!==key);publish(props.modelValue.filter(item=>normalize(item.color)!==key));}else{selectedColors.value=[...selectedColors.value,color];const previous=paused.value[key]||[];if(previous.length)publish([...props.modelValue,...previous]);delete paused.value[key];}}
+function toggleSize(color:string,size:string){if(props.disabled)return;error.value='';const key=id(color,size);const current=row(color,size);if(current){remembered.value[key]={...current};publish(props.modelValue.filter(item=>id(item.color,item.size)!==key));}else{const previous=remembered.value[key];const sku=previous?.sku||`ROPA-${crypto.randomUUID().replace(/-/g,'').slice(0,16).toUpperCase()}`;publish([...props.modelValue,previous||{color,size,sku,quantity:''}]);}}
+function update(color:string,size:string,field:'sku'|'quantity',value:string){publish(props.modelValue.map(item=>id(item.color,item.size)===id(color,size)?{...item,[field]:value}:item));}
+function addColor(){const value=customColor.value.trim();if(!value||value.length>120){error.value='Escribe un color de hasta 120 caracteres.';return;}const found=colors.value.find(item=>normalize(item)===normalize(value));if(!found)extraColors.value=[...extraColors.value,value];const selected=found||value;if(!selectedColors.value.some(item=>normalize(item)===normalize(selected)))selectedColors.value=[...selectedColors.value,selected];customColor.value='';error.value='';}
+function addSize(color:string){const value=(customSize.value[color]||'').trim();if(!value||value.length>120){error.value='Escribe una talla de hasta 120 caracteres.';return;}const found=sizes.value.find(item=>normalize(item)===normalize(value));if(!found)extraSizes.value=[...extraSizes.value,value];if(!row(color,found||value))toggleSize(color,found||value);customSize.value[color]='';error.value='';}
+watch([selectedColors,()=>props.modelValue],()=>emit('valid',selectedColors.value.length>0&&selectedColors.value.every(color=>props.modelValue.some(item=>normalize(item.color)===normalize(color)))&&props.modelValue.length<=100),{deep:true,immediate:true});
+</script>
+<template>
+    <section class="clothing-builder" aria-label="Colores y tallas de la ropa">
+        <h3>Colores y tallas</h3><p>Elige los colores de esta prenda y después marca las tallas de cada color.</p>
+        <p v-if="error" class="notice error" role="alert">{{ error }}</p>
+        <div class="choice-grid" role="group" aria-label="Colores disponibles"><button v-for="color in colors" :key="color" type="button" class="button" :class="selectedColors.some(item=>normalize(item)===normalize(color))?'primary':'secondary'" :aria-pressed="selectedColors.some(item=>normalize(item)===normalize(color))" :disabled="disabled" @click="toggleColor(color)">{{ color }}</button></div>
+        <div class="custom-choice"><label>Otro color<input v-model="customColor" maxlength="120" :disabled="disabled" placeholder="Escribe el color"></label><button type="button" class="button secondary" :disabled="disabled" @click="addColor">Añadir color</button></div>
+        <p v-if="!selectedColors.length" class="muted">Selecciona al menos un color.</p>
+        <article v-for="color in selectedColors" :key="color" class="color-group"><h4>{{ color }}</h4><p>Marca las tallas disponibles para {{ color }}.</p>
+            <div class="choice-grid" role="group" :aria-label="`Tallas de ${color}`"><button v-for="size in sizes" :key="size" type="button" class="button" :class="row(color,size)?'primary':'secondary'" :aria-pressed="!!row(color,size)" :disabled="disabled" @click="toggleSize(color,size)">{{ size }}</button></div>
+            <div class="custom-choice"><label :for="`custom-size-${colors.indexOf(color)}`">Otra talla para {{ color }}</label><input :id="`custom-size-${colors.indexOf(color)}`" v-model="customSize[color]" maxlength="120" :disabled="disabled" placeholder="Ej. 2XL o 28"><button type="button" class="button secondary" :disabled="disabled" @click="addSize(color)">Añadir talla para {{ color }}</button></div>
+            <p v-if="!modelValue.some(item=>normalize(item.color)===normalize(color))" class="muted">Marca al menos una talla para este color.</p>
+            <div class="combination-list"><article v-for="item in modelValue.filter(value=>normalize(value.color)===normalize(color))" :key="id(item.color,item.size)" class="combination"><strong>{{ item.color }} / {{ item.size }}</strong><label v-if="inventoryManage && showStock">Existencia inicial de {{ item.color }} / {{ item.size }}<input :value="item.quantity" inputmode="decimal" maxlength="20" placeholder="0" :disabled="disabled" @input="update(item.color,item.size,'quantity',($event.target as HTMLInputElement).value.replace(',','.'))"></label><details><summary>Referencia de {{ item.color }} / {{ item.size }}</summary><label>SKU de {{ item.color }} / {{ item.size }}<input :value="item.sku" maxlength="90" :disabled="disabled" @input="update(item.color,item.size,'sku',($event.target as HTMLInputElement).value)"></label></details></article></div>
+        </article>
+    </section>
+</template>
+<style scoped>.clothing-builder,.color-group,.combination{display:grid;gap:12px;min-width:0}.clothing-builder{padding:16px;border:1px solid #ddd5ec;border-radius:14px}.color-group,.combination{padding:14px;border:1px solid #e7e0ef;border-radius:12px}.choice-grid{display:flex;flex-wrap:wrap;gap:8px}.choice-grid .button,.custom-choice .button{min-height:48px;min-width:48px}.custom-choice{display:flex;flex-wrap:wrap;gap:8px;align-items:end}.custom-choice label{flex:1 1 180px}.custom-choice input{font-size:16px;min-width:0}.combination-list{display:grid;gap:10px}.combination summary{cursor:pointer;min-height:44px;display:flex;align-items:center}@media(max-width:480px){.custom-choice>*{width:100%}}</style>

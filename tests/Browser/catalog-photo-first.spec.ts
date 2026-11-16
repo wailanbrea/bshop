@@ -9,7 +9,7 @@ const test=base.extend<{catalog:State}>({catalog:async({page,businessState},use)
         if(match?.[2]&&req.method()==='GET')return route.fulfill({json:{data:{images:[],version:1,pending_uploads:0,quota:{max_bytes:2147483648,ready_bytes:0,pending_bytes:0,retained_bytes:0}}}});
         if(match&&req.method()==='GET'){const product=state.products.find(p=>p.id===Number(match[1]));return route.fulfill({json:{data:{product,variants:{data:[],current_page:1,last_page:1,total:0}}}});}
         if(req.method()==='GET')return route.fulfill({json:{data:state.products,meta:{current_page:1,last_page:1,total:state.products.length}}});
-        if(req.method()==='POST'){const body=req.postDataJSON();state.creates.push(body);let product=state.products.find(p=>p.key===body.request_key);if(!product){product={id:2,key:body.request_key,name:body.name,description:null,product_type:'physical',unit_code:'unit',track_stock:true,status:'active',version:1,category:null,brand:null,primary_sku:body.variants[0].sku,variants_count:1,active_variants_count:1,min_sale_price:'25.0000',max_sale_price:'25.0000',images:[]};state.products.push(product);}if(state.lostCreate){state.lostCreate=false;return route.abort('failed');}return route.fulfill({status:201,json:{data:product}});}
+        if(req.method()==='POST'){const body=req.postDataJSON();state.creates.push(body);let product=state.products.find(p=>p.key===body.request_key);if(!product){const variants=body.variants||body.clothing_variants;product={id:2,key:body.request_key,name:body.name,description:null,product_type:'physical',unit_code:'unit',track_stock:true,status:'active',version:1,category:null,brand:null,primary_sku:variants[0].sku,variants_count:variants.length,active_variants_count:variants.length,min_sale_price:'25.0000',max_sale_price:'25.0000',images:[]};state.products.push(product);}if(state.lostCreate){state.lostCreate=false;return route.abort('failed');}return route.fulfill({status:201,json:{data:product}});}
         return route.fulfill({status:403});
     });
     await use(state);expect(businessState.writes).toBe(0);
@@ -62,4 +62,31 @@ test('initial quantities are entered separately for color and size combinations'
     await dialog.getByLabel('Registrar entrada inicial por variante').check();await dialog.getByLabel(/VERDE-S ·/).fill('5');await dialog.getByLabel(/VERDE-M ·/).fill('3');
     await expect(dialog).toContainText('2 variantes con cantidad indicada');await dialog.getByRole('button',{name:'Guardar producto'}).click();await expect(dialog).not.toBeVisible();
     expect(catalog.creates).toHaveLength(1);expect(catalog.creates[0].initial_stock.items.map((item:any)=>({sku:item.sku,quantity:item.quantity}))).toEqual([{sku:'VERDE-S',quantity:'5'},{sku:'VERDE-M',quantity:'3'}]);
+});
+
+test('clothing can be created from photos using preset colors, sizes and individual quantities',async({page,catalog},testInfo)=>{
+    catalog.failPhoto=false;await page.goto('/');if((page.viewportSize()?.width||0)<768)await page.getByRole('button',{name:'Abrir menú',exact:true}).click();await page.getByRole('button',{name:'Catálogo',exact:true}).click();
+    await page.getByRole('button',{name:'+ Nuevo producto'}).click();const dialog=page.getByRole('dialog',{name:'Nuevo producto'});
+    const png=await page.evaluate(()=>{const canvas=document.createElement('canvas');canvas.width=64;canvas.height=64;const context=canvas.getContext('2d')!;context.fillStyle='#30935a';context.fillRect(0,0,64,64);return canvas.toDataURL('image/png').split(',')[1];});
+    await dialog.getByLabel('Seleccionar fotos').setInputFiles({name:'blusa.png',mimeType:'image/png',buffer:Buffer.from(png,'base64')});await expect(dialog.getByLabel('Fotos de referencia')).toBeVisible();await expect.poll(()=>dialog.getByAltText('Referencia 1').evaluate((image:HTMLImageElement)=>image.naturalWidth)).toBeGreaterThan(0);
+    await dialog.getByLabel('Nombre del producto').fill('Blusa');await dialog.getByLabel('Esta prenda tiene colores y tallas').check();await dialog.getByLabel('Precio de venta de la prenda').fill('25');
+    await dialog.getByLabel('Registrar entrada inicial por color y talla').check();const colors=dialog.getByRole('group',{name:'Colores disponibles'});await colors.getByRole('button',{name:'Verde',exact:true}).click();await colors.getByRole('button',{name:'Negro',exact:true}).click();
+    const green=dialog.getByRole('group',{name:'Tallas de Verde'});await green.getByRole('button',{name:'S',exact:true}).click();await green.getByRole('button',{name:'M',exact:true}).click();
+    const black=dialog.getByRole('group',{name:'Tallas de Negro'});await black.getByRole('button',{name:'S',exact:true}).click();await black.getByRole('button',{name:'M',exact:true}).click();
+    await dialog.getByLabel('Existencia inicial de Verde / S').fill('5');await dialog.getByLabel('Existencia inicial de Verde / M').fill('3');await dialog.getByLabel('Existencia inicial de Negro / S').fill('2');
+    await colors.getByRole('button',{name:'Negro',exact:true}).click();await colors.getByRole('button',{name:'Negro',exact:true}).click();await expect(dialog.getByLabel('Existencia inicial de Negro / S')).toHaveValue('2');
+    await page.setViewportSize({width:390,height:700});await dialog.getByLabel('Existencia inicial de Negro / S').scrollIntoViewIfNeeded();await expect(dialog.getByLabel('Fotos de referencia')).toBeInViewport();await page.screenshot({path:testInfo.outputPath('clothing-editor.png')});
+    await dialog.getByRole('button',{name:'Guardar producto'}).click();await expect(dialog).not.toBeVisible();
+    const body=catalog.creates[0];expect(body.clothing_variants.map((v:any)=>`${v.color}/${v.size}`)).toEqual(['Verde/S','Verde/M','Negro/S','Negro/M']);
+    expect(body.initial_stock.items.map((v:any)=>v.quantity)).toEqual(['5','3','2']);expect(body.variants).toBeUndefined();
+});
+
+test('custom colors and sizes can be added from the clothing form',async({page,catalog})=>{
+    await page.goto('/');if((page.viewportSize()?.width||0)<768)await page.getByRole('button',{name:'Abrir menú',exact:true}).click();await page.getByRole('button',{name:'Catálogo',exact:true}).click();
+    await page.getByRole('button',{name:'+ Nuevo producto'}).click();const dialog=page.getByRole('dialog',{name:'Nuevo producto'});
+    await dialog.getByLabel('Nombre del producto').fill('Prenda especial');await dialog.getByLabel('Esta prenda tiene colores y tallas').check();await dialog.getByLabel('Precio de venta de la prenda').fill('25');
+    await dialog.getByLabel('Otro color').fill('Lavanda');await dialog.getByRole('button',{name:'Añadir color',exact:true}).click();
+    await dialog.getByLabel('Otra talla para Lavanda').fill('2XL especial');await dialog.getByRole('button',{name:'Añadir talla para Lavanda'}).click();
+    await dialog.getByRole('button',{name:'Guardar producto'}).click();await expect(dialog).not.toBeVisible();
+    expect(catalog.creates[0].clothing_variants).toMatchObject([{color:'Lavanda',size:'2XL especial'}]);
 });

@@ -2311,3 +2311,24 @@ En MySQL 8.4 aislado, dos usuarios compitieron por la última unidad con resulta
 201/409; la creación con stock verificó replay y rollback. Las fechas, usuario,
 alcance, limitaciones y checklist están en `ROPA_FOTOS_INVENTARIO.md`. Pendientes
 la aceptación física, R2 real, CI remota y publicación en el destino.
+
+## 2026-11-16 - Alta guiada de ropa desde fotografías
+
+El usuario confirmó que necesita colores y tallas habituales seleccionables y la
+opción de añadir otros sin salir del formulario. Se agregó una modalidad de ropa
+con botones por color, tallas por color, cantidades individuales y referencias
+autogeneradas editables. Las fotos permanecen visibles como referencia al recorrer
+el formulario. Los valores se reutilizan o crean solo al confirmar, dentro de la
+transacción idempotente de producto e inventario; se preservan los flujos manuales.
+
+`PHP83 artisan test --compact`: 290 pruebas / 3.818 aserciones en SQLite de
+memoria. `npm run build`, Pint y 832/832 pruebas de navegador aprobados; tras
+corregir el fixture `blob:` se repitieron 56 pruebas de fotos/catálogo. El flujo
+de prueba incluye Verde/S=5, Verde/M=3, Negro/S=2 y Negro/M=0, y valores propios.
+MySQL 8.4 aislado `testing/mysql/127.0.0.1:33078/bshop_testing_single`: alta con
+stock/replay/rollback y dos creaciones simultáneas reutilizando los valores pasaron.
+Evidencia privada `.runtime/clothing-options-638B42CBFD5A`.
+
+La instalación pública no se modificó: por SSH el usuario `bsolutions` recibe
+acceso denegado al listar `C:\xampp\htdocs\keylashop`. Se requiere acceso autorizado
+al proyecto y verificación del estado antes de publicar; no se tocaron datos del VPS.

@@ -86,6 +86,7 @@ plataforma. Los resultados previos al cambio de arquitectura se conservan como
 históricos y no sustituyen las pruebas del modelo actual.
 
 ## Solicitud de ropa y fotografías
+- [x] Alta guiada de ropa con colores y tallas habituales, opciones propias y foto de referencia visible al completar el formulario.
 - [x] Selección color/talla y disponibilidad por combinación en ventas, apartados y catálogo por enlace.
 - [x] Creación desde fotografías y existencia inicial opcional por variante con recuperación idempotente.
 - [x] Inventario visual por variante con miniatura y atributos en lista y ajuste.
