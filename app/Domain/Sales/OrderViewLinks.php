@@ -42,7 +42,8 @@ final class OrderViewLinks
                 $order = SalesOrder::whereKey($order->id)->lockForUpdate()->firstOrFail();
                 abort_unless(in_array($order->status, ['reserved', 'confirmed', 'fulfilled'], true), 409, 'Guarda el apartado antes de compartirlo. Los pedidos cancelados no se comparten.');
                 abort_unless(Store::whereKey($order->store_id)->value('is_active'), 409, 'La sucursal está inactiva.');
-                abort_if(DB::table('order_view_links')->where('order_id', $id)->whereNull('revoked_at')->where('expires_at', '>', now())->count() >= 5, 409, 'Revoca un enlace activo antes de generar otro (máximo 5).');
+                // A locking read observes links committed while this transaction waited on the order.
+                abort_if(DB::table('order_view_links')->where('order_id', $id)->whereNull('revoked_at')->where('expires_at', '>', now())->lockForUpdate()->get(['id'])->count() >= 5, 409, 'Revoca un enlace activo antes de generar otro (máximo 5).');
                 $linkId = DB::table('order_view_links')->insertGetId(['order_id' => $id, 'store_id' => $order->store_id, 'created_by_user_id' => $actor->id,
                     'token_hash' => hash('sha256', $token), 'expires_at' => now()->addHours((int) $data['hours']), 'created_at' => now(), 'updated_at' => now()]);
                 $this->audit->record('order.view_link.created', $order, after: ['link_id' => $linkId, 'hours' => (int) $data['hours']], actor: $actor);

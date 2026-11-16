@@ -81,5 +81,9 @@ en Internet. El envío del enlace es manual; no dispara mensajes de WhatsApp.
   replay, nuevoUUID tras consumo, cambio de precio, sobrestock, expiry/revocación,
   emisor suspendido, alcance de sucursal y conservación de reservas al revocar.
 - Migración002100 aplicada en SQLite de demo con respaldo íntegro verificado.
-- Pendientes: MySQL aislado/concurrencia real de este módulo, edición de pedidos
-  ya guardados, validación HTTP pública en HTTPS y aceptación en tablet física.
+- En MySQL 8.4 aislado se reprodujo y corrigió una carrera al generar el quinto
+  enlace para un cliente: dos trabajadores esperaron el bloqueo de sucursal y solo
+  uno pudo completar la creación; el otro recibió 409. Evidencia privada en
+  `.runtime/reservation-qa-D28846BBAA97`. No cubre todas las carreras del módulo.
+- Pendientes: concurrencia adicional del módulo, edición de pedidos ya guardados,
+  validación HTTP pública en HTTPS y aceptación en tablet física.

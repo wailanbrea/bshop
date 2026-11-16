@@ -2258,3 +2258,41 @@ fallo con su ID; continuación explícita que vence el segundo; límites inváli
 fin de resultados. `PHP83 artisan test --compact`: 261 pruebas, 3.569 aserciones,
 destino `testing/sqlite/:memory:` forzado por PHPUnit y comprobado por TestCase.
 Pint completo aprobado. La continuación nueva no se ha ejecutado en MySQL.
+
+## 2026-11-15 - Límite de enlaces públicos bajo concurrencia MySQL
+
+CI del commit `da3d97f`: run 43780941921 completado con éxito:
+https://github.com/wailanbrea/bshop/actions/runs/43780941921
+
+En `testing/mysql`, host `127.0.0.1:33078`, base `bshop_testing_single`,
+MySQL 8.4.13 con datadir local verificado, se reprodujo una carrera real: con
+cuatro enlaces activos, dos trabajadores establecieron instantáneas y esperaron
+simultáneamente el bloqueo del pedido; ambos superaron el límite de cinco. El caso
+fallido utilizó únicamente fixtures sintéticos conservados para inspección.
+
+La consulta de enlaces activos usa ahora lectura con bloqueo después de bloquear
+el pedido, para ver confirmaciones posteriores a la instantánea anterior. El
+verificador volvió a ejecutarse: un trabajador creó el quinto, el otro recibió
+409 y quedaron cinco enlaces activos. Los otros ocho casos también aprobaron.
+Fixtures y artefactos privados: `.runtime/reservation-qa-E59B65D732A3`.
+No se registran tokens en los resultados del verificador.
+
+Regresión: `PHP83 artisan test --compact` aprobó 261 pruebas / 3.569 aserciones
+en `testing/sqlite/:memory:`; Pint completo aprobado. Es una carrera específica,
+no cobertura integral de todas las operaciones de enlaces ni prueba de carga.
+
+## 2026-11-15 - Límite concurrente de enlaces para nuevos pedidos
+
+En MySQL 8.4.13 aislado, `testing/mysql`, `127.0.0.1:33078`, base
+`bshop_testing_single`, datadir local verificado, se reprodujo una carrera análoga
+en la emisión de autorizaciones de pedido: dos procesos con una instantánea previa
+esperaron el bloqueo de sucursal y ambos pudieron superar cinco enlaces activos.
+La consulta de enlaces del cliente usa ahora lectura con bloqueo después de la
+adquisición de sucursal. Al repetir, uno creó el quinto enlace y el otro recibió
+409; quedaron cinco activos. También aprobaron los nueve casos anteriores.
+Fixtures y artefactos privados: `.runtime/reservation-qa-D28846BBAA97`.
+
+`PHP83 artisan test --compact`: 261 pruebas / 3.569 aserciones en
+`testing/sqlite/:memory:`; Pint completo aprobado tras corregir formato. Ambos
+escenarios de límites de enlaces están validados en MySQL aislado; otras carreras
+y aceptación en el destino siguen pendientes. No se imprimieron tokens.

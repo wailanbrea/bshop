@@ -6,6 +6,8 @@ use App\Domain\Catalog\ProductService;
 use App\Domain\Inventory\InventoryReconciliation;
 use App\Domain\Inventory\InventoryService;
 use App\Domain\Sales\BasketService;
+use App\Domain\Sales\OrderRequestLinks;
+use App\Domain\Sales\OrderViewLinks;
 use App\Domain\Sales\PaymentReversals;
 use App\Domain\Sales\ReservationExpiry;
 use App\Domain\Sales\SalesService;
@@ -100,19 +102,35 @@ if (($argv[1] ?? '') === 'worker') {
             file_put_contents($base.'.ready', (string) $connection);
             $result = ['row' => reservationQaRow($fixture)];
         } else {
-            reservationQaAssert(in_array($action, ['expire', 'payment'], true), 'Invalid worker operation.');
-            // Signal only AFTER the first consistent order read has established its snapshot.
-            DB::listen(function (QueryExecuted $query) use ($base) {
-                if (str_contains(strtolower($query->sql), 'from `orders`') && ! file_exists($base.'.ready')) {
-                    file_put_contents($base.'.ready', 'snapshot-established');
+            reservationQaAssert(in_array($action, ['expire', 'payment', 'view-link', 'request-link'], true), 'Invalid worker operation.');
+            // Signal after the relevant pre-lock reads; the parent also observes both SQL waiters.
+            $connection = DB::selectOne('SELECT CONNECTION_ID() AS id')->id;
+            DB::listen(function (QueryExecuted $query) use ($base, $connection, $action) {
+                $marker = $action === 'request-link' ? 'from `store_user`' : 'from `orders`';
+                if (str_contains(strtolower($query->sql), $marker) && ! file_exists($base.'.ready')) {
+                    file_put_contents($base.'.ready', (string) $connection);
                 }
             });
             if ($action === 'expire') {
                 $result = ['status' => app(ReservationExpiry::class)->inspect($fixture['order'], CarbonImmutable::now('UTC'), true)];
-            } else {
+            } elseif ($action === 'payment') {
                 try {
                     app(SalesService::class)->change(reservationQaContext($fixture['store']), $fixture['order'], 'payment', ['request_key' => (string) Str::uuid(), 'version' => 0, 'amount' => '1', 'payment_method' => 'cash'], User::findOrFail($fixture['actor']));
                     $result = ['status' => 200];
+                } catch (HttpException $error) {
+                    $result = ['status' => $error->getStatusCode()];
+                }
+            } elseif ($action === 'view-link') {
+                try {
+                    app(OrderViewLinks::class)->create(reservationQaContext($fixture['store']), $fixture['order'], User::findOrFail($fixture['actor']), ['request_key' => (string) Str::uuid(), 'hours' => 1]);
+                    $result = ['status' => 201];
+                } catch (HttpException $error) {
+                    $result = ['status' => $error->getStatusCode()];
+                }
+            } else {
+                try {
+                    app(OrderRequestLinks::class)->issue(reservationQaContext($fixture['store']), User::findOrFail($fixture['actor']), ['request_key' => (string) Str::uuid(), 'customer_id' => $fixture['customer'], 'warehouse_id' => $fixture['warehouse'], 'variant_ids' => [$fixture['variant']], 'hours' => 1, 'shipping' => '0']);
+                    $result = ['status' => 201];
                 } catch (HttpException $error) {
                     $result = ['status' => $error->getStatusCode()];
                 }
@@ -148,7 +166,7 @@ try {
         // Explicit past deadline belongs only to this newly-created synthetic order.
         DB::table('stock_reservations')->whereIn('order_item_id', DB::table('order_items')->where('order_id', $order['id'])->select('id'))->update(['expires_at' => now()->subHour()]);
 
-        return ['product' => $product->id, 'variant' => $variant->id, 'order' => $order['id'], 'store' => $store->id, 'warehouse' => $warehouse->id, 'actor' => $owner->id];
+        return ['product' => $product->id, 'variant' => $variant->id, 'order' => $order['id'], 'store' => $store->id, 'warehouse' => $warehouse->id, 'actor' => $owner->id, 'customer' => $customer->id];
     };
     foreach (['payment', 'delivery', 'edit'] as $case) {
         $fixture = $make($case);
@@ -235,6 +253,52 @@ try {
     reservationQaAssert(! $candidates->candidates($cutoff)->whereKey($fixture['order'])->exists(), 'Expired fixture remained eligible.');
     reservationQaAssert(reservationQaRow($fixture)['reserved'] === '0.0000', 'Expired fixture still reserves stock.');
     echo "PASS: MySQL candidate selector protects confirmed payment and allows expiry after reversal; history preserved.\n";
+
+    $fixture = $make('view-link');
+    $links = app(OrderViewLinks::class);
+    for ($i = 0; $i < 4; $i++) {
+        $links->create($context, $fixture['order'], $owner, ['request_key' => (string) Str::uuid(), 'hours' => 1]);
+    }
+    DB::beginTransaction();
+    SalesOrder::whereKey($fixture['order'])->lockForUpdate()->firstOrFail();
+    foreach (['view-link-a', 'view-link-b'] as $name) {
+        $workers[] = reservationQaWorker($directory, $name, $fixture, 'view-link');
+    }
+    reservationQaWait(fn () => count(array_filter($workers, fn ($w) => file_exists($w['base'].'.ready'))) === 2);
+    $connections = array_map(fn ($w) => (int) file_get_contents($w['base'].'.ready'), $workers);
+    reservationQaWait(function () use ($connections) {
+        return collect(DB::select('SHOW FULL PROCESSLIST'))->filter(fn ($p) => in_array((int) $p->Id, $connections, true) && str_contains(strtolower($p->Info ?? ''), 'for update') && str_contains(strtolower($p->Info ?? ''), '`orders`'))->count() === 2;
+    });
+    DB::commit();
+    $results = array_map(fn ($w) => reservationQaResult($w)['status'], $workers);
+    $workers = [];
+    sort($results);
+    reservationQaAssert($results === [201, 409], 'Concurrent view links did not enforce the active limit.');
+    reservationQaAssert(DB::table('order_view_links')->where('order_id', $fixture['order'])->whereNull('revoked_at')->where('expires_at', '>', now())->count() === 5, 'Unexpected number of active view links.');
+    echo "PASS: simultaneous view-link creation enforces the five-link limit.\n";
+
+    $fixture = $make('request-link');
+    $requests = app(OrderRequestLinks::class);
+    for ($i = 0; $i < 4; $i++) {
+        $requests->issue($context, $owner, ['request_key' => (string) Str::uuid(), 'customer_id' => $fixture['customer'], 'warehouse_id' => $fixture['warehouse'], 'variant_ids' => [$fixture['variant']], 'hours' => 1, 'shipping' => '0']);
+    }
+    DB::beginTransaction();
+    Store::whereKey($fixture['store'])->lockForUpdate()->firstOrFail();
+    foreach (['request-link-a', 'request-link-b'] as $name) {
+        $workers[] = reservationQaWorker($directory, $name, $fixture, 'request-link');
+    }
+    reservationQaWait(fn () => count(array_filter($workers, fn ($w) => file_exists($w['base'].'.ready'))) === 2);
+    $connections = array_map(fn ($w) => (int) file_get_contents($w['base'].'.ready'), $workers);
+    reservationQaWait(function () use ($connections) {
+        return collect(DB::select('SHOW FULL PROCESSLIST'))->filter(fn ($p) => in_array((int) $p->Id, $connections, true) && str_contains(strtolower($p->Info ?? ''), 'for update') && str_contains(strtolower($p->Info ?? ''), '`stores`'))->count() === 2;
+    });
+    DB::commit();
+    $results = array_map(fn ($w) => reservationQaResult($w)['status'], $workers);
+    $workers = [];
+    sort($results);
+    reservationQaAssert($results === [201, 409], 'Concurrent request links did not enforce the active limit.');
+    reservationQaAssert(DB::table('share_links')->where('store_id', $fixture['store'])->where('customer_id', $fixture['customer'])->where('status', 'active')->where('expires_at', '>', now())->count() === 5, 'Unexpected number of active request links.');
+    echo "PASS: simultaneous request-link creation enforces the five-link limit.\n";
 
     DB::beginTransaction();
     try {

@@ -75,4 +75,11 @@ La URL local de demo sólo es accesible desde su entorno local.
   sin overflow; captura `E:/KEYLASHOP/.playwright-mcp/shared-order-qa-390.png`.
 - Migración aditiva `2026_11_14_002000_create_order_view_links` aplicada sólo en
   SQLite local, tras respaldo verificado `.runtime/bshop-backup-20261114-040415.sqlite`.
-  MySQL y despliegue remoto pendientes; no se acredita concurrencia MySQL por SQLite.
+  Despliegue remoto pendiente.
+- En MySQL 8.4 aislado se reprodujo y corrigió una carrera del límite de cinco
+  enlaces: dos creaciones podían leer una instantánea anterior mientras esperaban
+  el bloqueo del pedido. La lectura con bloqueo revalida los enlaces confirmados.
+  Con cuatro enlaces previos y dos trabajadores bloqueados simultáneamente, uno
+  creó el quinto y el otro recibió 409; quedaron cinco activos. Evidencia privada:
+  `.runtime/reservation-qa-E59B65D732A3`. Esto no cubre todas las carreras de
+  enlaces ni sustituye la aceptación operativa.

@@ -34,6 +34,10 @@ conservados para inspección; no se borran registros de negocio.
 8. Pago confirmado excluido del selector; tras revertirlo mediante el servicio real,
    el mismo pedido es seleccionable y vence conservando el historial. Solo se
    consulta el selector filtrado por ese pedido y se aplica a ese fixture.
+9. Dos procesos crean enlaces públicos para un pedido con cuatro enlaces activos:
+   ambos esperan el bloqueo del pedido y solo uno puede crear el quinto enlace.
+10. Dos procesos generan autorizaciones de pedido para el mismo cliente con cuatro
+    enlaces activos: ambos esperan el bloqueo de sucursal y solo uno crea el quinto.
 
 Los procesos usan barreras de archivos y bloqueos reales. Para los casos de
 instantánea se señala después de la primera lectura consistente del pedido, con
@@ -50,10 +54,10 @@ falla una prueba. No se considera aprobado por superar solo la guardia de conexi
 
 ## Estado real
 
-El verificador se ejecutó completamente en MySQL 8.4.13 aislado: los ocho casos
+El verificador se ejecutó completamente en MySQL 8.4.13 aislado: los diez casos
 aprobaron, incluidos el rango decimal extremo y las carreras descritas arriba.
 Antes de ejecutarlo se verificó la conexión efectiva `testing/mysql`, host
 `127.0.0.1:33078`, base `bshop_testing_single` y datadir local del proyecto.
 Los fixtures sintéticos confirmados y los artefactos se conservaron en
-`.runtime/reservation-qa-DE8C727100F6`; el fixture extremo se revirtió.
+`.runtime/reservation-qa-D28846BBAA97`; el fixture extremo se revirtió.
 La ejecución persistente del programador en el destino sigue pendiente.

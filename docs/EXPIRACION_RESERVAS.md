@@ -103,7 +103,7 @@ históricas, apartado vacío, lotes y rollback completo. Pruebas sobre SQLite
 Doce casos nuevos de navegador cubren configuración y detalle en seis perfiles.
 
 La demo real se consultó sin aplicar vencimientos ni cambiar la configuración.
-El verificador en MySQL aislado aprobó sus ocho casos, incluido el selector tras
+El verificador en MySQL aislado aprobó sus diez casos, incluido el selector tras
 reversión de pago; ver
 `VERIFICACION_RESERVAS_MYSQL.md`. Pendientes: programador del destino, aceptación
 en tablet física y política comercial para cancelaciones con abonos.

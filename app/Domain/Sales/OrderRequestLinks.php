@@ -49,7 +49,8 @@ final class OrderRequestLinks
             Customer::where('status', 'active')->sharedLock()->findOrFail($data['customer_id']);
             $valid = ProductVariant::whereIn('id', $data['variant_ids'])->where('is_active', true)->whereHas('product', fn ($q) => $q->where('status', 'active'))->count();
             abort_unless($valid === count($data['variant_ids']), 409, 'Selecciona variantes activas del catálogo.');
-            abort_if(DB::table('share_links')->where('store_id', $store)->where('customer_id', $data['customer_id'])->where('status', 'active')->where('expires_at', '>', now())->count() >= 5, 409, 'Revoca un enlace activo de este cliente antes de generar otro.');
+            // Read the current committed links after acquiring the store lock.
+            abort_if(DB::table('share_links')->where('store_id', $store)->where('customer_id', $data['customer_id'])->where('status', 'active')->where('expires_at', '>', now())->lockForUpdate()->get(['id'])->count() >= 5, 409, 'Revoca un enlace activo de este cliente antes de generar otro.');
             $id = DB::table('share_links')->insertGetId(['store_id' => $store, 'customer_id' => $data['customer_id'], 'created_by_user_id' => $actor->id,
                 'token_hash' => hash('sha256', $token), 'status' => 'active', 'expires_at' => now()->addHours($data['hours']), 'created_at' => now(), 'updated_at' => now()]);
             DB::table('share_link_catalogs')->insert(['share_link_id' => $id, 'store_id' => $store, 'warehouse_id' => $data['warehouse_id'], 'variant_ids' => json_encode($data['variant_ids'], JSON_THROW_ON_ERROR), 'shipping_total' => $data['shipping']]);
