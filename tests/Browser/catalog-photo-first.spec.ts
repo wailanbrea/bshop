@@ -73,11 +73,13 @@ test('clothing can be created from photos using preset colors, sizes and individ
     await dialog.getByLabel('Registrar entrada inicial por color y talla').check();const colors=dialog.getByRole('group',{name:'Colores disponibles'});await colors.getByRole('button',{name:'Verde',exact:true}).click();await colors.getByRole('button',{name:'Negro',exact:true}).click();
     const green=dialog.getByRole('group',{name:'Tallas de Verde'});await green.getByRole('button',{name:'S',exact:true}).click();await green.getByRole('button',{name:'M',exact:true}).click();
     const black=dialog.getByRole('group',{name:'Tallas de Negro'});await black.getByRole('button',{name:'S',exact:true}).click();await black.getByRole('button',{name:'M',exact:true}).click();
+    await dialog.getByLabel('Precio para Verde / M (opcional)').fill('35');
     await dialog.getByLabel('Existencia inicial de Verde / S').fill('5');await dialog.getByLabel('Existencia inicial de Verde / M').fill('3');await dialog.getByLabel('Existencia inicial de Negro / S').fill('2');
     await colors.getByRole('button',{name:'Negro',exact:true}).click();await colors.getByRole('button',{name:'Negro',exact:true}).click();await expect(dialog.getByLabel('Existencia inicial de Negro / S')).toHaveValue('2');
     await page.setViewportSize({width:390,height:700});await dialog.getByLabel('Existencia inicial de Negro / S').scrollIntoViewIfNeeded();await expect(dialog.getByLabel('Fotos de referencia')).toBeInViewport();await page.screenshot({path:testInfo.outputPath('clothing-editor.png')});
     await dialog.getByRole('button',{name:'Guardar producto'}).click();await expect(dialog).not.toBeVisible();
     const body=catalog.creates[0];expect(body.clothing_variants.map((v:any)=>`${v.color}/${v.size}`)).toEqual(['Verde/S','Verde/M','Negro/S','Negro/M']);
+    expect(body.clothing_variants.map((v:any)=>v.sale_price)).toEqual(['25','35','25','25']);
     expect(body.initial_stock.items.map((v:any)=>v.quantity)).toEqual(['5','3','2']);expect(body.variants).toBeUndefined();
 });
 

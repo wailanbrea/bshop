@@ -23,7 +23,7 @@ export interface CatalogVariant {
 }
 export interface VariantPage { data: CatalogVariant[]; current_page: number; last_page: number; total: number }
 export interface VariantDraft { key: number; sku: string; barcode: string; description: string; sale_price: string; cost_price: string; is_active: boolean; selections: Record<number, number | ''> }
-export interface ClothingDraft { color:string; size:string; sku:string; quantity:string; description?:string }
+export interface ClothingDraft { color:string; size:string; sku:string; quantity:string; description?:string; sale_price?:string }
 export function emptyVariant(key: number): VariantDraft { return { key, sku: '', barcode: '', description: '', sale_price: '', cost_price: '', is_active: true, selections: {} }; }
 export function decimalInput(value: string): string { return value.replace(',', '.'); }
 /** Display decimal strings without passing money through JavaScript floating-point arithmetic. */

@@ -133,8 +133,17 @@ class MediaTest extends TestCase
         $this->assertSame($bytes, StorageQuota::find(1)->bytes_ready);
     }
 
+    public function test_product_can_have_six_photos_when_quota_allows_it(): void
+    {
+        for ($i = 0; $i < 6; $i++) {
+            $this->upload()->assertCreated();
+        }
+        $this->assertDatabaseCount('product_images', 6);
+    }
+
     public function test_five_photo_limit_and_quota_rejection_leave_no_partial_rows(): void
     {
+        StorageQuota::whereKey(1)->update(['max_images_per_product' => 5]);
         for ($i = 0; $i < 5; $i++) {
             $this->upload()->assertCreated();
         }
@@ -145,6 +154,7 @@ class MediaTest extends TestCase
 
     public function test_pending_uploads_count_toward_slots_and_quota(): void
     {
+        StorageQuota::whereKey(1)->update(['max_images_per_product' => 5]);
         $service = app(MediaUploadService::class);
         $input = ['declared_size' => 1024, 'declared_mime' => 'image/png', 'source_sha256' => str_repeat('a', 64)];
         for ($i = 0; $i < 5; $i++) {

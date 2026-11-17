@@ -20,7 +20,7 @@ class MediaController extends Controller
         $result = ['images' => ProductImageResource::collection($product->images)->resolve($request), 'version' => $product->lock_version];
         if ($request->user()->permits('catalog.manage')) {
             $quota = StorageQuota::findOrFail(1);
-            $result['quota'] = ['max_bytes' => $quota->max_bytes, 'ready_bytes' => $quota->bytes_ready, 'pending_bytes' => $quota->bytes_pending, 'retained_bytes' => $quota->bytes_retained];
+            $result['quota'] = ['max_bytes' => $quota->max_bytes, 'ready_bytes' => $quota->bytes_ready, 'pending_bytes' => $quota->bytes_pending, 'retained_bytes' => $quota->bytes_retained, 'max_images_per_product' => $quota->max_images_per_product];
             $result['pending_uploads'] = MediaUploadSession::where('product_id', $product->id)->whereIn('status', ['issued', 'uploaded'])->count();
         }
 
@@ -44,7 +44,7 @@ class MediaController extends Controller
 
     public function update(Request $request, GalleryService $service)
     {
-        $data = $request->validate(['version' => ['required', 'integer', 'min:0'], 'primary_id' => ['present', 'nullable', 'integer'], 'images' => ['present', 'array', 'list', 'max:5'], 'images.*.id' => ['required', 'integer', 'distinct'], 'images.*.variant_id' => ['nullable', 'integer', 'min:1'], 'images.*.alt_text' => ['nullable', 'string', 'max:255']]);
+        $data = $request->validate(['version' => ['required', 'integer', 'min:0'], 'primary_id' => ['present', 'nullable', 'integer'], 'images' => ['present', 'array', 'list', 'max:100'], 'images.*.id' => ['required', 'integer', 'distinct'], 'images.*.variant_id' => ['nullable', 'integer', 'min:1'], 'images.*.alt_text' => ['nullable', 'string', 'max:255']]);
         $data['version'] = (int) $data['version'];
         $data['primary_id'] = isset($data['primary_id']) ? (int) $data['primary_id'] : null;
         foreach ($data['images'] as &$image) {

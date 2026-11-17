@@ -8,7 +8,7 @@ const test=base.extend<{publicState:State}>({publicState:async({page,businessSta
     await page.route('**/api/v1/order-requests/**',async route=>{
         const url=new URL(route.request().url());const path=url.pathname.replace(`/api/v1/order-requests/${token}`,'');
         if(path==='')return route.fulfill({json:{data:{store_name:'KeylaShop pública',currency:'USD',status:state.confirmed?'used':'active',expires_at:'2026-11-21T12:00:00Z',shipping:'5.0000',receipt:state.confirmed?receipt():null}}});
-        if(path==='/catalog')return route.fulfill({json:{data:state.grouped?[{id:9,name:'Blusa',image_url:null,variants:[{id:201,sku:'VS',price:state.price,available:'5.0000',attributes:[{name:'Color',value:'Verde'},{name:'Talla',value:'S'}]},{id:202,sku:'NM',price:state.price,available:'0.0000',attributes:[{name:'Color',value:'Negro'},{name:'Talla',value:'M'}]}]}]:[{id:1,name:'Bolso autorizado',sku:'REQUEST-QA',price:state.price,available:true,attributes:[{name:'Color',value:'Violeta'}],image_url:null}],meta:{current_page:1,last_page:1,total:1}}});
+        if(path==='/catalog')return route.fulfill({json:{data:state.grouped?[{id:9,name:'Blusa',image_url:null,variants:[{id:201,sku:'VS',price:state.price,image_url:'/media/verde.webp',available:'5.0000',attributes:[{name:'Color',value:'Verde'},{name:'Talla',value:'S'}]},{id:203,sku:'VM',price:'35.0000',image_url:'/media/verde.webp',available:'2.0000',attributes:[{name:'Color',value:'Verde'},{name:'Talla',value:'M'}]},{id:202,sku:'NM',price:state.price,image_url:'/media/negro.webp',available:'0.0000',attributes:[{name:'Color',value:'Negro'},{name:'Talla',value:'M'}]}]}]:[{id:1,name:'Bolso autorizado',sku:'REQUEST-QA',price:state.price,available:true,attributes:[{name:'Color',value:'Violeta'}],image_url:null}],meta:{current_page:1,last_page:1,total:1}}});
         if(path==='/quote')return route.fulfill({json:{data:{currency:'USD',subtotal:state.price==='25.0000'?'50.0000':'60.0000',tax_total:'0.0000',shipping_total:'5.0000',grand_total:state.price==='25.0000'?'55.0000':'65.0000',quote_hash:state.price==='25.0000'?'a'.repeat(64):'b'.repeat(64),lines:[{variant_id:1,unit_price:state.price,line_total:state.price==='25.0000'?'50.0000':'60.0000'}]}}});
         if(path==='/confirm'){
             state.posts.push(route.request().postDataJSON());
@@ -23,7 +23,8 @@ const test=base.extend<{publicState:State}>({publicState:async({page,businessSta
 async function cart(page:import('@playwright/test').Page){
     await page.goto('/s/'+token);
     await expect(page.getByRole('heading',{name:'KeylaShop pública',exact:true})).toBeVisible();
-    await page.getByRole('button',{name:'Agregar REQUEST-QA',exact:true}).click();
+    await page.getByRole('button',{name:'Ver producto Bolso autorizado'}).click();
+    await page.getByRole('dialog',{name:'Bolso autorizado'}).getByRole('button',{name:'Agregar Bolso autorizado'}).click();
     await page.getByRole('region',{name:'Tu pedido',exact:true}).getByRole('textbox',{name:'Cantidad de Bolso autorizado · Color: Violeta',exact:true}).fill('2');
 }
 
@@ -64,11 +65,26 @@ test('changed prices preserve the public cart and require reviewing the new tota
     expect(publicState.posts).toHaveLength(2);expect(publicState.posts[1].request_key).not.toBe(publicState.posts[0].request_key);
 });
 
+test('customer opens a product and the selected color changes its photo and price',async({page,publicState})=>{
+    publicState.grouped=true;await page.goto('/s/'+token);
+    await page.getByRole('button',{name:'Ver producto Blusa'}).click();
+    const dialog=page.getByRole('dialog',{name:'Blusa'});
+    await expect(dialog.locator('.variant-hero img')).toHaveAttribute('src','/media/verde.webp');
+    await dialog.getByRole('button',{name:'Elegir color Negro (agotado)'}).click();
+    await expect(dialog.locator('.variant-hero img')).toHaveAttribute('src','/media/negro.webp');
+    await dialog.getByRole('button',{name:'Elegir color Verde'}).click();
+    await dialog.getByRole('button',{name:'Elegir talla S'}).click();
+    await expect(dialog.locator('.detail-price')).toContainText('25.00');
+    await dialog.getByRole('button',{name:'Elegir talla M'}).click();
+    await expect(dialog.locator('.detail-price')).toContainText('35.00');
+    await expect(dialog.getByRole('button',{name:'Agregar Blusa'})).toBeEnabled();
+});
+
 test('buyer selects color and size from only the authorized combinations',async({page,publicState})=>{
-    publicState.grouped=true;await page.goto('/s/'+token);const section=page.getByRole('region',{name:'Catálogo autorizado'});
-    const color=section.getByLabel('Color de Blusa');const size=section.getByLabel('Talla de Blusa');await expect(size).toBeDisabled();
+    publicState.grouped=true;await page.goto('/s/'+token);await page.getByRole('button',{name:'Ver producto Blusa'}).click();const section=page.getByRole('dialog',{name:'Blusa'});
+    const color=section.getByRole('combobox',{name:'Color de Blusa',exact:true});const size=section.getByRole('combobox',{name:'Talla de Blusa',exact:true});await expect(size).toBeDisabled();
     await color.selectOption('Negro');await expect(size.locator('option[value="M"]')).toBeDisabled();
-    await color.selectOption('Verde');await expect(size.locator('option[value="M"]')).toHaveCount(0);await size.selectOption('S');await expect(section).toContainText('Disponible: 5');
+    await color.selectOption('Verde');await expect(size.locator('option[value="M"]')).toBeEnabled();await size.selectOption('S');await expect(section).toContainText('Disponible: 5');
     await section.getByRole('button',{name:'Agregar Blusa'}).click();await page.getByRole('button',{name:'Revisar pedido'}).click();await page.getByRole('dialog').getByRole('button',{name:'Confirmar pedido'}).click();
     await expect.poll(()=>publicState.posts.length).toBe(1);expect(publicState.posts[0].lines).toEqual([{variant_id:201,quantity:'1'}]);
 });

@@ -54,9 +54,10 @@ test('staff authorizes variants and creates a customer-bound order link across r
         if(route.request().method()==='GET')return route.fulfill({json:{data:[]}});
         bodies.push(route.request().postDataJSON());return route.fulfill({status:201,json:{data:{link:{id:5,status:'active',expires_at:'2026-11-21T12:00:00Z'},path:'/s/'+'c'.repeat(64),replay:false}}});
     });
-    await page.route('**/api/v1/business/stores/*/sales/catalog?*',route=>route.fulfill({json:{data:[{id:1,name:'Bolso autorizado',variants:[{id:7,sku:'REQUEST-QA',price:'25.0000',attributes:[],available:'10.0000'}]}],meta:{current_page:1,last_page:1,total:1}}}));
+    await page.route('**/api/v1/business/stores/*/sales/catalog?*',route=>route.fulfill({json:{data:[{id:1,name:'Bolso autorizado',image:{renditions:{card:{url:'/media/bolso.webp'}}},variants:[{id:7,sku:'REQUEST-QA',price:'25.0000',attributes:[],available:'10.0000'}]}],meta:{current_page:1,last_page:1,total:1}}}));
     await openCustomers(page);await page.getByRole('button',{name:'Enlace para nuevo pedido',exact:true}).click();
     const dialog=page.getByRole('dialog',{name:'Enlace para nuevo pedido',exact:true});
+    await expect(dialog.getByAltText('Foto de Bolso autorizado')).toHaveAttribute('src','/media/bolso.webp');
     await dialog.getByRole('button',{name:/REQUEST-QA/}).click();
     await dialog.getByLabel('Envío acordado').fill('5');
     await page.setViewportSize({width:1024,height:380});

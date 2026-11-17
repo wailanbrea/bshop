@@ -54,8 +54,8 @@ final class MediaUploadService
             }
             // Current reads are essential after waiting for product/quota locks under MySQL REPEATABLE READ.
             $count = ProductImage::where('product_id', $productId)->lockForUpdate()->get(['id'])->count() + MediaUploadSession::where('product_id', $productId)->whereIn('status', ['issued', 'uploaded'])->lockForUpdate()->get(['id'])->count();
-            if ($count >= min(5, $quota->max_images_per_product)) {
-                throw ValidationException::withMessages(['file' => 'Máximo 5 fotos por producto, incluidas variantes y cargas pendientes.']);
+            if ($count >= $quota->max_images_per_product) {
+                throw ValidationException::withMessages(['file' => "Máximo {$quota->max_images_per_product} fotos por producto, incluidas variantes y cargas pendientes."]);
             }
             if ($input['declared_size'] < 1 || $input['declared_size'] > min(10485760, $quota->max_single_upload_bytes)) {
                 throw ValidationException::withMessages(['file' => 'La fotografía supera el límite de carga de 10 MiB.']);

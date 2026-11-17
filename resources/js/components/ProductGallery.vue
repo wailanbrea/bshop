@@ -8,10 +8,10 @@ const props = defineProps<{ open: boolean; product: CatalogProduct | null; varia
 const emit = defineEmits<{ close: []; changed: [] }>();
 const images = ref<ProductImage[]>([]); const primary = ref<number | null>(null); const active = ref(0); const version = ref(0);
 const loading = ref(false); const busy = ref(false); const error = ref(''); const notice = ref(''); const pending = ref(0);
-const quota = ref<{ max_bytes: number; ready_bytes: number; pending_bytes: number; retained_bytes: number }>();
+const quota = ref<{ max_bytes: number; ready_bytes: number; pending_bytes: number; retained_bytes: number; max_images_per_product: number }>();
 const file = ref<File | null>(null); const preview = ref(''); const key = ref(''); const alt = ref(''); const variant = ref<number | ''>('');
 const current = computed(() => images.value[active.value]);
-const uploadAllowed = computed(() => props.manage && props.product?.status === 'active' && images.value.length + pending.value < 5);
+const uploadAllowed = computed(() => props.manage && props.product?.status === 'active' && images.value.length + pending.value < (quota.value?.max_images_per_product ?? 5));
 const used = computed(() => quota.value ? ((quota.value.ready_bytes + quota.value.pending_bytes + quota.value.retained_bytes) / 1048576).toFixed(1) : '0');
 let touchX = 0; let sequence = 0; let lastProduct = 0;
 function resetFile() { if (preview.value) URL.revokeObjectURL(preview.value); preview.value = ''; file.value = null; key.value = ''; }
@@ -80,7 +80,7 @@ onUnmounted(() => { ++sequence; resetFile(); });
         <p v-if="error" class="notice error" role="alert">{{ error }}</p><p v-if="notice" class="notice success" role="status">{{ notice }}</p>
         <p v-if="loading" role="status">Cargando galería…</p>
         <fieldset :disabled="busy || loading" class="photo-fieldset">
-            <p class="muted">{{ images.length }} de 5 fotos · JPEG, PNG o WebP · máximo 10 MiB y 20 MP.</p>
+            <p class="muted">{{ images.length }} de {{ quota?.max_images_per_product ?? 5 }} fotos · JPEG, PNG o WebP · máximo 10 MiB y 20 MP.</p>
             <p v-if="quota" class="muted">Almacenamiento del negocio: {{ used }} / {{ (quota.max_bytes / 1048576).toFixed(0) }} MiB, incluidos pendientes y retenidos.</p>
             <div v-if="current" class="photo-viewer" @touchstart.passive="touchX = $event.touches[0].clientX" @touchend.passive="Math.abs($event.changedTouches[0].clientX - touchX) > 60 && step($event.changedTouches[0].clientX < touchX ? 1 : -1)">
                 <img :src="current.renditions.detail.url || undefined" :alt="current.alt_text || product?.name" decoding="async">

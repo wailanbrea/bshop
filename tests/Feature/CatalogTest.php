@@ -122,7 +122,7 @@ class CatalogTest extends TestCase
         $body['request_key'] = (string) Str::uuid();
         $body['clothing_variants'] = [
             ['sku' => 'BLUSA-VS', 'sale_price' => '25', 'cost_price' => '12.50', 'color' => 'Verde', 'size' => 'S', 'description' => 'Verde con detalles dorados'],
-            ['sku' => 'BLUSA-VM', 'sale_price' => '25', 'color' => 'Verde', 'size' => 'M'],
+            ['sku' => 'BLUSA-VM', 'sale_price' => '35', 'color' => 'Verde', 'size' => 'M'],
             ['sku' => 'BLUSA-NS', 'sale_price' => '25', 'color' => 'Negro', 'size' => 'S'],
             ['sku' => 'BLUSA-NM', 'sale_price' => '25', 'color' => 'Negro', 'size' => 'M'],
         ];
@@ -147,6 +147,7 @@ class CatalogTest extends TestCase
         $catalog = collect($this->getJson($root.'/sales/catalog?warehouse_id='.Warehouse::firstOrFail()->id)->assertOk()->json('data'))->firstWhere('id', $id);
         $salesVariants = collect($catalog['variants'])->keyBy('sku');
         $this->assertSame('Verde con detalles dorados', $salesVariants['BLUSA-VS']['description']);
+        $this->assertSame('35.0000', $salesVariants['BLUSA-VM']['price']);
         $this->assertSame('5.0000', $salesVariants['BLUSA-VS']['available']);
         $this->assertSame('0.0000', $salesVariants['BLUSA-NM']['available']);
         $this->assertEqualsCanonicalizing([['name' => 'Color', 'value' => 'Verde'], ['name' => 'Talla', 'value' => 'S']], $salesVariants['BLUSA-VS']['attributes']);

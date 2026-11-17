@@ -34,7 +34,7 @@ final class InstallBusiness
             DB::table('store_user')->insert(['user_id' => $owner->id, 'store_id' => $store->id]);
             Warehouse::create(['store_id' => $store->id, 'name' => 'Almacén principal', 'is_default' => true]);
             DB::table('business_settings')->insert(['id' => 1]);
-            DB::table('storage_quota')->insert(['id' => 1]);
+            DB::table('storage_quota')->insert(['id' => 1, 'max_images_per_product' => 100]);
             app(AuditTrailService::class)->record('business.installed', $profile, actor: $owner);
 
             return $profile;
