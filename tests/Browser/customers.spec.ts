@@ -67,6 +67,34 @@ test('staff authorizes variants and creates a customer-bound order link across r
     expect(customers.writes).toHaveLength(0);
 });
 
+test('customer view menu opens the generated customer link without confirming a purchase',async({page,customers})=>{
+    const access=[...permissions,'customers.view','sales.view','sales.create'];
+    await page.route('**/api/v1/session',route=>route.fulfill({json:{data:{user:{id:1,name:'QA',email:'qa@example.test'},business,roles:['QA'],permissions:access}}}));
+    await page.route('**/api/v1/business/workspace',route=>route.fulfill({json:{data:{business,stores,permissions:access}}}));
+    const posts:any[]=[];
+    await page.route('**/api/v1/business/stores/*/order-request-links*',route=>{
+        if(route.request().method()==='GET')return route.fulfill({json:{data:[]}});
+        posts.push(route.request().postDataJSON());
+        return route.fulfill({status:201,json:{data:{link:{id:5,status:'active',expires_at:'2026-11-21T12:00:00Z'},path:'/s/'+'c'.repeat(64)}}});
+    });
+    await page.route('**/api/v1/business/stores/*/sales/catalog?*',route=>route.fulfill({json:{data:[{id:1,name:'Bolso',variants:[{id:7,sku:'REQUEST-QA',price:'25.0000',attributes:[],available:'10.0000'}]}]}}));
+    await page.goto('/app/vista-cliente');
+    await expect(page.getByRole('heading',{name:'Vista del cliente'}).first()).toBeVisible();
+    await page.getByRole('button',{name:/María QA/}).click();
+    await expect(page.getByText(/se crea un apartado en el sistema/)).toBeVisible();
+    await page.getByRole('button',{name:'Enlace para nuevo pedido',exact:true}).click();
+    const dialog=page.getByRole('dialog',{name:'Enlace para nuevo pedido'});
+    await dialog.getByRole('button',{name:/REQUEST-QA/}).click();
+    await dialog.getByRole('button',{name:'Generar enlace de pedido'}).click();
+    const link=dialog.getByRole('link',{name:'Abrir vista del cliente'});
+    await expect(link).toHaveAttribute('href',new RegExp('/s/c{64}$'));
+    await expect(link).toHaveAttribute('target','_blank');
+    expect(posts).toHaveLength(1);
+    expect(posts[0].customer_id).toBe(1);
+    expect(posts[0].variant_ids).toEqual([7]);
+    expect(customers.writes).toHaveLength(0);
+});
+
 test('customer profile edits survive rotation and archive/reactivate preserves balances',async ({page,customers}) => {
     await openCustomers(page);
     await page.getByRole('button',{name:'Editar cliente',exact:true}).click();
