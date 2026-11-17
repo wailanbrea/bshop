@@ -40,8 +40,8 @@ test('editing a saved basket selects clothing color before its available size',a
         {id:22,sku:'BLUSA-NM',price:'15.0000',available:'0.0000',attributes:[{name:'Color',value:'Negro'},{name:'Talla',value:'M'}]},
     ]}],meta:{current_page:1,last_page:1,total:1}}}));
     await board(page);await page.getByRole('button',{name:'Seleccionar apartado 1 de María Demo'}).click();await page.getByLabel('Buscar artículo para agregar').fill('Blusa');
-    const results=page.getByRole('region',{name:'Resultados de artículos'});await results.getByLabel('Color de Blusa').selectOption('Negro');await expect(results.getByLabel('Talla de Blusa').locator('option[value="M"]')).toBeDisabled();
-    await results.getByLabel('Color de Blusa').selectOption('Verde');await results.getByLabel('Talla de Blusa').selectOption('S');await results.getByRole('button',{name:'Agregar Blusa'}).click();
+    const results=page.getByRole('region',{name:'Resultados de artículos'});await results.getByRole('button',{name:'Elegir color Negro (agotado)'}).click();await expect(results.getByRole('button',{name:'Elegir talla M (agotada)'})).toBeDisabled();
+    await results.getByRole('button',{name:'Elegir color Verde'}).click();await results.getByRole('button',{name:'Elegir talla S'}).click();await results.getByRole('button',{name:'Agregar Blusa'}).click();
     await expect(page.getByRole('region',{name:'Detalle del apartado'})).toContainText('BLUSA-VS');expect(state.writes).toHaveLength(0);
 });
 

@@ -82,9 +82,21 @@ test('customer opens a product and the selected color changes its photo and pric
 
 test('buyer selects color and size from only the authorized combinations',async({page,publicState})=>{
     publicState.grouped=true;await page.goto('/s/'+token);await page.getByRole('button',{name:'Ver producto Blusa'}).click();const section=page.getByRole('dialog',{name:'Blusa'});
-    const color=section.getByRole('combobox',{name:'Color de Blusa',exact:true});const size=section.getByRole('combobox',{name:'Talla de Blusa',exact:true});await expect(size).toBeDisabled();
-    await color.selectOption('Negro');await expect(size.locator('option[value="M"]')).toBeDisabled();
-    await color.selectOption('Verde');await expect(size.locator('option[value="M"]')).toBeEnabled();await size.selectOption('S');await expect(section).toContainText('Disponible: 5');
+    await expect(section.getByRole('combobox',{name:'Color de Blusa'})).toHaveCount(0);await expect(section.getByRole('combobox',{name:'Talla de Blusa'})).toHaveCount(0);
+    await section.getByRole('button',{name:'Elegir color Negro (agotado)'}).click();await expect(section.getByRole('button',{name:'Elegir talla M (agotada)'})).toBeDisabled();
+    await section.getByRole('button',{name:'Elegir color Verde'}).click();await expect(section.getByRole('button',{name:'Elegir talla M'})).toBeEnabled();await section.getByRole('button',{name:'Elegir talla S'}).click();await expect(section).toContainText('Disponible: 5');
+    await section.getByRole('button',{name:'Elegir color Verde'}).click();await expect(section.getByRole('button',{name:'Elegir talla S'})).toHaveAttribute('aria-pressed','true');
     await section.getByRole('button',{name:'Agregar Blusa'}).click();await page.getByRole('button',{name:'Revisar pedido'}).click();await page.getByRole('dialog').getByRole('button',{name:'Confirmar pedido'}).click();
     await expect.poll(()=>publicState.posts.length).toBe(1);expect(publicState.posts[0].lines).toEqual([{variant_id:201,quantity:'1'}]);
 });
+
+for (const viewport of [{width:390,height:844},{width:768,height:1024},{width:1024,height:768}]) {
+    test(`product choices fit and remain usable at ${viewport.width}px`,async({page,publicState})=>{
+        publicState.grouped=true;await page.setViewportSize(viewport);await page.goto('/s/'+token);
+        await page.getByRole('button',{name:'Ver producto Blusa'}).click();const dialog=page.getByRole('dialog',{name:'Blusa'});
+        await dialog.getByRole('button',{name:'Elegir color Verde'}).click();await dialog.getByRole('button',{name:'Elegir talla M'}).click();
+        await expect(dialog.getByRole('button',{name:'Agregar Blusa'})).toBeEnabled();await expect(dialog.locator('.detail-price')).toContainText('35.00');
+        expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBeFalsy();
+        expect(await dialog.evaluate(el=>el.scrollWidth>el.clientWidth)).toBeFalsy();
+    });
+}

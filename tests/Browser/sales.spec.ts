@@ -146,10 +146,10 @@ test('clothing selection chooses color before size and sends the exact variant',
         {id:204,sku:'BLUSA-NM',price:'25.0000',available:'0.0000',attributes:[{name:'Color',value:'Negro'},{name:'Talla',value:'M'}]},
     ]});
     await openSales(page);await selectMaria(page);await products(page);await page.getByRole('button',{name:'Elegir Blusa',exact:true}).click();
-    const dialog=page.getByRole('dialog',{name:'Elegir variante de Blusa'});const color=dialog.getByLabel('Color de Blusa');const size=dialog.getByLabel('Talla de Blusa');
-    await expect(size).toBeDisabled();await color.selectOption('Verde');await size.selectOption('M');await expect(dialog).toContainText('Disponible: 3');
-    await color.selectOption('Negro');await expect(size).toHaveValue('');await expect(size.locator('option[value="M"]')).toBeDisabled();await expect(size.locator('option[value="L"]')).toHaveCount(0);
-    await color.selectOption('Verde');await size.selectOption('S');await expect(dialog).toContainText('Cantidad inicial: 1');await expect(dialog).toContainText('Disponible: 5');
+    const dialog=page.getByRole('dialog',{name:'Elegir variante de Blusa'});
+    await expect(dialog.getByRole('group',{name:'Elegir talla de Blusa'})).toHaveCount(0);await dialog.getByRole('button',{name:'Elegir color Verde'}).click();await dialog.getByRole('button',{name:'Elegir talla M'}).click();await expect(dialog).toContainText('Disponible: 3');
+    await dialog.getByRole('button',{name:'Elegir color Negro'}).click();await expect(dialog.getByRole('button',{name:'Elegir talla M (agotada)'})).toBeDisabled();await expect(dialog.getByRole('button',{name:'Elegir talla L'})).toHaveCount(0);
+    await dialog.getByRole('button',{name:'Elegir color Verde'}).click();await dialog.getByRole('button',{name:'Elegir talla S'}).click();await expect(dialog).toContainText('Cantidad inicial: 1');await expect(dialog).toContainText('Disponible: 5');
     await dialog.getByRole('button',{name:'Agregar a la venta'}).click();await summary(page);expect(sales.writes).toHaveLength(0);
     await page.getByRole('button',{name:'Guardar como apartado',exact:true}).click();await expect.poll(()=>sales.writes.length).toBe(1);
     expect(sales.writes[0].lines).toEqual([{variant_id:201,quantity:'1.0000'}]);
