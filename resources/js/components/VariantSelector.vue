@@ -22,8 +22,20 @@ function sizeVariant(value:string){return color.value?colorVariants.value.find(i
 function sizeAvailable(value:string){const item=sizeVariant(value);return !!item&&available(item);}
 function changeColor(value:string){if(color.value===value)return;color.value=value;const item=size.value?sizeVariant(size.value):undefined;if(item&&available(item)){emit('update:modelValue',item.id);}else{size.value='';emit('update:modelValue','');}}
 function changeSize(value:string){const item=sizeVariant(value);if(!item||!available(item))return;size.value=value;emit('update:modelValue',item.id);}
-watch(()=>[props.productName,props.variants],()=>{color.value=structured.value?defaultColor():'';size.value='';},{immediate:true,deep:false});
-watch(()=>props.modelValue,value=>{const item=props.variants.find(variant=>variant.id===value);if(item&&structured.value){color.value=attribute(item,'color')||'';size.value=attribute(item,'talla')||'';}else if(structured.value&&!color.value){color.value=defaultColor();}},{immediate:true});
+function applyInitialSelection(){
+    if(!structured.value){color.value='';size.value='';return;}
+    const active=props.variants.filter(item=>available(item));
+    if(active.length===1){
+        color.value=attribute(active[0],'color')||'';
+        size.value=attribute(active[0],'talla')||'';
+        emit('update:modelValue',active[0].id);
+        return;
+    }
+    color.value=defaultColor();
+    size.value='';
+}
+watch(()=>[props.productName,props.variants],()=>{applyInitialSelection();},{immediate:true,deep:false});
+watch(()=>props.modelValue,value=>{const item=props.variants.find(variant=>variant.id===value);if(item&&structured.value){color.value=attribute(item,'color')||'';size.value=attribute(item,'talla')||'';}else if(structured.value&&!color.value){applyInitialSelection();}},{immediate:true});
 </script>
 <template>
     <div class="variant-selector">

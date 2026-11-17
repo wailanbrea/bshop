@@ -145,8 +145,15 @@ test('clothing selection chooses color before size and sends the exact variant',
         {id:205,sku:'BLUSA-VL',price:'25.0000',available:'4.0000',attributes:[{name:'Color',value:'Verde'},{name:'Talla',value:'L'}]},
         {id:203,sku:'BLUSA-NS',price:'25.0000',available:'2.0000',attributes:[{name:'Color',value:'Negro'},{name:'Talla',value:'S'}]},
         {id:204,sku:'BLUSA-NM',price:'25.0000',available:'0.0000',attributes:[{name:'Color',value:'Negro'},{name:'Talla',value:'M'}]},
+    ]},{id:100,name:'Suéter Único',category_id:1,track_stock:true,unit_code:'unit',image:null,variants:[
+        {id:301,sku:'SUE-BL-SM',price:'30.0000',available:'2.0000',attributes:[{name:'Color',value:'Blanco'},{name:'Talla',value:'Sm'}]},
+        {id:302,sku:'SUE-BL-LXL',price:'30.0000',available:'0.0000',attributes:[{name:'Color',value:'Blanco'},{name:'Talla',value:'Lxl'}]},
     ]});
-    await openSales(page);await selectMaria(page);await products(page);await page.getByRole('button',{name:'Elegir Blusa',exact:true}).click();
+    await openSales(page);await selectMaria(page);await products(page);
+    const singleCard=page.getByRole('button',{name:'Elegir Suéter Único',exact:true});
+    await expect(singleCard).toContainText('Color: Blanco · Talla: Sm');
+    await expect(singleCard).not.toContainText('1 variante');
+    await page.getByRole('button',{name:'Elegir Blusa',exact:true}).click();
     const dialog=page.getByRole('dialog',{name:'Elegir variante de Blusa'});
     await expect(dialog.getByRole('group',{name:'Elegir talla de Blusa'})).toBeVisible();
     await dialog.getByRole('button',{name:'Elegir color Negro'}).click();
