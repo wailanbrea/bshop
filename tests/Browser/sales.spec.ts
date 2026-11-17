@@ -142,14 +142,23 @@ test('clothing selection chooses color before size and sends the exact variant',
     sales.products.push({id:99,name:'Blusa',category_id:1,track_stock:true,unit_code:'unit',image:null,variants:[
         {id:201,sku:'BLUSA-VS',price:'25.0000',available:'5.0000',attributes:[{name:'Color',value:'Verde'},{name:'Talla',value:'S'}]},
         {id:202,sku:'BLUSA-VM',price:'25.0000',available:'3.0000',attributes:[{name:'Color',value:'Verde'},{name:'Talla',value:'M'}]},
+        {id:205,sku:'BLUSA-VL',price:'25.0000',available:'4.0000',attributes:[{name:'Color',value:'Verde'},{name:'Talla',value:'L'}]},
         {id:203,sku:'BLUSA-NS',price:'25.0000',available:'2.0000',attributes:[{name:'Color',value:'Negro'},{name:'Talla',value:'S'}]},
         {id:204,sku:'BLUSA-NM',price:'25.0000',available:'0.0000',attributes:[{name:'Color',value:'Negro'},{name:'Talla',value:'M'}]},
     ]});
     await openSales(page);await selectMaria(page);await products(page);await page.getByRole('button',{name:'Elegir Blusa',exact:true}).click();
     const dialog=page.getByRole('dialog',{name:'Elegir variante de Blusa'});
-    await expect(dialog.getByRole('group',{name:'Elegir talla de Blusa'})).toHaveCount(0);await dialog.getByRole('button',{name:'Elegir color Verde'}).click();await dialog.getByRole('button',{name:'Elegir talla M'}).click();await expect(dialog).toContainText('Disponible: 3');
-    await dialog.getByRole('button',{name:'Elegir color Negro'}).click();await expect(dialog.getByRole('button',{name:'Elegir talla M (agotada)'})).toBeDisabled();await expect(dialog.getByRole('button',{name:'Elegir talla L'})).toHaveCount(0);
-    await dialog.getByRole('button',{name:'Elegir color Verde'}).click();await dialog.getByRole('button',{name:'Elegir talla S'}).click();await expect(dialog).toContainText('Cantidad inicial: 1');await expect(dialog).toContainText('Disponible: 5');
+    await expect(dialog.getByRole('group',{name:'Elegir talla de Blusa'})).toBeVisible();
+    await dialog.getByRole('button',{name:'Elegir color Negro'}).click();
+    await expect(dialog.getByRole('button',{name:'Elegir talla S'})).toBeEnabled();
+    await expect(dialog.getByRole('button',{name:'Elegir talla M (agotada)'})).toBeDisabled();
+    await expect(dialog.getByRole('button',{name:'Elegir talla L (agotada)'})).toBeDisabled();
+    await dialog.getByRole('button',{name:'Elegir color Verde'}).click();
+    await expect(dialog.getByRole('button',{name:'Elegir talla S'})).toBeEnabled();
+    await expect(dialog.getByRole('button',{name:'Elegir talla M'})).toBeEnabled();
+    await expect(dialog.getByRole('button',{name:'Elegir talla L'})).toBeEnabled();
+    await dialog.getByRole('button',{name:'Elegir talla M'}).click();await expect(dialog).toContainText('Disponible: 3');
+    await dialog.getByRole('button',{name:'Elegir talla S'}).click();await expect(dialog).toContainText('Cantidad inicial: 1');await expect(dialog).toContainText('Disponible: 5');
     await dialog.getByRole('button',{name:'Agregar a la venta'}).click();await summary(page);expect(sales.writes).toHaveLength(0);
     await page.getByRole('button',{name:'Guardar como apartado',exact:true}).click();await expect.poll(()=>sales.writes.length).toBe(1);
     expect(sales.writes[0].lines).toEqual([{variant_id:201,quantity:'1.0000'}]);

@@ -159,7 +159,7 @@ onUnmounted(() => {
             <template v-for="product in products.slice(0, 8)" :key="product.id">
                 <div v-if="supportsColorSize(product.variants)" class="basket-product-result basket-variant-group">
                     <strong>{{ product.name }}</strong>
-                    <VariantSelector v-model="selectedVariants[product.id]" :product-name="product.name" :variants="product.variants" :disabled="busy" />
+                    <VariantSelector v-model="selectedVariants[product.id]" :product-name="product.name" :variants="product.variants" :currency="order.currency" :disabled="busy" />
                     <button type="button" class="button secondary" :disabled="busy || !product.variants.find(v=>v.id===selectedVariants[product.id] && available(v))" :aria-label="`Agregar ${product.name}`" @click="emit('add',product,product.variants.find(v=>v.id===selectedVariants[product.id])!); query=''">Agregar artículo</button>
                 </div>
                 <button v-else

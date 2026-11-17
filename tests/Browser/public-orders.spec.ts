@@ -83,8 +83,8 @@ test('customer opens a product and the selected color changes its photo and pric
 test('buyer selects color and size from only the authorized combinations',async({page,publicState})=>{
     publicState.grouped=true;await page.goto('/s/'+token);await page.getByRole('button',{name:'Ver producto Blusa'}).click();const section=page.getByRole('dialog',{name:'Blusa'});
     await expect(section.getByRole('combobox',{name:'Color de Blusa'})).toHaveCount(0);await expect(section.getByRole('combobox',{name:'Talla de Blusa'})).toHaveCount(0);
-    await section.getByRole('button',{name:'Elegir color Negro (agotado)'}).click();await expect(section.getByRole('button',{name:'Elegir talla M (agotada)'})).toBeDisabled();
-    await section.getByRole('button',{name:'Elegir color Verde'}).click();await expect(section.getByRole('button',{name:'Elegir talla M'})).toBeEnabled();await section.getByRole('button',{name:'Elegir talla S'}).click();await expect(section).toContainText('Disponible: 5');
+    await section.getByRole('button',{name:'Elegir color Negro (agotado)'}).click();await expect(section.getByRole('button',{name:'Elegir talla S (agotada)'})).toBeDisabled();await expect(section.getByRole('button',{name:'Elegir talla M (agotada)'})).toBeDisabled();
+    await section.getByRole('button',{name:'Elegir color Verde'}).click();await expect(section.getByRole('button',{name:'Elegir talla S'})).toBeEnabled();await expect(section.getByRole('button',{name:'Elegir talla M'})).toBeEnabled();await section.getByRole('button',{name:'Elegir talla S'}).click();await expect(section).toContainText('Disponible: 5');
     await section.getByRole('button',{name:'Elegir color Verde'}).click();await expect(section.getByRole('button',{name:'Elegir talla S'})).toHaveAttribute('aria-pressed','true');
     await section.getByRole('button',{name:'Agregar Blusa'}).click();await page.getByRole('button',{name:'Revisar pedido'}).click();await page.getByRole('dialog').getByRole('button',{name:'Confirmar pedido'}).click();
     await expect.poll(()=>publicState.posts.length).toBe(1);expect(publicState.posts[0].lines).toEqual([{variant_id:201,quantity:'1'}]);
