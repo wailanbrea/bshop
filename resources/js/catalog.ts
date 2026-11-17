@@ -17,13 +17,14 @@ export interface ProductImage {
 }
 export interface CatalogVariant {
     id: number; product_id: number; sku: string; barcode: string | null; sale_price: string; cost_price?: string | null;
+    description: string | null;
     is_active: boolean; version: number;
     attribute_values: { id: number; attribute_id: number; attribute_name: string; value: string }[];
 }
 export interface VariantPage { data: CatalogVariant[]; current_page: number; last_page: number; total: number }
-export interface VariantDraft { key: number; sku: string; barcode: string; sale_price: string; cost_price: string; is_active: boolean; selections: Record<number, number | ''> }
-export interface ClothingDraft { color:string; size:string; sku:string; quantity:string }
-export function emptyVariant(key: number): VariantDraft { return { key, sku: '', barcode: '', sale_price: '', cost_price: '', is_active: true, selections: {} }; }
+export interface VariantDraft { key: number; sku: string; barcode: string; description: string; sale_price: string; cost_price: string; is_active: boolean; selections: Record<number, number | ''> }
+export interface ClothingDraft { color:string; size:string; sku:string; quantity:string; description?:string }
+export function emptyVariant(key: number): VariantDraft { return { key, sku: '', barcode: '', description: '', sale_price: '', cost_price: '', is_active: true, selections: {} }; }
 export function decimalInput(value: string): string { return value.replace(',', '.'); }
 /** Display decimal strings without passing money through JavaScript floating-point arithmetic. */
 export function amount(value: string | null | undefined, currency: string): string {
@@ -33,7 +34,7 @@ export function amount(value: string | null | undefined, currency: string): stri
     return `${currency === 'USD' ? 'US$' : currency} ${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}.${fraction}`;
 }
 export function variantPayload(form: VariantDraft, costs: boolean) {
-    return { sku: form.sku.trim(), barcode: form.barcode.trim() || null, sale_price: form.sale_price.trim(),
+    return { sku: form.sku.trim(), barcode: form.barcode.trim() || null, description: form.description.trim() || null, sale_price: form.sale_price.trim(),
         ...(costs ? { cost_price: form.cost_price.trim() || null } : {}), is_active: form.is_active,
         attribute_value_ids: Object.values(form.selections).filter((id): id is number => typeof id === 'number') };
 }

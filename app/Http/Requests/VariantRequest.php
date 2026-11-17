@@ -36,6 +36,7 @@ class VariantRequest extends FormRequest
 
         return [
             'sku' => ['bail', 'required', 'string', 'max:90', $sku], 'barcode' => ['bail', 'nullable', 'string', 'max:100', $barcode],
+            'description' => ['sometimes', 'nullable', 'string', 'max:2000'],
             'sale_price' => ['required', new DecimalAmount], 'cost_price' => $this->user()?->permits('catalog.costs') ? ['nullable', new DecimalAmount] : ['missing'],
             'is_active' => ['required', 'boolean'], 'version' => ['required', 'integer', 'min:0'],
             'attribute_value_ids' => $update ? ['missing'] : ['present', 'array', 'max:12'],

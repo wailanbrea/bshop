@@ -11,20 +11,35 @@ const structured=computed(()=>supportsColorSize(props.variants));
 const colors=computed(()=>[...new Set(props.variants.map(item=>attribute(item,'color')).filter((value):value is string=>!!value))]);
 const sizes=computed(()=>props.variants.filter(item=>attribute(item,'color')===color.value));
 const selected=computed(()=>props.variants.find(item=>item.id===props.modelValue));
-const photo=computed(()=>selected.value?.image_url || (structured.value&&color.value?sizes.value.find(item=>item.image_url)?.image_url:null));
+const photo=computed(()=>selected.value?.image_url || (structured.value&&color.value?sizes.value.find(item=>item.image_url)?.image_url:null) || props.variants.find(item=>item.image_url)?.image_url || null);
+function colorPhoto(value:string){const items=props.variants.filter(item=>attribute(item,'color')===value);return items.find(item=>item.thumb_url)?.thumb_url || items.find(item=>item.image_url)?.image_url || null;}
+function colorAvailable(value:string){return props.variants.some(item=>attribute(item,'color')===value&&available(item));}
 function changeColor(value:string){color.value=value;size.value='';emit('update:modelValue','');}
 function changeSize(value:string){size.value=value;const item=sizes.value.find(variant=>attribute(variant,'talla')===value);emit('update:modelValue',item&&available(item)?item.id:'');}
 watch(()=>[props.productName,props.variants],()=>{color.value='';size.value='';},{deep:false});
+watch(()=>props.modelValue,value=>{const item=props.variants.find(variant=>variant.id===value);if(item&&structured.value){color.value=attribute(item,'color')||'';size.value=attribute(item,'talla')||'';}},{immediate:true});
 </script>
 <template>
     <div class="variant-selector">
         <template v-if="structured">
+            <div v-if="photo" class="variant-hero"><img :src="photo" :alt="`Foto de ${productName}${color ? ` en ${color}` : ''}`" class="variant-preview" loading="lazy"></div>
+            <div class="variant-heading">Color <strong v-if="color">{{ color }}</strong></div>
+            <div class="variant-colors" role="group" :aria-label="`Elegir color de ${productName}`">
+                <button v-for="item in colors" :key="item" type="button" class="color-choice" :class="{ selected:color===item }" :aria-label="`Elegir color ${item}${colorAvailable(item)?'':' (agotado)'}`" :aria-pressed="color===item" :disabled="disabled" @click="changeColor(item)">
+                    <img v-if="colorPhoto(item)" :src="colorPhoto(item)!" :alt="`Foto de ${productName} en ${item}`" loading="lazy"><span v-else class="color-placeholder" aria-hidden="true">{{ item.slice(0,1) }}</span><span>{{ item }}</span><small v-if="!colorAvailable(item)">Agotado</small>
+                </button>
+            </div>
             <label>Color de {{ productName }}<select :value="color" :disabled="disabled" @change="changeColor(($event.target as HTMLSelectElement).value)"><option value="">Selecciona color</option><option v-for="item in colors" :key="item" :value="item">{{ item }}</option></select></label>
+            <div v-if="color" class="variant-heading">Talla <strong v-if="size">{{ size }}</strong></div>
+            <div v-if="color" class="variant-sizes" role="group" :aria-label="`Elegir talla de ${productName}`"><button v-for="item in sizes" :key="item.id" type="button" class="size-choice" :class="{ selected:size===attribute(item,'talla') }" :aria-label="`Elegir talla ${attribute(item,'talla')}${available(item)?'':' (agotada)'}`" :aria-pressed="size===attribute(item,'talla')" :disabled="disabled||!available(item)" @click="changeSize(attribute(item,'talla')||'')">{{ attribute(item,'talla') }}</button></div>
             <label>Talla de {{ productName }}<select :value="size" :disabled="disabled||!color" @change="changeSize(($event.target as HTMLSelectElement).value)"><option value="">Selecciona talla</option><option v-for="item in sizes" :key="item.id" :value="attribute(item,'talla')" :disabled="!available(item)">{{ attribute(item,'talla') }} · {{ item.available===null?'Sin control de stock':available(item)?`Disponible: ${quantity(item.available)}`:'Agotada' }}</option></select></label>
         </template>
         <label v-else>Variante del producto<select :value="modelValue || ''" :aria-label="`Variante de ${productName}`" :disabled="disabled" @change="emit('update:modelValue',Number(($event.target as HTMLSelectElement).value)||'')"><option value="">Selecciona variante</option><option v-for="item in variants" :key="item.id" :value="item.id">{{ item.attributes.map(a=>`${a.name}: ${a.value}`).join(' · ') || item.sku }} · {{ item.available===null?'Sin control de stock':available(item)?`Disponible: ${quantity(item.available)}`:'Agotada' }}</option></select></label>
         <p v-if="selected" class="muted">{{ productName }} · {{ selected.attributes.map(a=>`${a.name}: ${a.value}`).join(' · ') || selected.sku }} · Cantidad inicial: 1 · {{ selected.available===null?'Sin control de stock':`Disponible: ${quantity(selected.available)}` }}</p>
-        <img v-if="photo" :src="photo" :alt="`Foto de ${productName}`" class="variant-preview" loading="lazy">
+        <p v-if="selected?.description" class="variant-description">{{ selected.description }}</p>
+        <img v-if="photo && !structured" :src="photo" :alt="`Foto de ${productName}`" class="variant-preview" loading="lazy">
     </div>
 </template>
-<style scoped>.variant-selector{display:grid;gap:10px;min-width:0}.variant-preview{width:96px;height:96px;object-fit:contain;border-radius:10px;background:#f5f1fc}.variant-selector select{min-height:48px;font-size:16px}</style>
+<style scoped>
+.variant-selector{display:grid;gap:10px;min-width:0}.variant-selector select{min-height:48px;font-size:16px}.variant-heading{display:flex;gap:8px;align-items:baseline}.variant-hero{display:flex;justify-content:center;background:#f7f5fa;border-radius:12px;padding:8px}.variant-preview{width:100%;max-height:340px;height:clamp(220px,45vw,340px);object-fit:contain;border-radius:10px}.variant-colors{display:flex;flex-wrap:nowrap;gap:8px;overflow-x:auto;padding:3px 2px 10px;scroll-snap-type:x proximity}.variant-sizes{display:flex;flex-wrap:wrap;gap:8px}.color-choice,.size-choice{font:inherit;background:#fff;border:1px solid #c9c4d2;border-radius:9px;cursor:pointer;color:inherit}.color-choice{display:grid;justify-items:center;align-content:start;gap:4px;flex:0 0 92px;min-height:106px;padding:5px;overflow-wrap:anywhere;scroll-snap-align:start}.color-choice img,.color-placeholder{width:60px;height:54px;object-fit:contain;border-radius:6px;background:#f7f5fa}.color-placeholder{display:grid;place-items:center;font-weight:700}.color-choice small{font-size:.72rem;color:#736d7a}.size-choice{min-width:48px;min-height:48px;padding:8px 12px}.selected{border:2px solid #6f3bc6;box-shadow:0 0 0 2px #e7ddf7}.size-choice:disabled{opacity:.48;text-decoration:line-through;cursor:not-allowed}.color-choice:focus-visible,.size-choice:focus-visible{outline:3px solid #7044dc;outline-offset:2px}
+</style>

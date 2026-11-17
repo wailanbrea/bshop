@@ -29,7 +29,7 @@ final class ClothingVariants
                 throw ValidationException::withMessages(['clothing_variants' => 'No repitas el mismo color y talla.']);
             }
             $seen[$combination] = true;
-            $variants[] = [...array_intersect_key($row, array_flip(['sku', 'barcode', 'sale_price', 'cost_price', 'is_active'])), 'attribute_value_ids' => [$colorValue->id, $sizeValue->id]];
+            $variants[] = [...array_intersect_key($row, array_flip(['sku', 'barcode', 'description', 'sale_price', 'cost_price', 'is_active'])), 'attribute_value_ids' => [$colorValue->id, $sizeValue->id]];
         }
 
         return $variants;

@@ -12,7 +12,7 @@ const form = ref(emptyVariant(0)); const error = ref(''); const errorNotice = re
 watch(() => props.open, open => {
     if (!open) return;
     error.value = ''; form.value = emptyVariant(0);
-    if (props.variant) Object.assign(form.value, { sku: props.variant.sku, barcode: props.variant.barcode || '', sale_price: props.variant.sale_price, cost_price: props.variant.cost_price || '', is_active: props.variant.is_active });
+    if (props.variant) Object.assign(form.value, { sku: props.variant.sku, barcode: props.variant.barcode || '', description: props.variant.description || '', sale_price: props.variant.sale_price, cost_price: props.variant.cost_price || '', is_active: props.variant.is_active });
 }, { immediate: true });
 async function save() {
     if (busy.value || !props.product) return;

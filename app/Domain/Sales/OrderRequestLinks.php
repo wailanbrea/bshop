@@ -146,7 +146,7 @@ final class OrderRequestLinks
                 return ['id' => $product->id, 'name' => $product->name, 'image_url' => $primaryUrl, 'variants' => $items->map(function ($variant) use ($product, $balances, $photoVariants) {
                     $balance = $balances->get($variant->id);
 
-                    return ['id' => $variant->id, 'sku' => $variant->sku, 'price' => $variant->sale_price, 'image_url' => app(VariantPhoto::class)->url($product, $variant, 'card', $photoVariants), 'available' => $product->track_stock ? bcsub((string) ($balance->on_hand ?? '0'), (string) ($balance->reserved ?? '0'), 4) : null, 'attributes' => $variant->attributeValues->map(fn ($v) => ['name' => $v->attribute->name, 'value' => $v->value])->all()];
+                    return ['id' => $variant->id, 'sku' => $variant->sku, 'description' => $variant->description, 'price' => $variant->sale_price, 'image_url' => app(VariantPhoto::class)->url($product, $variant, 'card', $photoVariants), 'available' => $product->track_stock ? bcsub((string) ($balance->on_hand ?? '0'), (string) ($balance->reserved ?? '0'), 4) : null, 'attributes' => $variant->attributeValues->map(fn ($v) => ['name' => $v->attribute->name, 'value' => $v->value])->all()];
                 })->values()->all()];
             });
 
@@ -164,7 +164,7 @@ final class OrderRequestLinks
             $photo = $variant->product->images->firstWhere('is_primary', true);
             $image = $photo?->asset?->renditions?->firstWhere('rendition', 'card');
 
-            return ['id' => $variant->id, 'name' => $variant->product->name, 'sku' => $variant->sku, 'price' => $variant->sale_price,
+            return ['id' => $variant->id, 'name' => $variant->product->name, 'sku' => $variant->sku, 'description' => $variant->description, 'price' => $variant->sale_price,
                 'available' => ! $variant->product->track_stock || bccomp(bcsub((string) ($balance->on_hand ?? '0'), (string) ($balance->reserved ?? '0'), 4), '0', 4) > 0,
                 'attributes' => $variant->attributeValues->map(fn ($v) => ['name' => $v->attribute->name, 'value' => $v->value])->all(), 'image_url' => $image ? app(ObjectStorage::class)->url($image) : null];
         })->all(), 'meta' => ['current_page' => $page->currentPage(), 'last_page' => $page->lastPage(), 'total' => $page->total()]];

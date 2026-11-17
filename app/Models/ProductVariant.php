@@ -12,7 +12,7 @@ class ProductVariant extends Model
 {
     use HasFactory, SoftDeletes;
 
-    protected $fillable = ['product_id', 'sku', 'barcode', 'combination_key', 'sale_price', 'cost_price', 'is_active'];
+    protected $fillable = ['product_id', 'sku', 'barcode', 'description', 'combination_key', 'sale_price', 'cost_price', 'is_active'];
 
     protected $attributes = ['combination_key' => 'default', 'is_active' => true, 'lock_version' => 0];
 

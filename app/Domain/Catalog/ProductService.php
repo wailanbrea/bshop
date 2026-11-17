@@ -106,7 +106,7 @@ final class ProductService
             $this->consistentAttributes($product, array_keys($combination['values']));
         }
         $variant = $product->variants()->create([
-            'sku' => $data['sku'], 'barcode' => $data['barcode'] ?? null, 'combination_key' => $combination['key'],
+            'sku' => $data['sku'], 'barcode' => $data['barcode'] ?? null, 'description' => $data['description'] ?? null, 'combination_key' => $combination['key'],
             'sale_price' => DecimalAmount::normalize($data['sale_price']),
             'cost_price' => isset($data['cost_price']) ? DecimalAmount::normalize($data['cost_price']) : null,
             'is_active' => $data['is_active'] ?? true,
@@ -152,6 +152,9 @@ final class ProductService
                 if (array_key_exists('barcode', $data)) {
                     $variant->barcode = $data['barcode'];
                 }
+                if (array_key_exists('description', $data)) {
+                    $variant->description = $data['description'];
+                }
                 if (array_key_exists('cost_price', $data)) {
                     $variant->cost_price = $data['cost_price'] === null ? null : DecimalAmount::normalize($data['cost_price']);
                 }
@@ -169,6 +172,6 @@ final class ProductService
 
     private function variantSnapshot(ProductVariant $variant): array
     {
-        return ['product_id' => $variant->product_id, 'sku' => $variant->sku, 'barcode' => $variant->barcode, 'sale_price' => $variant->sale_price, 'cost_price' => $variant->cost_price, 'is_active' => $variant->is_active, 'version' => $variant->lock_version];
+        return ['product_id' => $variant->product_id, 'sku' => $variant->sku, 'barcode' => $variant->barcode, 'description' => $variant->description, 'sale_price' => $variant->sale_price, 'cost_price' => $variant->cost_price, 'is_active' => $variant->is_active, 'version' => $variant->lock_version];
     }
 }

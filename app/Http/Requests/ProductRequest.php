@@ -47,6 +47,7 @@ class ProductRequest extends FormRequest
             'variants' => $create ? ['required', 'array', 'min:1', 'max:100'] : ['prohibited'],
             'variants.*.sku' => ['bail', 'required', 'string', 'max:90', 'distinct', 'unique:product_variants,sku'],
             'variants.*.barcode' => ['bail', 'nullable', 'string', 'max:100', 'distinct', 'unique:product_variants,barcode'],
+            'variants.*.description' => ['nullable', 'string', 'max:2000'],
             'variants.*.sale_price' => ['required', new DecimalAmount],
             'variants.*.cost_price' => $this->user()?->permits('catalog.costs') ? ['nullable', new DecimalAmount] : ['missing'],
             'variants.*.attribute_value_ids' => ['present', 'array', 'max:12'],
