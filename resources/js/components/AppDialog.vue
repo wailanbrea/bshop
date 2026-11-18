@@ -2,7 +2,7 @@
 import { nextTick, onMounted, onUnmounted, ref, useId, watch } from 'vue';
 import { lockPageScroll } from '../lib/scrollLock';
 
-const props = withDefaults(defineProps<{ open: boolean; title: string; busy?: boolean; returnFocus?: HTMLElement | null }>(), { busy: false });
+const props = withDefaults(defineProps<{ open: boolean; title: string; busy?: boolean; wide?: boolean; returnFocus?: HTMLElement | null }>(), { busy: false, wide: false });
 const emit = defineEmits<{ close: [] }>();
 const dialog = ref<HTMLDialogElement>();
 const heading = ref<HTMLElement>();
@@ -40,7 +40,7 @@ onUnmounted(() => { dialog.value?.close(); release(); });
 
 <template>
     <Teleport to="body">
-        <dialog ref="dialog" class="app-dialog" :aria-labelledby="titleId" :aria-busy="busy" @cancel="cancel">
+        <dialog ref="dialog" class="app-dialog" :class="{ 'app-dialog-wide': wide }" :aria-labelledby="titleId" :aria-busy="busy" @cancel="cancel">
             <header class="dialog-heading">
                 <h2 :id="titleId" ref="heading" tabindex="-1">{{ title }}</h2>
                 <button type="button" class="icon-button" aria-label="Cerrar formulario" :disabled="busy" @click="emit('close')">×</button>

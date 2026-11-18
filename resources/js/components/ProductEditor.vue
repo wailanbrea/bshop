@@ -80,7 +80,7 @@ async function save() {
 }
 </script>
 <template>
-    <AppDialog :open="open" :title="editing ? 'Editar producto' : 'Nuevo producto'" :busy="anyBusy" :return-focus="opener" @close="emit('close')">
+    <AppDialog :open="open" :title="editing ? 'Editar producto' : 'Nuevo producto'" :busy="anyBusy" :wide="!editing && activeMode === 'batch'" :return-focus="opener" @close="emit('close')">
         <div v-if="!editing" class="editor-mode-tabs" role="group" aria-label="Modo de registro de productos">
             <button type="button" class="button" :class="activeMode === 'single' ? 'primary' : 'secondary'" :aria-pressed="activeMode === 'single'" :disabled="anyBusy" @click="activeMode = 'single'">Uno por uno</button>
             <button type="button" class="button" :class="activeMode === 'batch' ? 'primary' : 'secondary'" :aria-pressed="activeMode === 'batch'" :disabled="anyBusy" @click="activeMode = 'batch'">Hasta 10 fotos</button>

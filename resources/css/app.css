@@ -289,6 +289,7 @@ input:not([type=checkbox]), select, textarea, .branch-picker select { min-height
 .app-dialog:not([open]) { display: none; }
 .app-dialog[open] { display: flex; flex-direction: column; }
 .app-dialog { position: fixed; inset: auto; left: 50%; top: calc(var(--app-viewport-top, 0px) + var(--app-viewport-height, 100dvh) / 2); transform: translate(-50%, -50%); margin: 0; padding: 0; width: min(580px, calc(100vw - 32px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px))); max-width: none; max-height: calc(var(--app-viewport-height, 100dvh) - 32px); border: 1px solid #d7e0d0; border-radius: 16px; background: #fff; color: #223b34; box-shadow: 0 24px 80px #18382b45; overflow: hidden; }
+.app-dialog.app-dialog-wide { width: min(1240px, calc(100vw - 24px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px))); }
 .app-dialog::backdrop { background: #112d2470; -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); }
 .dialog-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-shrink: 0; padding: 16px 20px 12px; border-bottom: 1px solid var(--line); background: #fff; }
 .dialog-heading h2 { min-width: 0; font-size: 22px; line-height: 1.25; font-weight: 650; overflow-wrap: anywhere; }

@@ -183,3 +183,53 @@ test('category-aware forms adapt fields for Calzado, Ropa, Electronicos and Joye
         clothing_variants:[{color:null,size:null,cost_price:null,sale_price:'18'}],
     });
 });
+
+test('batch mode selects category once at the top for all photos and supports 2 and 4 column views',async({page,catalog},testInfo)=>{
+    catalog.failPhoto=false;await page.goto('/');if((page.viewportSize()?.width||0)<768)await page.getByRole('button',{name:'Abrir menú',exact:true}).click();await page.getByRole('button',{name:'Catálogo',exact:true}).click();
+    await page.getByRole('button',{name:'+ Subir hasta 10 fotos',exact:true}).click();const dialog=page.getByRole('dialog',{name:'Nuevo producto'});
+
+    // Choose category once at the top
+    await dialog.getByRole('combobox',{name:'Categoría del lote',exact:true}).selectOption('Electrónicos');
+    await dialog.getByLabel('Seleccionar hasta 10 fotos').setInputFiles([
+        {name:'a1.png',mimeType:'image/png',buffer:Buffer.from('a1')},
+        {name:'a2.png',mimeType:'image/png',buffer:Buffer.from('a2')},
+        {name:'a3.png',mimeType:'image/png',buffer:Buffer.from('a3')},
+        {name:'a4.png',mimeType:'image/png',buffer:Buffer.from('a4')},
+    ]);
+
+    // No per-card category selector
+    await expect(dialog.getByRole('combobox',{name:/Categoría \(foto/})).toHaveCount(0);
+    // All 4 cards reflect Electrónicos (Color visible, Size hidden)
+    await expect(dialog.getByLabel('Color (foto 1)')).toBeVisible();
+    await expect(dialog.getByLabel('Color (foto 4)')).toBeVisible();
+    await expect(dialog.getByLabel('Size (foto 1)')).toHaveCount(0);
+
+    // Switch top-level category to Calzado + Regulares (6-10)
+    await dialog.getByRole('combobox',{name:'Categoría del lote',exact:true}).selectOption('Calzado');
+    await dialog.getByRole('combobox',{name:'Sistema de tallas',exact:true}).selectOption('us');
+    await expect(dialog.getByRole('group',{name:'Tallas foto 1'})).toContainText('6');
+    await expect(dialog.getByRole('group',{name:'Tallas foto 4'})).toContainText('10');
+
+    // Toggle 2 and 4 products per row
+    const grid=dialog.locator('.batch-photo-grid');
+    await expect(grid).toHaveClass(/cols-2/);
+    if((page.viewportSize()?.width||0)>=1024){
+        const cards=grid.locator('.quick-photo-card');
+        const box0=await cards.nth(0).boundingBox();
+        const box1=await cards.nth(1).boundingBox();
+        expect(box0&&box1&&Math.abs(box0.y-box1.y)).toBeLessThan(10);
+        await page.screenshot({path:testInfo.outputPath('batch-2-cols.png')});
+    }
+    await dialog.getByRole('button',{name:'Ver 4',exact:true}).click();
+    await expect(grid).toHaveClass(/cols-4/);
+
+    if((page.viewportSize()?.width||0)>=1024){
+        const cards=grid.locator('.quick-photo-card');
+        const box0=await cards.nth(0).boundingBox();
+        const box3=await cards.nth(3).boundingBox();
+        expect(box0&&box3&&Math.abs(box0.y-box3.y)).toBeLessThan(10);
+        await page.screenshot({path:testInfo.outputPath('batch-4-cols.png')});
+    }
+    const overflow=await page.evaluate(()=>document.documentElement.scrollWidth-window.innerWidth);
+    expect(overflow).toBeLessThanOrEqual(2);
+});

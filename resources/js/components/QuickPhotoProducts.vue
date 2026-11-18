@@ -110,18 +110,20 @@ function sizesForItem(item: QuickItem): string[] {
 }
 
 const batchCategory = ref('Ropa');
+const batchFootwearSystem = ref<'eu' | 'us'>('eu');
+const batchColumns = ref<2 | 4>(2);
 
 function makeSku(): string {
     return `ART-${crypto.randomUUID().replace(/-/g, '').slice(0, 12).toUpperCase()}`;
 }
 
-function createEmptyItem(file: File | null = null, cat = 'Ropa'): QuickItem {
+function createEmptyItem(file: File | null = null, cat = 'Ropa', footwear: 'eu' | 'us' = 'eu'): QuickItem {
     return {
         id: crypto.randomUUID(),
         file,
         preview: file ? URL.createObjectURL(file) : '',
         categoryName: cat,
-        footwearSystem: 'eu',
+        footwearSystem: footwear,
         name: '',
         costPrice: '',
         salePrice: '',
@@ -150,7 +152,18 @@ function applyBatchCategory(cat: string) {
     for (const item of batchItems.value) {
         if (item.productId === null) {
             item.categoryName = cat;
+            item.footwearSystem = batchFootwearSystem.value;
             syncItemCategory(item);
+        }
+    }
+}
+
+function applyBatchFootwearSystem(sys: 'eu' | 'us') {
+    batchFootwearSystem.value = sys;
+    for (const item of batchItems.value) {
+        if (item.productId === null) {
+            item.footwearSystem = sys;
+            item.size = '';
         }
     }
 }
@@ -284,7 +297,7 @@ function chooseBatchPhotos(event: Event) {
             break;
         }
         if (!validateFile(file)) continue;
-        batchItems.value.push(createEmptyItem(file, batchCategory.value));
+        batchItems.value.push(createEmptyItem(file, batchCategory.value, batchFootwearSystem.value));
     }
 }
 
@@ -619,7 +632,7 @@ defineExpose({ submit, busy });
             <div class="batch-toolbar">
                 <div>
                     <strong>Fotos seleccionadas: {{ batchItems.length }} / 10</strong>
-                    <p class="muted">Cada foto se guardará como un producto independiente con los datos que pongas debajo.</p>
+                    <p class="muted">Elige la categoría una sola vez aquí arriba y aplicará para todas las fotos del lote.</p>
                 </div>
                 <div class="batch-toolbar-controls">
                     <label class="batch-cat-label">
@@ -632,6 +645,21 @@ defineExpose({ submit, busy });
                             <option v-for="cat in categoryChoices" :key="cat" :value="cat">{{ cat }}</option>
                         </select>
                     </label>
+                    <label v-if="categoryProfile(batchCategory).isFootwear" class="batch-cat-label">
+                        Sistema de tallas
+                        <select
+                            :value="batchFootwearSystem"
+                            :disabled="busy"
+                            @change="applyBatchFootwearSystem(($event.target as HTMLSelectElement).value as 'eu' | 'us')"
+                        >
+                            <option value="eu">Europeas (35–42)</option>
+                            <option value="us">Regulares (6–10)</option>
+                        </select>
+                    </label>
+                    <div class="batch-cols-toggle" role="group" aria-label="Productos por fila">
+                        <button type="button" class="button" :class="batchColumns === 2 ? 'primary' : 'secondary'" :aria-pressed="batchColumns === 2" @click="batchColumns = 2">Ver 2</button>
+                        <button type="button" class="button" :class="batchColumns === 4 ? 'primary' : 'secondary'" :aria-pressed="batchColumns === 4" @click="batchColumns = 4">Ver 4</button>
+                    </div>
                     <label v-if="batchItems.length < 10" class="button primary photo-select-btn">
                         Seleccionar hasta 10 fotos
                         <input
@@ -648,13 +676,13 @@ defineExpose({ submit, busy });
             </div>
 
             <p v-if="!batchItems.length" class="empty">
-                Selecciona de 1 a 10 fotos para completar Nombre, Precio de compra, Precio de venta, Cantidad, Color y Size debajo de cada una.
+                Elige la categoría arriba y selecciona de 1 a 10 fotos para completar los datos debajo de cada una.
             </p>
 
-            <div v-else class="batch-photo-grid">
+            <div v-else class="batch-photo-grid" :class="`cols-${batchColumns}`">
                 <article v-for="(item, index) in batchItems" :key="item.id" class="quick-photo-card">
                     <div class="quick-card-header">
-                        <strong>Foto {{ index + 1 }}</strong>
+                        <strong>Foto {{ index + 1 }} · {{ batchCategory }}</strong>
                         <span v-if="item.productId !== null && item.photoUploaded" class="badge">Guardado</span>
                         <span v-else-if="item.productId !== null" class="badge">Producto guardado · falta foto</span>
                         <button
@@ -673,27 +701,6 @@ defineExpose({ submit, busy });
                     <p v-if="item.itemError" class="notice error" role="alert">{{ item.itemError }}</p>
 
                     <div class="quick-fields">
-                        <label>
-                            Categoría (foto {{ index + 1 }})
-                            <select
-                                v-model="item.categoryName"
-                                :disabled="busy || item.productId !== null"
-                                @change="syncItemCategory(item)"
-                            >
-                                <option v-for="cat in categoryChoices" :key="cat" :value="cat">{{ cat }}</option>
-                            </select>
-                        </label>
-                        <label v-if="categoryProfile(item.categoryName).isFootwear">
-                            Sistema de tallas (foto {{ index + 1 }})
-                            <select
-                                v-model="item.footwearSystem"
-                                :disabled="busy || item.productId !== null"
-                                @change="item.size = ''"
-                            >
-                                <option value="eu">Europeas (35–42)</option>
-                                <option value="us">Regulares (6–10)</option>
-                            </select>
-                        </label>
                         <label>
                             Nombre (foto {{ index + 1 }})
                             <input
@@ -826,6 +833,60 @@ defineExpose({ submit, busy });
 .batch-cat-label {
     min-width: 170px;
 }
+.batch-cols-toggle {
+    display: inline-flex;
+    gap: 6px;
+}
+.batch-cols-toggle .button {
+    min-height: 44px;
+    padding: 0 12px;
+    white-space: nowrap;
+}
+.batch-photo-grid {
+    display: grid;
+    gap: 14px;
+    min-width: 0;
+}
+.batch-photo-grid.cols-2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.batch-photo-grid.cols-4 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+}
+.batch-photo-grid.cols-4 .quick-photo-card {
+    padding: 10px;
+    gap: 8px;
+}
+.batch-photo-grid.cols-4 .quick-photo-img {
+    height: 130px;
+}
+.batch-photo-grid.cols-4 .quick-grid-2,
+.batch-photo-grid.cols-4 .quick-grid-3 {
+    grid-template-columns: minmax(0, 1fr);
+}
+@media (max-width: 960px) {
+    .batch-photo-grid.cols-4 {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+@media (max-width: 480px) {
+    .batch-photo-grid.cols-2,
+    .batch-photo-grid.cols-4 {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+    }
+    .batch-photo-grid .quick-photo-card {
+        padding: 8px;
+    }
+    .batch-photo-grid .quick-photo-img {
+        height: 115px;
+    }
+    .batch-photo-grid .quick-grid-2,
+    .batch-photo-grid .quick-grid-3 {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
 .quick-grid-3.no-size {
     grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -865,12 +926,6 @@ defineExpose({ submit, busy });
 .photo-select-btn:focus-within {
     outline: 3px solid #8d53ff;
     outline-offset: 3px;
-}
-.batch-photo-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
-    gap: 16px;
-    min-width: 0;
 }
 .quick-photo-card {
     display: grid;
@@ -939,7 +994,6 @@ defineExpose({ submit, busy });
     width: 100%;
 }
 @media (max-width: 520px) {
-    .batch-photo-grid,
     .quick-grid-2,
     .quick-grid-3 {
         grid-template-columns: minmax(0, 1fr);
