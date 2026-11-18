@@ -18,8 +18,32 @@ const history = ref<Movement[]>([]); const historyOpen = ref(false); const histo
 const selected = ref<StockRow | null>(null); const open = ref(false); const opener = ref<HTMLElement | null>(null); const operation = ref('receipt'); const amount = ref(''); const note = ref(''); const destination = ref<number | ''>('');
 const destinations = ref<{ id: number; name: string; store_name: string }[]>([]); const busy = ref(false); const formError = ref(''); const pending = ref<Record<string, unknown> | null>(null);
 const priceOpen = ref(false); const priceTarget = ref<StockRow | null>(null); const editCostPrice = ref(''); const editSalePrice = ref(''); const priceBusy = ref(false); const priceError = ref('');
+const exporting = ref(false);
 const failedImages = ref<Set<number>>(new Set());
 function imageFailed(id: number) { failedImages.value = new Set([...failedImages.value, id]); }
+async function exportInventoryCsv() {
+    if (!props.store || !warehouseId.value || exporting.value) return;
+    exporting.value = true;
+    error.value = '';
+    try {
+        const response = await api.get(`${root.value}/warehouses/${warehouseId.value}/stock/export`, {
+            params: { q: query.value, filter: filter.value },
+            responseType: 'blob',
+        });
+        const url = URL.createObjectURL(response.data);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'inventario-valorado.csv';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (e) {
+        error.value = errorMessage(e);
+    } finally {
+        exporting.value = false;
+    }
+}
 const warehouse = computed(() => props.warehouses.find(w => w.id === warehouseId.value));
 let sequence = 0; let historySequence = 0; let controller: AbortController | undefined; let timer: ReturnType<typeof setTimeout> | undefined;
 const root = computed(() => `/business/stores/${props.store?.id}`);
@@ -110,7 +134,7 @@ onUnmounted(() => { ++sequence; ++historySequence; controller?.abort(); clearTim
         <label>Disponibilidad<select v-model="filter"><option value="all">Todas</option><option value="available">Con disponible</option><option value="low">Por reponer (≤ 2)</option><option value="empty">Sin disponible</option></select></label>
         <button type="button" class="button secondary" :disabled="loading || !warehouseId" @click="load(page); historyOpen && loadHistory()">Actualizar inventario</button>
     </section>
-    <div class="panel-heading inventory-heading"><div><h2>{{ warehouse?.name || 'Selecciona un almacén' }}</h2><p class="muted">{{ store?.name }} · {{ total }} variantes · Físico − reservado = disponible</p></div><div class="actions"><InventoryReview :store="store" :warehouse="warehouse" /><button type="button" class="button secondary" :disabled="!warehouseId" @click="viewHistory(null)">Ver kardex completo</button></div></div>
+    <div class="panel-heading inventory-heading"><div><h2>{{ warehouse?.name || 'Selecciona un almacén' }}</h2><p class="muted">{{ store?.name }} · {{ total }} variantes · Físico − reservado = disponible</p></div><div class="actions"><InventoryReview :store="store" :warehouse="warehouse" /><button type="button" class="button secondary" :disabled="!warehouseId || exporting" @click="exportInventoryCsv">Exportar inventario CSV</button><button type="button" class="button secondary" :disabled="!warehouseId" @click="viewHistory(null)">Ver kardex completo</button></div></div>
     <section v-if="valuation" class="inventory-valuation-grid" aria-label="Valor del inventario">
         <article v-if="valuation.invested_cost !== null" class="valuation-card highlight">
             <span>Capital invertido (costo)</span>

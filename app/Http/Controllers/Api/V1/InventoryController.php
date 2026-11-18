@@ -98,6 +98,79 @@ class InventoryController extends Controller
         return response()->json(['data' => $rows, 'meta' => ['current_page' => $page->currentPage(), 'last_page' => $page->lastPage(), 'total' => $page->total(), 'valuation' => ['currency' => $currency, 'invested_cost' => $canSeeCosts ? $invested : null, 'sale_value' => $saleValue, 'estimated_profit' => $canSeeCosts ? bcsub($saleValue, $invested, 4) : null, 'units_on_hand' => $unitsOnHand, 'units_available' => $unitsAvailable, 'low_stock_count' => $lowStockCount, 'out_of_stock_count' => $outOfStockCount]]]);
     }
 
+    public function export(Request $request, StoreContext $context)
+    {
+        $warehouse = $this->warehouse($request, $context);
+        $data = $request->validate(['q' => ['nullable', 'string', 'max:120'], 'filter' => ['nullable', 'in:all,available,low,empty']]);
+        $query = ProductVariant::withTrashed()->with(['product' => fn ($q) => $q->withTrashed(), 'attributeValues.attribute'])
+            ->leftJoin('stock_balances as stock', fn ($join) => $join->on('stock.variant_id', '=', 'product_variants.id')->where('stock.warehouse_id', $warehouse->id))
+            ->where(fn ($q) => $q->whereHas('product', fn ($p) => $p->where('status', 'active')->where('product_type', 'physical')->where('track_stock', true))->orWhereNotNull('stock.variant_id'))
+            ->select('product_variants.*', 'stock.on_hand', 'stock.reserved');
+        if (! empty($data['q'])) {
+            $search = '%'.str_replace(['!', '%', '_'], ['!!', '!%', '!_'], trim($data['q'])).'%';
+            $query->where(fn ($q) => $q->whereRaw("product_variants.sku LIKE ? ESCAPE '!'", [$search])->orWhereRaw("product_variants.barcode LIKE ? ESCAPE '!'", [$search])->orWhereHas('product', fn ($p) => $p->withTrashed()->whereRaw("name LIKE ? ESCAPE '!'", [$search]))->orWhereHas('attributeValues', fn ($v) => $v->whereRaw("value LIKE ? ESCAPE '!'", [$search])->orWhereHas('attribute', fn ($a) => $a->whereRaw("name LIKE ? ESCAPE '!'", [$search]))));
+        }
+        if (($data['filter'] ?? '') === 'available') {
+            $query->whereRaw('COALESCE(stock.on_hand, 0) > COALESCE(stock.reserved, 0)');
+        }
+        if (($data['filter'] ?? '') === 'low') {
+            $query->whereRaw('COALESCE(stock.on_hand, 0) - COALESCE(stock.reserved, 0) <= 2');
+        }
+        if (($data['filter'] ?? '') === 'empty') {
+            $query->whereRaw('COALESCE(stock.on_hand, 0) = COALESCE(stock.reserved, 0)');
+        }
+        $canSeeCosts = (bool) $request->user()?->permits('catalog.costs');
+        $items = $query->orderBy('product_variants.sku')->get();
+        $safe = static fn (?string $val): string => ($val !== null && $val !== '' && in_array($val[0], ['=', '+', '-', '@', "\t", "\r"], true)) ? "'".$val : (string) $val;
+
+        return response()->streamDownload(function () use ($items, $canSeeCosts, $safe) {
+            $out = fopen('php://output', 'w');
+            $headers = ['SKU', 'Codigo de barras', 'Producto', 'Atributos', 'Fisico', 'Reservado', 'Disponible'];
+            if ($canSeeCosts) {
+                $headers[] = 'Precio de compra';
+            }
+            $headers[] = 'Precio de venta';
+            if ($canSeeCosts) {
+                $headers[] = 'Capital invertido';
+            }
+            $headers[] = 'Valor en venta';
+            $headers[] = 'Estado';
+            fputcsv($out, $headers);
+            foreach ($items as $variant) {
+                $onHand = bcadd((string) ($variant->on_hand ?? '0'), '0', 4);
+                $reserved = bcadd((string) ($variant->reserved ?? '0'), '0', 4);
+                $available = bcsub($onHand, $reserved, 4);
+                $positiveOnHand = bccomp($onHand, '0', 4) > 0 ? $onHand : '0.0000';
+                $costPrice = $canSeeCosts && $variant->cost_price !== null ? bcadd((string) $variant->cost_price, '0', 4) : '';
+                $salePrice = bcadd((string) ($variant->sale_price ?? '0'), '0', 4);
+                $investedTotal = ($canSeeCosts && $variant->cost_price !== null) ? bcmul($positiveOnHand, $costPrice, 4) : '';
+                $saleTotal = bcmul($positiveOnHand, $salePrice, 4);
+                $attrs = $variant->attributeValues->map(fn ($v) => $v->attribute->name.': '.$v->value)->implode(' | ');
+                $active = ! $variant->trashed() && ! $variant->product->trashed() && $variant->is_active && $variant->product->status === 'active';
+                $row = [
+                    $safe($variant->sku),
+                    $safe($variant->barcode),
+                    $safe($variant->product->name),
+                    $safe($attrs),
+                    $onHand,
+                    $reserved,
+                    $available,
+                ];
+                if ($canSeeCosts) {
+                    $row[] = $costPrice;
+                }
+                $row[] = $salePrice;
+                if ($canSeeCosts) {
+                    $row[] = $investedTotal;
+                }
+                $row[] = $saleTotal;
+                $row[] = $active ? 'Activo' : 'Inactivo';
+                fputcsv($out, $row);
+            }
+            fclose($out);
+        }, 'inventario-valorado.csv', ['Content-Type' => 'text/csv; charset=UTF-8', 'Cache-Control' => 'private, no-store']);
+    }
+
     public function destinations(Request $request, StoreAuthorizationService $authorization)
     {
         $stores = $authorization->accessible($request->user())->where('is_active', true)->get()->keyBy('id');

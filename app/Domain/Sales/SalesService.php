@@ -230,7 +230,9 @@ final class SalesService
         $activeReservations = $reservationRows->where('status', 'active');
         $deadline = $activeReservations->contains(fn ($r) => $r->expires_at === null) ? null : $activeReservations->min('expires_at');
 
-        return [...$order->toArray(), ...$position, 'return_pending' => $invoice ? ReturnReceiptState::pendingInvoice($invoice->id) : false, 'reservation_expires_at' => $deadline ? CarbonImmutable::parse($deadline, 'UTC')->toIso8601String() : null, 'reservation_expired' => $order->status === 'cancelled' && $reservationRows->contains('status', 'expired'), 'customer_live' => Customer::withTrashed()->find($order->customer_id)?->only(['id', 'full_name', 'phone', 'email', 'address', 'notes', 'lock_version']), 'whatsapp_delivery' => $send, 'reservations' => DB::table('stock_reservations')->whereIn('order_item_id', $order->items->pluck('id'))->get()->map(fn ($r) => ['id' => $r->id, 'order_item_id' => $r->order_item_id, 'quantity' => bcadd((string) $r->quantity, '0', 4), 'fulfilled_quantity' => bcadd((string) $r->fulfilled_quantity, '0', 4), 'released_quantity' => bcadd((string) $r->released_quantity, '0', 4), 'status' => $r->status])->all(), 'paid_total' => $paid, 'pending_total' => $pending, 'invoice' => $invoice];
+        $sellerName = $order->seller_employee_id ? DB::table('employees')->where('id', $order->seller_employee_id)->value('full_name') : null;
+
+        return [...$order->toArray(), ...$position, 'seller_name' => $sellerName, 'return_pending' => $invoice ? ReturnReceiptState::pendingInvoice($invoice->id) : false, 'reservation_expires_at' => $deadline ? CarbonImmutable::parse($deadline, 'UTC')->toIso8601String() : null, 'reservation_expired' => $order->status === 'cancelled' && $reservationRows->contains('status', 'expired'), 'customer_live' => Customer::withTrashed()->find($order->customer_id)?->only(['id', 'full_name', 'phone', 'email', 'address', 'notes', 'lock_version']), 'whatsapp_delivery' => $send, 'reservations' => DB::table('stock_reservations')->whereIn('order_item_id', $order->items->pluck('id'))->get()->map(fn ($r) => ['id' => $r->id, 'order_item_id' => $r->order_item_id, 'quantity' => bcadd((string) $r->quantity, '0', 4), 'fulfilled_quantity' => bcadd((string) $r->fulfilled_quantity, '0', 4), 'released_quantity' => bcadd((string) $r->released_quantity, '0', 4), 'status' => $r->status])->all(), 'paid_total' => $paid, 'pending_total' => $pending, 'invoice' => $invoice];
     }
 
     public function assignNumber(SalesOrder $order): void
@@ -249,8 +251,8 @@ final class SalesService
 
     public function change(StoreContext $context, int $orderId, string $action, array $input, User $actor): array
     {
-        abort_unless(in_array($action, ['cancel', 'invoice', 'deliver', 'payment', 'remove'], true), 404);
-        $data = Validator::make($input, ['request_key' => ['required', 'uuid'], 'version' => ['required', 'integer', 'min:0'], 'amount' => ['sometimes', new DecimalAmount], 'payment_method' => ['sometimes', 'in:cash,bank_transfer,card'], 'item_id' => ['sometimes', 'integer', 'min:1'], 'quantity' => ['sometimes', new DecimalAmount], 'deliver_now' => ['sometimes', 'boolean']])->validate();
+        abort_unless(in_array($action, ['cancel', 'invoice', 'deliver', 'payment', 'remove', 'seller'], true), 404);
+        $data = Validator::make($input, ['request_key' => ['required', 'uuid'], 'version' => ['required', 'integer', 'min:0'], 'amount' => ['sometimes', new DecimalAmount], 'payment_method' => ['sometimes', 'in:cash,bank_transfer,card'], 'item_id' => ['sometimes', 'integer', 'min:1'], 'quantity' => ['sometimes', new DecimalAmount], 'deliver_now' => ['sometimes', 'boolean'], 'seller_employee_id' => ['nullable', 'integer', 'min:1']])->validate();
         if ($action === 'payment') {
             if (! isset($data['amount'], $data['payment_method'])) {
                 throw ValidationException::withMessages(['amount' => 'Indica el abono y su método.']);
@@ -298,6 +300,48 @@ final class SalesService
             } elseif ($action === 'deliver') {
                 abort_if($order->status === 'fulfilled', 409, 'El pedido ya está entregado.');
                 $this->deliver($order, $warehouse, $variants, $balances, $actor, $key, isset($data['item_id']) ? (int) $data['item_id'] : null, $data['quantity'] ?? null);
+            } elseif ($action === 'seller') {
+                $sellerId = $data['seller_employee_id'] ?? null;
+                $commissionPlanId = null;
+                $commissionRate = null;
+                if ($sellerId !== null) {
+                    $assignedSeller = DB::table('employees as e')
+                        ->join('employee_store_assignments as esa', 'esa.employee_id', '=', 'e.id')
+                        ->where('e.id', $sellerId)
+                        ->where('esa.store_id', $context->store()->id)
+                        ->where('e.status', 'active')
+                        ->where('e.can_sell', true)
+                        ->sharedLock()
+                        ->first(['e.id']);
+                    abort_unless($assignedSeller, 409, 'El vendedor seleccionado no está activo en esta sucursal.');
+                    $today = now(BusinessProfile::current()->timezone)->toDateString();
+                    $plan = DB::table('employee_compensation_plans')
+                        ->where('employee_id', $sellerId)
+                        ->where('pay_type', 'commission')
+                        ->where('effective_from', '<=', $today)
+                        ->where(fn ($q) => $q->whereNull('effective_to')->orWhere('effective_to', '>=', $today))
+                        ->orderByDesc('effective_from')
+                        ->orderByDesc('id')
+                        ->sharedLock()
+                        ->first();
+                    if ($plan) {
+                        $commissionPlanId = (int) $plan->id;
+                        $commissionRate = bcadd((string) $plan->commission_rate, '0', 4);
+                    }
+                }
+                $order->seller_employee_id = $sellerId;
+                $order->items()->update([
+                    'seller_employee_id' => $sellerId,
+                    'commission_plan_id' => $commissionPlanId,
+                    'commission_rate_snapshot' => $commissionRate,
+                ]);
+                if ($invoice) {
+                    DB::table('invoice_items')->where('order_id', $order->id)->update([
+                        'seller_employee_id' => $sellerId,
+                        'commission_plan_id' => $commissionPlanId,
+                        'commission_rate_snapshot' => $commissionRate,
+                    ]);
+                }
             } else {
                 abort_if($invoice, 409, 'El pedido ya está facturado. Usa el flujo de devolución para cambios comerciales.');
                 abort_if(bccomp($this->paid($order->id), '0', 4) > 0, 409, 'Hay abonos registrados. Deben resolverse explícitamente antes de retirar artículos o cancelar.');
@@ -418,7 +462,7 @@ final class SalesService
         DB::table('invoices')->where('id', $invoiceId)->update(['business_snapshot' => json_encode(BusinessProfile::current()->only(['name', 'legal_name', 'timezone', 'locale']), JSON_THROW_ON_ERROR)]);
         DB::table('invoice_orders')->insert(['invoice_id' => $invoiceId, 'order_id' => $order->id, 'direct_order_id' => $order->id, 'store_id' => $order->store_id, 'customer_id' => $order->customer_id, 'currency' => $order->currency]);
         foreach ($order->items()->get() as $item) {
-            DB::table('invoice_items')->insert(['invoice_id' => $invoiceId, 'order_item_id' => $item->id, 'order_id' => $order->id, 'variant_id' => $item->variant_id, 'store_id' => $order->store_id, 'customer_id' => $order->customer_id, 'currency' => $order->currency, 'description' => $item->product_name_snapshot, 'sku_snapshot' => $item->sku_snapshot, 'quantity' => $item->quantity, 'unit_price' => $item->unit_price, 'discount_amount' => $item->line_discount, 'tax_amount' => $item->line_tax, 'line_total' => $item->line_total, 'created_at' => now()]);
+            DB::table('invoice_items')->insert(['invoice_id' => $invoiceId, 'order_item_id' => $item->id, 'order_id' => $order->id, 'variant_id' => $item->variant_id, 'seller_employee_id' => $item->seller_employee_id, 'commission_plan_id' => $item->commission_plan_id, 'commission_rate_snapshot' => $item->commission_rate_snapshot, 'store_id' => $order->store_id, 'customer_id' => $order->customer_id, 'currency' => $order->currency, 'description' => $item->product_name_snapshot, 'sku_snapshot' => $item->sku_snapshot, 'quantity' => $item->quantity, 'unit_price' => $item->unit_price, 'discount_amount' => $item->line_discount, 'tax_amount' => $item->line_tax, 'line_total' => $item->line_total, 'created_at' => now()]);
         }
         DB::table('invoice_documents')->insert(['invoice_id' => $invoiceId, 'version' => 1, 'provider' => 'local', 'bucket_name' => 'private_invoices', 'status' => 'pending', 'created_at' => now()]);
         $this->allocatePayments($order, $invoiceId);

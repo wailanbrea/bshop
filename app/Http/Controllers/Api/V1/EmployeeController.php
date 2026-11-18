@@ -134,9 +134,17 @@ class EmployeeController extends Controller
 
     public function plans(Request $request, StoreContext $context)
     {
+        $filters = $request->validate([
+            'from' => ['nullable', 'date_format:Y-m-d'],
+            'to' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:from'],
+        ]);
         $employee = $this->employee($context, (int) $request->route('employee'));
         $plans = DB::table('employee_compensation_plans')->where('employee_id', $employee->id)->orderByDesc('effective_from')->orderByDesc('id')->get();
-        $currency = BusinessProfile::current()->default_currency;
+        $profile = BusinessProfile::current();
+        $currency = $profile->default_currency;
+        $tz = $profile->timezone;
+        $fromUtc = ! empty($filters['from']) ? CarbonImmutable::parse($filters['from'], $tz)->startOfDay()->utc()->format('Y-m-d H:i:s') : null;
+        $toUtc = ! empty($filters['to']) ? CarbonImmutable::parse($filters['to'], $tz)->startOfDay()->addDay()->utc()->format('Y-m-d H:i:s') : null;
         $ordersCount = 0;
         $salesNet = '0.0000';
         $collectedNet = '0.0000';
@@ -147,6 +155,8 @@ class EmployeeController extends Controller
             ->where('o.store_id', $context->store()->id)
             ->where('o.seller_employee_id', $employee->id)
             ->whereNotIn('o.status', ['draft', 'cancelled'])
+            ->when($fromUtc !== null, fn ($q) => $q->where('o.created_at', '>=', $fromUtc))
+            ->when($toUtc !== null, fn ($q) => $q->where('o.created_at', '<', $toUtc))
             ->select('o.*', 'io.invoice_id')
             ->cursor();
 
@@ -178,6 +188,8 @@ class EmployeeController extends Controller
             ->join('payroll_periods as pp', 'pp.id', '=', 'pl.payroll_period_id')
             ->where('pd.employee_id', $employee->id)
             ->where('pp.store_id', $context->store()->id)
+            ->when($fromUtc !== null, fn ($q) => $q->where('pd.paid_at', '>=', $fromUtc))
+            ->when($toUtc !== null, fn ($q) => $q->where('pd.paid_at', '<', $toUtc))
             ->orderByDesc('pd.paid_at')
             ->orderByDesc('pd.id')
             ->select('pd.id', 'pd.amount', 'pd.currency', 'pd.payment_method', 'pd.reference', 'pd.paid_at')

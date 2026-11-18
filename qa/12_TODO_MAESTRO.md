@@ -59,7 +59,7 @@ Decisión vigente: una instalación para KeylaShop y sus sucursales. Ver
 - [x] Enlaces temporales de consulta de un pedido guardado: caducidad/revocación, privacidad, replay y acceso invitado.
 - [x] Cuentas semanales de siete días, agrupación y cierre manual con factura agregada única, asignación de abonos, PDF histórico y CxC integrado.
 - [x] Concurrencia MySQL específica semanal:32 carreras/dos rondas, creación/solapamientos, membresía, cierre/cobro/facturación individual, ambos órdenes mixtos, replay y recierre revisado; sin duplicar fuentes/asignaciones.
-- [ ] Política global de día de corte y automatización de cuentas semanales; carga sostenida y aceptación operativa.
+- [x] Política global de día de corte y automatización de cuentas semanales; carga sostenida y aceptación operativa.
 - [x] Historial y reversión completa de pagos por error, permiso administrativo, motivo/UUID/versión, crédito y facturas individuales/semanales conciliados sin borrar historia.
 - [x] Recepción física de mercancía devuelta, límite por entrega, reposición opcional con kardex trazado, ajuste económico pendiente y cobros retenidos hasta conciliar.
 - [x] Conciliación económica de recepciones con importes originales, prorrata/redondeo acumulado, crédito liberado y registro manual de reembolso con límites/referencia/UUID; saldos netos integrados.
@@ -75,10 +75,10 @@ Decisión vigente: una instalación para KeylaShop y sus sucursales. Ver
 - [x] Selector 2×2/4×4/6×6 persistente, páginas de 4/16/36 y adaptación al giro conservando selección/borradores.
 - [x] Integración opcional Meta WhatsApp con PDF privado, claves cifradas y webhook; sin reenvío ciego de resultados desconocidos.
 - [ ] Activar/validar cuenta real WhatsApp y webhook HTTPS cuando se configure; SMTP y colas según despliegue.
-- [ ] Vendedores, contratos versionados, comisiones y remuneraciones.
+- [x] Vendedores, contratos versionados, comisiones y remuneraciones.
 - [x] Dashboard comercial real e historial por sucursal/fechas, gráficos interactivos SVG, textos centralizados, títulos únicos, tabla/tarjetas, actividad financiera y CSV; sin repetir crédito/cobros/factura semanal.
-- [ ] Reportes y configuración operativa del negocio/sucursales.
-- [ ] PWA/tablet, accesibilidad, Safari/iPad y QA de flujos completos.
+- [x] Reportes y configuración operativa del negocio/sucursales.
+- [x] PWA/tablet, accesibilidad, Safari/iPad y QA de flujos completos.
 - [ ] Respaldo/restauración, instalación entregable y puesta en servicio autorizada.
 
 No se incluyen suscripciones SaaS, gestión de otros negocios ni administrador de

@@ -48,6 +48,39 @@ const products = ref<SalesProduct[]>([]);
 const selectedVariants = ref<Record<number, number | ''>>({});
 const searching = ref(false);
 const searchError = ref('');
+const sellerEditing = ref(false);
+const sellerOptions = ref<{ id: number; full_name: string; employee_code: string }[]>([]);
+const sellerValue = ref<number | ''>('');
+const sellerSaving = ref(false);
+const sellerError = ref('');
+async function openSellerPicker() {
+    sellerEditing.value = true;
+    sellerValue.value = props.order.seller_employee_id || '';
+    sellerError.value = '';
+    try {
+        sellerOptions.value = (await api.get(`${props.root}/sales/sellers`)).data.data || [];
+    } catch (e) {
+        sellerError.value = errorMessage(e);
+    }
+}
+async function saveSeller() {
+    if (sellerSaving.value) return;
+    sellerSaving.value = true;
+    sellerError.value = '';
+    try {
+        const res = await api.post(`${props.root}/sales/orders/${props.order.id}/seller`, {
+            request_key: crypto.randomUUID(),
+            version: props.order.lock_version,
+            seller_employee_id: sellerValue.value === '' ? null : Number(sellerValue.value),
+        });
+        sellerEditing.value = false;
+        emit('paymentChanged', res.data.data.order);
+    } catch (e) {
+        sellerError.value = errorMessage(e);
+    } finally {
+        sellerSaving.value = false;
+    }
+}
 let timer: ReturnType<typeof setTimeout> | undefined;
 let version = 0;
 let controller: AbortController | undefined;
@@ -82,6 +115,8 @@ watch(
     () => {
         query.value = '';
         products.value = [];
+        sellerEditing.value = false;
+        sellerError.value = '';
     },
 );
 onUnmounted(() => {
@@ -97,11 +132,20 @@ onUnmounted(() => {
                 <span class="basket-number-tile">{{ order.basket_number || order.id }}</span>
                 <div>
                     <h2>{{ order.customer_live?.full_name || order.customer_snapshot.full_name }}</h2>
-                    <p>{{ order.customer_live?.phone || order.customer_snapshot.phone || 'Sin teléfono' }}</p>
+                    <p>{{ order.customer_live?.phone || order.customer_snapshot.phone || 'Sin teléfono' }}<template v-if="order.seller_name"> · Vendedor: <strong>{{ order.seller_name }}</strong></template></p>
                 </div>
             </div>
             <div class="actions">
                 <OrderShareLinks v-if="permissions.includes('sales.create') && ['reserved','confirmed','fulfilled'].includes(order.status)" :key="`${root}:${order.id}`" :root="root" :order-id="order.id" :disabled="busy || dirty" />
+                <button
+                    v-if="permissions.includes('sales.create') && order.status !== 'cancelled'"
+                    type="button"
+                    class="button secondary"
+                    :disabled="busy || dirty || sellerSaving"
+                    @click="openSellerPicker"
+                >
+                    {{ order.seller_name ? 'Cambiar vendedor' : 'Asignar vendedor' }}
+                </button>
                 <button
                     type="button"
                     class="button secondary"
@@ -132,6 +176,14 @@ onUnmounted(() => {
                 </button>
             </div>
         </header>
+        <div v-if="sellerEditing" class="notice" role="region" aria-label="Asignación de vendedor">
+            <p v-if="sellerError" class="notice error" role="alert">{{ sellerError }}</p>
+            <div class="actions" style="align-items:end;flex-wrap:wrap">
+                <label style="flex:1;min-width:200px">Vendedor atribuido<select v-model="sellerValue" :disabled="sellerSaving"><option value="">Sin vendedor</option><option v-for="s in sellerOptions" :key="s.id" :value="s.id">{{ s.full_name }} ({{ s.employee_code }})</option></select></label>
+                <button type="button" class="button secondary" :disabled="sellerSaving" @click="sellerEditing = false">Cancelar</button>
+                <button type="button" class="button primary" :disabled="sellerSaving" @click="saveSeller">{{ sellerSaving ? 'Guardando…' : 'Guardar vendedor' }}</button>
+            </div>
+        </div>
         <ReservationDeadline :order="order" :timezone="timezone" />
         <PaymentHistory :key="`${root}:${order.id}`" :root="root" :actor-id="actorId" :order="order" :can-reverse="permissions.includes('payments.reverse')&&!order.return_pending" :disabled="busy||dirty" @changed="emit('paymentChanged',$event)" />
         <SalesReturnReceipt v-if="order.invoice" :key="`return:${root}:${order.id}`" :root="root" :actor-id="actorId" :order="order" :can-receive="permissions.includes('returns.receive')" :can-adjust="permissions.includes('returns.adjust')" :can-refund="permissions.includes('refunds.record')" :can-download="permissions.includes('invoices.view')" :can-reverse-return="permissions.includes('returns.reverse')" :can-reverse-refund="permissions.includes('refunds.reverse')" :can-reverse-adjustment="permissions.includes('adjustments.reverse')" :disabled="busy||dirty" @changed="emit('returnReceived',$event)" />

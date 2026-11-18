@@ -229,5 +229,20 @@ class EmployeeContractsTest extends TestCase
             ->assertOk()
             ->assertJsonPath('meta.total', 1)
             ->assertJsonPath('data.0.seller_name', 'Vendedora QA');
+
+        $this->getJson($url.'?from=2026-11-16&to=2026-11-16')
+            ->assertOk()
+            ->assertJsonPath('summary.orders_count', 1)
+            ->assertJsonPath('summary.disbursed_total', '10.0000');
+
+        $secondSeller = $this->postJson($this->root(), ['request_key' => (string) Str::uuid(), 'employee_code' => 'VEN-02', 'full_name' => 'Vendedor Dos'])->assertCreated()->json('data.employee.id');
+        $this->postJson('/api/v1/business/stores/'.$this->store.'/sales/orders/'.$order['id'].'/seller', [
+            'request_key' => (string) Str::uuid(),
+            'version' => $order['lock_version'],
+            'seller_employee_id' => $secondSeller,
+        ])->assertOk()->assertJsonPath('data.order.seller_employee_id', $secondSeller)->assertJsonPath('data.order.seller_name', 'Vendedor Dos');
+
+        $csv = $this->get('/api/v1/business/stores/'.$this->store.'/warehouses/'.$warehouseId.'/stock/export')->assertOk()->streamedContent();
+        $this->assertStringContainsString('Precio de compra', $csv);
     }
 }

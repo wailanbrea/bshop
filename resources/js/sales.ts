@@ -11,6 +11,7 @@ export interface SavedOrder {
     original_total?:string;net_total?:string;return_credit_total?:string;gross_received?:string;refunded_total?:string;credit_available?:string;
     credit_received_total?:string;credit_applied_total?:string;
     order_kind?: 'sale' | 'reservation'; basket_number?: string; closed_at?: string | null; shipped_at?: string | null;
+    seller_employee_id?: number | null; seller_name?: string | null;
     customer_live?: SalesCustomer & { lock_version: number };
     whatsapp_delivery?: { id: string; status: string; error_code: string | null } | null;
     id: number; store_id: number; warehouse_id: number; customer_id: number; customer_snapshot: SalesCustomer; status: 'reserved' | 'confirmed' | 'fulfilled' | 'cancelled'; currency: string; lock_version: number;
