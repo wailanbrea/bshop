@@ -41,7 +41,7 @@ class SalesControlTest extends TestCase
         $this->store = Store::first()->id;
         $this->customer = Customer::factory()->create(['full_name' => 'Historical Customer'])->id;
         $this->actingAs($this->owner);
-        $p = app(ProductService::class)->create(['name' => 'Control service', 'product_type' => 'service', 'track_stock' => false, 'unit_code' => 'unit', 'status' => 'active', 'variants' => [['sku' => 'CONTROL', 'sale_price' => '10', 'attribute_value_ids' => []]]], $this->owner);
+        $p = app(ProductService::class)->create(['name' => 'Control service', 'product_type' => 'service', 'track_stock' => false, 'unit_code' => 'unit', 'status' => 'active', 'variants' => [['sku' => 'CONTROL', 'cost_price' => '4', 'sale_price' => '10', 'attribute_value_ids' => []]]], $this->owner);
         $this->variant = $p->variants()->first()->id;
     }
 
@@ -70,7 +70,7 @@ class SalesControlTest extends TestCase
         foreach (['orders', 'payments', 'payment_allocations', 'inventory_movements', 'customer_credit_movements'] as $table) {
             $before[$table] = DB::table($table)->get()->toJson();
         }
-        $this->getJson($this->root().'/sales/control')->assertOk()->assertJsonPath('summary.0.orders', 4)->assertJsonPath('summary.0.invoices', 1)->assertJsonPath('summary.0.cancelled', 1)->assertJsonPath('summary.0.draft', 1)->assertJsonPath('summary.0.net_total', '20.0000')->assertJsonPath('summary.0.sales_net', '10.0000')->assertJsonPath('summary.0.unbilled_net', '10.0000')->assertJsonPath('summary.0.paid_total', '13.0000')->assertJsonPath('summary.0.pending_total', '7.0000')->assertJsonPath('cash.0.confirmed', '13.0000')->assertJsonPath('daily.0.net_total', '20.0000');
+        $this->getJson($this->root().'/sales/control')->assertOk()->assertJsonPath('summary.0.orders', 4)->assertJsonPath('summary.0.invoices', 1)->assertJsonPath('summary.0.cancelled', 1)->assertJsonPath('summary.0.draft', 1)->assertJsonPath('summary.0.net_total', '20.0000')->assertJsonPath('summary.0.cost_of_goods', '8.0000')->assertJsonPath('summary.0.gross_profit', '12.0000')->assertJsonPath('summary.0.sales_net', '10.0000')->assertJsonPath('summary.0.unbilled_net', '10.0000')->assertJsonPath('summary.0.paid_total', '13.0000')->assertJsonPath('summary.0.pending_total', '7.0000')->assertJsonPath('cash.0.confirmed', '13.0000')->assertJsonPath('daily.0.net_total', '20.0000');
         $this->getJson($this->root().'/sales/control?state=invoiced')->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.id', $sale['id']);
         foreach ($before as $table => $rows) {
             $this->assertSame($rows, DB::table($table)->get()->toJson());

@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Api\V1;
 use App\Domain\Business\AuditTrailService;
 use App\Domain\Business\IdempotentAction;
 use App\Domain\Business\StoreContext;
+use App\Domain\Sales\OrderSettlement;
+use App\Domain\Sales\PaymentDistribution;
 use App\Http\Controllers\Controller;
 use App\Models\BusinessProfile;
 use App\Models\Employee;
@@ -133,8 +135,54 @@ class EmployeeController extends Controller
     public function plans(Request $request, StoreContext $context)
     {
         $employee = $this->employee($context, (int) $request->route('employee'));
+        $plans = DB::table('employee_compensation_plans')->where('employee_id', $employee->id)->orderByDesc('effective_from')->orderByDesc('id')->get();
+        $currency = BusinessProfile::current()->default_currency;
+        $ordersCount = 0;
+        $salesNet = '0.0000';
+        $collectedNet = '0.0000';
+        $earnedCommission = '0.0000';
 
-        return response()->json(['data' => DB::table('employee_compensation_plans')->where('employee_id', $employee->id)->orderByDesc('effective_from')->orderByDesc('id')->get()]);
+        $orders = DB::table('orders as o')
+            ->leftJoin('invoice_orders as io', 'io.order_id', '=', 'o.id')
+            ->where('o.store_id', $context->store()->id)
+            ->where('o.seller_employee_id', $employee->id)
+            ->whereNotIn('o.status', ['draft', 'cancelled'])
+            ->select('o.*', 'io.invoice_id')
+            ->cursor();
+
+        foreach ($orders as $order) {
+            $ordersCount++;
+            $pos = OrderSettlement::position($order, $order->invoice_id);
+            $salesNet = bcadd($salesNet, $pos['net_total'], 4);
+            $collectedNet = bcadd($collectedNet, $pos['paid_total'], 4);
+            if (bccomp($pos['paid_total'], '0', 4) > 0 && bccomp($pos['net_total'], '0', 4) > 0) {
+                $rate = DB::table('order_items')
+                    ->where('order_id', $order->id)
+                    ->whereNull('removed_at')
+                    ->whereNotNull('commission_rate_snapshot')
+                    ->value('commission_rate_snapshot');
+                if ($rate !== null && bccomp((string) $rate, '0', 4) > 0) {
+                    $paidRatio = bccomp($pos['paid_total'], $pos['net_total'], 4) >= 0 ? '1.00000000' : bcdiv($pos['paid_total'], $pos['net_total'], 8);
+                    $merchandiseBase = bcsub(bcsub((string) $order->subtotal, (string) $order->discount_total, 4), $pos['return_credit_total'], 4);
+                    if (bccomp($merchandiseBase, '0', 4) > 0) {
+                        $collectedMerchandise = bcadd(bcmul($merchandiseBase, $paidRatio, 8), '0', 2);
+                        $comm = PaymentDistribution::commission($collectedMerchandise, (string) $rate);
+                        $earnedCommission = bcadd($earnedCommission, $comm, 4);
+                    }
+                }
+            }
+        }
+
+        return response()->json([
+            'data' => $plans,
+            'summary' => [
+                'currency' => $currency,
+                'orders_count' => $ordersCount,
+                'sales_net' => $salesNet,
+                'collected_net' => $collectedNet,
+                'earned_commission' => $earnedCommission,
+            ],
+        ]);
     }
 
     public function createPlan(Request $request, StoreContext $context, IdempotentAction $once, AuditTrailService $audit)

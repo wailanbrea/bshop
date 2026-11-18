@@ -5,12 +5,12 @@ import { readPending, savePending, clearPending } from '../lib/pendingRequests';
 import { decimal, units, type CartLine, type SalesCustomer, type SalesProduct, type SalesQuote, type SalesVariant, type SavedOrder } from '../sales';
 
 export function useSalesDraft(root: Ref<string>, warehouseId: Ref<number | ''>, journalKey: string) {
-    const customer = ref<SalesCustomer | null>(null); const lines = ref<CartLine[]>([]); const mode = ref<'sale' | 'reservation'>('sale');
+    const customer = ref<SalesCustomer | null>(null); const sellerId = ref<number | ''>(''); const lines = ref<CartLine[]>([]); const mode = ref<'sale' | 'reservation'>('sale');
     const discount = ref('0'); const shipping = ref('0'); const paid = ref('0'); const method = ref('cash'); const delivery = ref(''); const notes = ref('');
     const quote = ref<SalesQuote | null>(null); const quoting = ref(false); const busy = ref(false); const error = ref(''); const notice = ref('');
     const saved = ref<SavedOrder | null>(null); const uncertain = ref<Record<string, unknown> | null>(null); const documentState = ref('');
     let timer: ReturnType<typeof setTimeout> | undefined; let sequence = 0; let controller: AbortController | undefined;
-    const payload = computed(() => ({ warehouse_id: warehouseId.value, customer_id: customer.value?.id || null, lines: lines.value.map(line => ({ variant_id: line.variant_id, quantity: line.quantity })), discount: discount.value || '0', shipping: shipping.value || '0', notes: notes.value, estimated_delivery: delivery.value || null }));
+    const payload = computed(() => ({ warehouse_id: warehouseId.value, customer_id: customer.value?.id || null, ...(sellerId.value ? { seller_employee_id: sellerId.value } : {}), lines: lines.value.map(line => ({ variant_id: line.variant_id, quantity: line.quantity })), discount: discount.value || '0', shipping: shipping.value || '0', notes: notes.value, estimated_delivery: delivery.value || null }));
     function add(product: SalesProduct, variant: SalesVariant) {
         if (saved.value || uncertain.value) { error.value = 'Inicia una operación nueva antes de añadir productos.'; return; }
         const existing = lines.value.find(line => line.variant_id === variant.id); const next = (existing ? units(existing.quantity)! : 0n) + 10000n;
@@ -52,7 +52,7 @@ export function useSalesDraft(root: Ref<string>, warehouseId: Ref<number | ''>, 
     }
     function reset(target: 'sale' | 'reservation' = 'sale') {
         if (busy.value || uncertain.value) return;
-        clearTimeout(timer); ++sequence; controller?.abort(); saved.value = null; lines.value = []; quote.value = null; customer.value = null; mode.value = target; discount.value = '0'; shipping.value = '0'; paid.value = '0'; delivery.value = ''; notes.value = ''; error.value = ''; notice.value = ''; documentState.value = '';
+        clearTimeout(timer); ++sequence; controller?.abort(); saved.value = null; lines.value = []; quote.value = null; customer.value = null; sellerId.value = ''; mode.value = target; discount.value = '0'; shipping.value = '0'; paid.value = '0'; delivery.value = ''; notes.value = ''; error.value = ''; notice.value = ''; documentState.value = '';
     }
     function restore(order: SavedOrder) { saved.value = order; mode.value = 'reservation'; error.value = ''; notice.value = ''; }
     onMounted(async () => {
@@ -63,5 +63,5 @@ export function useSalesDraft(root: Ref<string>, warehouseId: Ref<number | ''>, 
         finally { busy.value = false; }
     });
     onUnmounted(() => { ++sequence; controller?.abort(); clearTimeout(timer); });
-    return { customer, lines, mode, discount, shipping, paid, method, delivery, notes, quote, quoting, busy, error, notice, saved, uncertain, documentState, add, changeQuantity, calculate, submit, reset, restore };
+    return { customer, sellerId, lines, mode, discount, shipping, paid, method, delivery, notes, quote, quoting, busy, error, notice, saved, uncertain, documentState, add, changeQuantity, calculate, submit, reset, restore };
 }

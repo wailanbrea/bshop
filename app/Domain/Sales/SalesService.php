@@ -34,12 +34,12 @@ final class SalesService
 
     public function validate(array $input, bool $confirmation = false): array
     {
-        $rules = ['warehouse_id' => ['required', 'integer', 'min:1'], 'customer_id' => [$confirmation ? 'required' : 'nullable', 'integer', 'min:1'], 'lines' => ['required', 'array', 'list', 'min:1', 'max:50'], 'lines.*.variant_id' => ['required', 'integer', 'min:1', 'distinct'], 'lines.*.quantity' => ['required', new DecimalAmount], 'discount' => ['required', new DecimalAmount], 'shipping' => ['required', new DecimalAmount], 'notes' => ['nullable', 'string', 'max:4000'], 'estimated_delivery' => ['nullable', 'date_format:Y-m-d']];
+        $rules = ['warehouse_id' => ['required', 'integer', 'min:1'], 'customer_id' => [$confirmation ? 'required' : 'nullable', 'integer', 'min:1'], 'seller_employee_id' => ['nullable', 'integer', 'min:1'], 'lines' => ['required', 'array', 'list', 'min:1', 'max:50'], 'lines.*.variant_id' => ['required', 'integer', 'min:1', 'distinct'], 'lines.*.quantity' => ['required', new DecimalAmount], 'discount' => ['required', new DecimalAmount], 'shipping' => ['required', new DecimalAmount], 'notes' => ['nullable', 'string', 'max:4000'], 'estimated_delivery' => ['nullable', 'date_format:Y-m-d']];
         if ($confirmation) {
             $rules = [...$rules, 'request_key' => ['required', 'uuid'], 'quote_hash' => ['required', 'string', 'size:64'], 'mode' => ['required', 'in:sale,reservation'], 'initial_payment' => ['required', new DecimalAmount], 'payment_method' => ['required', 'in:cash,bank_transfer,card']];
         }
         $data = Validator::make($input, $rules)->validate();
-        foreach (['warehouse_id', 'customer_id'] as $field) {
+        foreach (['warehouse_id', 'customer_id', 'seller_employee_id'] as $field) {
             if (isset($data[$field])) {
                 $data[$field] = (int) $data[$field];
             }
@@ -139,7 +139,35 @@ final class SalesService
             if (bccomp($data['initial_payment'], '0', 4) > 0) {
                 $this->authorize($context, $actor, 'payments.record');
             }
-            $order = SalesOrder::create(['store_id' => $context->store()->id, 'customer_id' => $customer->id, 'customer_snapshot' => $customer->only(['full_name', 'phone', 'email', 'address']), 'channel' => 'manual', 'status' => $data['mode'] === 'reservation' ? 'reserved' : 'fulfilled', 'currency' => $quote['currency'], 'subtotal' => $quote['subtotal'], 'discount_total' => $quote['discount_total'], 'tax_total' => $quote['tax_total'], 'shipping_total' => $quote['shipping_total'], 'grand_total' => $quote['grand_total'], 'notes' => $data['notes'] ?? null, 'estimated_delivery' => $data['estimated_delivery'] ?? null, 'confirmed_at' => now(), 'fulfilled_at' => $data['mode'] === 'sale' ? now() : null]);
+            $sellerId = $data['seller_employee_id'] ?? null;
+            $commissionPlanId = null;
+            $commissionRate = null;
+            if ($sellerId !== null) {
+                $assignedSeller = DB::table('employees as e')
+                    ->join('employee_store_assignments as esa', 'esa.employee_id', '=', 'e.id')
+                    ->where('e.id', $sellerId)
+                    ->where('esa.store_id', $context->store()->id)
+                    ->where('e.status', 'active')
+                    ->where('e.can_sell', true)
+                    ->sharedLock()
+                    ->first(['e.id']);
+                abort_unless($assignedSeller, 409, 'El vendedor seleccionado no está activo en esta sucursal.');
+                $today = now(BusinessProfile::current()->timezone)->toDateString();
+                $plan = DB::table('employee_compensation_plans')
+                    ->where('employee_id', $sellerId)
+                    ->where('pay_type', 'commission')
+                    ->where('effective_from', '<=', $today)
+                    ->where(fn ($q) => $q->whereNull('effective_to')->orWhere('effective_to', '>=', $today))
+                    ->orderByDesc('effective_from')
+                    ->orderByDesc('id')
+                    ->sharedLock()
+                    ->first();
+                if ($plan) {
+                    $commissionPlanId = (int) $plan->id;
+                    $commissionRate = bcadd((string) $plan->commission_rate, '0', 4);
+                }
+            }
+            $order = SalesOrder::create(['store_id' => $context->store()->id, 'customer_id' => $customer->id, 'seller_employee_id' => $sellerId, 'customer_snapshot' => $customer->only(['full_name', 'phone', 'email', 'address']), 'channel' => 'manual', 'status' => $data['mode'] === 'reservation' ? 'reserved' : 'fulfilled', 'currency' => $quote['currency'], 'subtotal' => $quote['subtotal'], 'discount_total' => $quote['discount_total'], 'tax_total' => $quote['tax_total'], 'shipping_total' => $quote['shipping_total'], 'grand_total' => $quote['grand_total'], 'notes' => $data['notes'] ?? null, 'estimated_delivery' => $data['estimated_delivery'] ?? null, 'confirmed_at' => now(), 'fulfilled_at' => $data['mode'] === 'sale' ? now() : null]);
             $order->warehouse_id = $warehouse->id;
             $order->order_kind = $data['mode'] === 'reservation' ? 'reservation' : 'sale';
             $order->tax_rate_snapshot = $quote['tax_rate'];
@@ -147,7 +175,7 @@ final class SalesService
             $this->assignNumber($order);
             $deadline = $data['mode'] === 'reservation' ? app(ReservationExpiry::class)->deadline() : null;
             foreach ($quote['lines'] as $line) {
-                $item = $order->items()->create(['store_id' => $order->store_id, 'variant_id' => $line['variant_id'], 'quantity' => $line['quantity'], 'unit_price' => $line['unit_price'], 'line_total' => $line['line_total'], 'product_name_snapshot' => $line['product_name'], 'sku_snapshot' => $line['sku'], 'variant_snapshot' => $line['variant']]);
+                $item = $order->items()->create(['store_id' => $order->store_id, 'variant_id' => $line['variant_id'], 'seller_employee_id' => $sellerId, 'commission_plan_id' => $commissionPlanId, 'commission_rate_snapshot' => $commissionRate, 'quantity' => $line['quantity'], 'unit_price' => $line['unit_price'], 'line_total' => $line['line_total'], 'product_name_snapshot' => $line['product_name'], 'sku_snapshot' => $line['sku'], 'variant_snapshot' => $line['variant']]);
                 $variant = $variants[$line['variant_id']];
                 $variant->product->loadMissing(['images.asset.renditions', 'variants.attributeValues.attribute']);
                 $thumbnail = app(VariantPhoto::class)->url($variant->product, $variant, 'thumb');

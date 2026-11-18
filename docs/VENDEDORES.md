@@ -27,7 +27,7 @@ registra auditoría. No hay edición ni eliminación de contratos históricos.
 - Una devolución después de pagar la comisión genera una compensación negativa
   para una liquidación futura, conservando la historia.
 
-Esta etapa incluye el módulo de dominio para distribución proporcional exacta en centavos (`PaymentDistribution`) y prorrateo salarial por días vigentes (`SalaryProration`), así como el alta, edición, cambio de estado y asignación multisucursal de vendedores y sus contratos. Queda para la siguiente fase la atribución de vendedor por artículo en la venta y el libro de liquidaciones/desembolsos.
+Esta etapa incluye el módulo de dominio para distribución proporcional exacta en centavos (`PaymentDistribution`) y prorrateo salarial por días vigentes (`SalaryProration`), el alta, edición, cambio de estado y asignación multisucursal de vendedores y sus contratos, la atribución de vendedor en **Ventas / Apartados** (capturando instantánea del contrato y tasa de comisión activa en `order_items`), y el **Resumen comercial del vendedor** en **Vendedores** (**Pedidos atribuidos**, **Ventas netas**, **Cobrado** y **Comisión devengada**). Queda para la siguiente fase el libro de liquidaciones y desembolsos de nómina.
 
 ## API y verificación
 

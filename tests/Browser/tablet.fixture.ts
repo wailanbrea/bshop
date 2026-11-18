@@ -47,6 +47,7 @@ async function mockBusiness(page: Page, state: State) {
         if (pathname === '/business/weekly/settings' && method === 'GET') return json({close_weekday:4});
         if (pathname === '/business/workspace') return json({ business, stores: state.stores, permissions });
         if (/^\/business\/stores\/\d+\/warehouses$/.test(pathname) && method === 'GET') return json([{ id: 1, store_id: Number(pathname.split('/')[3]), name: 'Almacén principal', is_default: true, is_active: true }]);
+        if (/^\/business\/stores\/\d+\/sales\/sellers$/.test(pathname) && method === 'GET') return json([]);
         if (pathname === '/business/team') return json({ members, roles, stores: state.stores, invitations: [] });
         if (pathname === '/business/catalog/options') return json({ categories: [], brands: [], attributes: [] });
         if (pathname === '/business/products' && method === 'GET') return route.fulfill({ json: { data: [], meta: { current_page: 1, last_page: 1, total: 0 } } });

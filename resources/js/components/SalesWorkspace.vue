@@ -33,6 +33,7 @@ const root = computed(() => `/business/stores/${props.store?.id}`);
 const draft = useSalesDraft(root, warehouseId, `bshop:pending-sale:${props.actorId}:${props.store?.id}`);
 const {
     customer,
+    sellerId,
     lines,
     mode,
     discount,
@@ -65,6 +66,12 @@ const customerOpener = ref<HTMLElement | null>(null);
 const canCreate = computed(() => props.permissions.includes('sales.create'));
 const canPay = computed(() => props.permissions.includes('payments.record'));
 const activeWarehouses = computed(() => props.warehouses.filter((w) => w.is_active));
+const sellers = ref<{ id: number; employee_code: string; full_name: string }[]>([]);
+watch(() => props.store?.id, (id) => {
+    sellers.value = [];
+    if (!id) return;
+    api.get(`${root.value}/sales/sellers`).then(res => { sellers.value = res.data.data || []; }).catch(() => {});
+}, { immediate: true });
 const historyOpen = ref(false);
 const orders = ref<SavedOrder[]>([]);
 const historyLoading = ref(false);
@@ -385,6 +392,7 @@ async function share() {
                 </div>
                 <SalesSummary
                     v-model:mode="mode"
+                    v-model:seller-id="sellerId"
                     v-model:discount="discount"
                     v-model:shipping="shipping"
                     v-model:paid="paid"
@@ -392,6 +400,7 @@ async function share() {
                     v-model:delivery="delivery"
                     v-model:notes="notes"
                     :customer="customer"
+                    :sellers="sellers"
                     :lines="lines"
                     :quote="quote"
                     :currency="saved?.currency || business.default_currency"

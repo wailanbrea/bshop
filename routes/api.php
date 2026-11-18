@@ -170,6 +170,7 @@ Route::middleware(['auth:sanctum', 'active', 'auth.session'])->group(function ()
             Route::get('customers/{customer}/summary', [SalesController::class, 'summary'])->whereNumber('customer')->middleware(['can:customers.view', 'can:sales.view']);
             Route::middleware('can:sales.view')->group(function () {
                 Route::get('sales/requests/{key}', [SalesController::class, 'requestStatus'])->whereUuid('key');
+                Route::get('sales/sellers', [SalesController::class, 'sellers']);
                 Route::get('sales/catalog', [SalesController::class, 'catalog']);
                 Route::get('sales/orders', [SalesController::class, 'index']);
                 Route::get('sales/orders/{order}', [SalesController::class, 'show'])->whereNumber('order');

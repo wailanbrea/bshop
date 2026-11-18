@@ -53,6 +53,7 @@ final class SalesControl
             $summary = [];
             $days = [];
             $invoices = [];
+            $activeOrders = [];
             foreach ($query->orderByDesc('o.created_at')->orderByDesc('o.id')->cursor() as $order) {
                 $customer = json_decode($order->customer_snapshot ?? '{}', true, flags: JSON_THROW_ON_ERROR);
                 $name = $customer['full_name'] ?? $order->live_name ?? 'Cliente histórico';
@@ -74,6 +75,7 @@ final class SalesControl
 
                     continue;
                 }
+                $activeOrders[(int) $order->id] = $currency;
                 foreach (['original_total', 'return_credit_total', 'net_total', 'paid_total', 'pending_total', 'credit_available'] as $field) {
                     $summary[$currency][$field] = bcadd($summary[$currency][$field], $position[$field], 4);
                 }
@@ -91,6 +93,27 @@ final class SalesControl
                 $days[$key]['net_total'] = bcadd($days[$key]['net_total'], $position['net_total'], 4);
             }
             ksort($days);
+            if ($activeOrders !== []) {
+                $itemRows = DB::table('order_items as oi')
+                    ->join('product_variants as pv', 'pv.id', '=', 'oi.variant_id')
+                    ->whereIn('oi.order_id', array_keys($activeOrders))
+                    ->whereNull('oi.removed_at')
+                    ->whereNotNull('pv.cost_price')
+                    ->select('oi.order_id', 'oi.quantity', 'pv.cost_price')
+                    ->cursor();
+                foreach ($itemRows as $itemRow) {
+                    $curr = $activeOrders[(int) $itemRow->order_id] ?? null;
+                    if ($curr === null || ! isset($summary[$curr])) {
+                        continue;
+                    }
+                    $lineCost = bcmul(bcadd((string) $itemRow->quantity, '0', 4), bcadd((string) $itemRow->cost_price, '0', 4), 4);
+                    $summary[$curr]['cost_of_goods'] = bcadd($summary[$curr]['cost_of_goods'], $lineCost, 4);
+                }
+            }
+            foreach ($summary as &$sumItem) {
+                $sumItem['gross_profit'] = bcsub($sumItem['net_total'], $sumItem['cost_of_goods'], 4);
+            }
+            unset($sumItem);
             $cash = [];
             foreach (DB::table('payments')->where('store_id', $store)->where('paid_at', '>=', $bounds[0])->where('paid_at', '<', $bounds[1])->whereIn('status', ['confirmed', 'reversed'])->orderBy('id')->cursor() as $payment) {
                 $currency = $payment->currency;
@@ -175,6 +198,6 @@ final class SalesControl
 
     private function emptySummary(string $currency): array
     {
-        return ['currency' => $currency, 'orders' => 0, 'invoices' => 0, 'cancelled' => 0, 'draft' => 0, 'pending_returns' => 0, ...array_fill_keys(['original_total', 'return_credit_total', 'net_total', 'paid_total', 'pending_total', 'credit_available', 'sales_net', 'unbilled_net'], '0.0000')];
+        return ['currency' => $currency, 'orders' => 0, 'invoices' => 0, 'cancelled' => 0, 'draft' => 0, 'pending_returns' => 0, ...array_fill_keys(['original_total', 'return_credit_total', 'net_total', 'paid_total', 'pending_total', 'credit_available', 'sales_net', 'unbilled_net', 'cost_of_goods', 'gross_profit'], '0.0000')];
     }
 }

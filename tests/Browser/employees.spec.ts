@@ -5,7 +5,7 @@ const test = base.extend<{ staff:State }>({ staff:async({page,businessState},use
     const state:State={employees:[],plans:[],writes:[],lost:false,failPlans:false};const replies=new Map<string,any>();
     await page.route('**/api/v1/business/stores/*/employees**',async route=>{
         const url=new URL(route.request().url());const method=route.request().method();const isPlans=url.pathname.endsWith('/plans');
-        if(method==='GET'){if(isPlans&&state.failPlans){state.failPlans=false;return route.fulfill({status:500,json:{message:'No disponible'}});}return route.fulfill({json:isPlans?{data:state.plans}:{data:state.employees,meta:{current_page:1,last_page:1,total:state.employees.length}}});}
+        if(method==='GET'){if(isPlans&&state.failPlans){state.failPlans=false;return route.fulfill({status:500,json:{message:'No disponible'}});}return route.fulfill({json:isPlans?{data:state.plans,summary:{currency:'USD',orders_count:3,sales_net:'450.0000',collected_net:'300.0000',earned_commission:'30.0000'}}:{data:state.employees,meta:{current_page:1,last_page:1,total:state.employees.length}}});}
         if(method!=='POST')return route.fulfill({status:403});
         const data=route.request().postDataJSON();state.writes.push({isPlans,data});let result=replies.get(data.request_key);
         if(!result){if(isPlans){const plan={id:state.plans.length+1,...data,currency:'USD'};state.plans.push(plan);result={plan,replay:false};}else{const employee={id:state.employees.length+1,employee_code:data.employee_code.toUpperCase(),full_name:data.full_name,status:'active'};state.employees.push(employee);result={employee,replay:false};}replies.set(data.request_key,result);}

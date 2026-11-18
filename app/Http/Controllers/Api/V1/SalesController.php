@@ -32,6 +32,20 @@ class SalesController extends Controller
         return response()->json(['data' => ['order' => $service->present($order), 'replay' => true, 'document' => $invoice ? ['status' => DB::table('invoice_documents')->where('invoice_id', $invoice->id)->where('version', 1)->value('status')] : null]]);
     }
 
+    public function sellers(Request $request, StoreContext $context)
+    {
+        $sellers = DB::table('employees as e')
+            ->join('employee_store_assignments as esa', 'esa.employee_id', '=', 'e.id')
+            ->where('esa.store_id', $context->store()->id)
+            ->where('e.status', 'active')
+            ->where('e.can_sell', true)
+            ->orderBy('e.full_name')
+            ->orderBy('e.id')
+            ->get(['e.id', 'e.employee_code', 'e.full_name']);
+
+        return response()->json(['data' => $sellers]);
+    }
+
     public function catalog(Request $request, StoreContext $context)
     {
         $data = $request->validate(['warehouse_id' => ['required', 'integer'], 'q' => ['nullable', 'string', 'max:120'], 'category_id' => ['nullable', 'integer'], 'page' => ['nullable', 'integer', 'min:1'], 'sort' => ['nullable', 'in:newest,name']]);

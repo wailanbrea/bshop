@@ -2332,3 +2332,13 @@ Evidencia privada `.runtime/clothing-options-638B42CBFD5A`.
 La instalación pública no se modificó: por SSH el usuario `bsolutions` recibe
 acceso denegado al listar `C:\xampp\htdocs\keylashop`. Se requiere acceso autorizado
 al proyecto y verificación del estado antes de publicar; no se tocaron datos del VPS.
+
+## 2026-11-18 - Variantes simplificadas, lote de 10 fotos, valoración de inventario, vendedores, cuentas semanales, PWA y atribución de comisiones
+
+Se completaron y desplegaron en el VPS Linux (`https://keylashop.bsolutions.dev`, contenedor `keylashop-test-app-1`) las siguientes entregas sobre la rama `develop`:
+
+- **Selector de variantes y tarjetas de venta (`80e5901`, `7e42a55`):** todas las tallas de una prenda permanecen visibles como chips (deshabilitadas en gris cuando no hay stock en el color elegido); cuando un producto tiene 1 sola variante disponible muestra directamente `Color: ... · Talla: ...` y `Disponible (X)` en la tarjeta y preselecciona esa combinación al abrirse.
+- **Carga rápida de hasta 10 fotos y alta uno por uno (`ca633b3`):** componente `QuickPhotoProducts.vue` integrado en `ProductEditor.vue` y `CatalogView.vue` (`+ Subir hasta 10 fotos` y pestañas `Uno por uno`, `Hasta 10 fotos`, `Modo avanzado`), capturando **Nombre, Precio de compra (`cost_price`), Precio de venta (`sale_price`), Cantidad, Color, Size y Descripción (opcional)** debajo de cada foto.
+- **Valoración contable de inventario y alertas de reposición (`1f5786a`, `b497f23`):** cálculo de **Capital invertido al costo**, **Valor en venta**, **Ganancia proyectada**, **Unidades** y filtro **Por reponer (`≤ 2`)** tanto en **Vista general** (`/`) como en **Inventario**.
+- **Módulo de Vendedores/Contratos, Corte semanal, Cuentas semanales y PWA (`9a15020`):** alta, edición, activación/desactivación y asignación multisucursal de vendedores (`EmployeeController`, `EmployeesView.vue`), contratos inmutables de sueldo fijo o comisión, `PaymentDistribution` y `SalaryProration`, configuración del día de corte semanal (`WeeklySettingsController`, `WeeklySettings.vue`), desglose en cuentas semanales y soporte PWA (`manifest.webmanifest`, `pwa-icon.svg`, `pwa-worker.js`).
+- **Costo de lo vendido, ganancia bruta del período y atribución de vendedor con comisión devengada:** cálculo de `cost_of_goods` y `gross_profit` en `SalesControl.php` y `SalesControlView.vue`; selector de **Vendedor que atiende** en **Ventas / Apartados** (`SalesSummary.vue`, `SalesWorkspace.vue`, `SalesService.php`) con instantánea de contrato y tasa de comisión activa en `order_items`, y **Resumen comercial del vendedor** (`orders_count`, `sales_net`, `collected_net`, `earned_commission`) en `EmployeeController::plans` y `EmployeesView.vue`.

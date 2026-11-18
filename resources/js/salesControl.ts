@@ -1,6 +1,6 @@
 import type {SavedOrder} from './sales';
 export interface ControlRow {id:number;number:string;customer_name:string;created_at:string;kind:string;status:string;invoice_number:string|null;currency:string;original_total:string;return_credit_total:string;net_total:string;paid_total:string;pending_total:string;credit_available:string;return_pending:boolean}
-export interface ControlSummary {currency:string;orders:number;invoices:number;cancelled:number;draft:number;pending_returns:number;original_total:string;return_credit_total:string;net_total:string;paid_total:string;pending_total:string;credit_available:string;sales_net:string;unbilled_net:string}
+export interface ControlSummary {currency:string;orders:number;invoices:number;cancelled:number;draft:number;pending_returns:number;original_total:string;return_credit_total:string;net_total:string;paid_total:string;pending_total:string;credit_available:string;sales_net:string;unbilled_net:string;cost_of_goods?:string;gross_profit?:string}
 export interface ControlCash {currency:string;confirmed:string;reversed:string;refunded:string;net_cash:string;methods:{method:string;amount:string}[]}
 export interface ControlDay {date:string;currency:string;orders:number;net_total:string}
 export interface ControlInventory {currency:string;invested_cost:string;sale_value:string;estimated_profit:string;units_on_hand:string;units_available:string;without_cost_variants:number}
