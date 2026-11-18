@@ -101,7 +101,7 @@ test('quick one-by-one mode captures photo, name, cost price, sale price, quanti
     await page.getByRole('button',{name:'+ Nuevo producto',exact:true}).click();const dialog=page.getByRole('dialog',{name:'Nuevo producto'});
     await dialog.getByLabel('Seleccionar foto del producto').setInputFiles({name:'tshirt.png',mimeType:'image/png',buffer:Buffer.from('foto-tshirt')});
     await dialog.getByLabel('Nombre',{exact:true}).fill('T-shirt Alo');
-    await dialog.getByLabel('Precio de compra',{exact:true}).fill('15');
+    await dialog.getByLabel('Precio de compra (opcional)',{exact:true}).fill('15');
     await dialog.getByLabel('Precio de venta',{exact:true}).fill('30');
     await dialog.getByLabel('Cantidad',{exact:true}).fill('3');
     await dialog.getByLabel('Color',{exact:true}).fill('Negro');
@@ -138,4 +138,48 @@ test('batch mode up to 10 photos creates independent products with cost and sale
     expect(catalog.creates[0]).toMatchObject({name:'Conjunto Gris',description:null,clothing_variants:[{color:'Gris',size:'S',cost_price:'18',sale_price:'35'}]});
     expect(catalog.creates[1]).toMatchObject({name:'Vestido Negro',description:'Tela elástica',clothing_variants:[{color:'Negro',size:'L',cost_price:'22',sale_price:'45'}]});
     expect(catalog.uploads).toHaveLength(2);
+});
+
+test('category-aware forms adapt fields for Calzado, Ropa, Electronicos and Joyeria/Lentes with optional cost',async({page,catalog})=>{
+    catalog.failPhoto=false;await page.goto('/');if((page.viewportSize()?.width||0)<768)await page.getByRole('button',{name:'Abrir menú',exact:true}).click();await page.getByRole('button',{name:'Catálogo',exact:true}).click();
+    await page.getByRole('button',{name:'+ Nuevo producto',exact:true}).click();const dialog=page.getByRole('dialog',{name:'Nuevo producto'});
+
+    // 1. Ropa: exact sizes XS to 2XL
+    await dialog.getByRole('combobox',{name:'Categoría',exact:true}).selectOption('Ropa');
+    const ropaSizes=dialog.getByRole('group',{name:'Tallas disponibles'});
+    await expect(ropaSizes).toContainText('XS');
+    await expect(ropaSizes).toContainText('2XL');
+    await expect(ropaSizes).not.toContainText('XXS');
+
+    // 2. Calzado: EU 35-42 and Regular 6-10, never XS/S
+    await dialog.getByRole('combobox',{name:'Categoría',exact:true}).selectOption('Calzado');
+    await expect(dialog.getByRole('combobox',{name:'Sistema de tallas',exact:true})).toBeVisible();
+    await expect(dialog.getByRole('group',{name:'Tallas disponibles'})).toContainText('35');
+    await expect(dialog.getByRole('group',{name:'Tallas disponibles'})).toContainText('42');
+    await expect(dialog.getByRole('group',{name:'Tallas disponibles'})).not.toContainText('XS');
+    await dialog.getByRole('combobox',{name:'Sistema de tallas',exact:true}).selectOption('us');
+    await expect(dialog.getByRole('group',{name:'Tallas disponibles'})).toContainText('6');
+    await expect(dialog.getByRole('group',{name:'Tallas disponibles'})).toContainText('10');
+
+    // 3. Electrónicos: Color visible, Size hidden
+    await dialog.getByRole('combobox',{name:'Categoría',exact:true}).selectOption('Electrónicos');
+    await expect(dialog.getByLabel('Color',{exact:true})).toBeVisible();
+    await expect(dialog.getByLabel('Size',{exact:true})).toHaveCount(0);
+
+    // 4. Joyería / Lentes: neither Color nor Size, optional cost_price allowed empty
+    await dialog.getByRole('combobox',{name:'Categoría',exact:true}).selectOption('Joyería');
+    await expect(dialog.getByLabel('Color',{exact:true})).toHaveCount(0);
+    await expect(dialog.getByLabel('Size',{exact:true})).toHaveCount(0);
+    await dialog.getByLabel('Nombre',{exact:true}).fill('Pulsera de balines dorada');
+    await dialog.getByLabel('Precio de venta',{exact:true}).fill('18');
+    await dialog.getByLabel('Cantidad',{exact:true}).fill('4');
+    await dialog.getByRole('button',{name:'Guardar producto',exact:true}).click();
+    await expect(dialog).not.toBeVisible();
+
+    expect(catalog.creates).toHaveLength(1);
+    expect(catalog.creates[0]).toMatchObject({
+        name:'Pulsera de balines dorada',
+        category_name:'Joyería',
+        clothing_variants:[{color:null,size:null,cost_price:null,sale_price:'18'}],
+    });
 });

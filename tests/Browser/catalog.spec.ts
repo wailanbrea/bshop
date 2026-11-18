@@ -90,6 +90,7 @@ test('new product submits decimal strings and keeps successful confirmation', as
     await catalog(page);
     await page.getByRole('button', { name: '+ Nuevo producto', exact: true }).tap();
     const dialog = page.getByRole('dialog', { name: 'Nuevo producto', exact: true });
+    await dialog.getByRole('button', { name: 'Modo avanzado', exact: true }).tap();
     await dialog.getByLabel('Nombre del producto', { exact: true }).fill('Perfume QA');
     await dialog.getByLabel('SKU', { exact: true }).fill('PERF-QA');
     await dialog.getByLabel('Precio de venta', { exact: true }).fill('1999,50');
@@ -105,6 +106,7 @@ test('multiple variant drafts survive rotation with reachable save controls', as
     await catalog(page);
     await page.getByRole('button', { name: '+ Nuevo producto', exact: true }).tap();
     const dialog = page.getByRole('dialog', { name: 'Nuevo producto', exact: true });
+    await dialog.getByRole('button', { name: 'Modo avanzado', exact: true }).tap();
     await dialog.getByLabel('Nombre del producto', { exact: true }).fill('Camisa con variantes');
     const first = dialog.locator('.variant-draft').nth(0);
     await first.getByLabel('SKU', { exact: true }).fill('SIZE-M'); await first.getByLabel('Precio de venta', { exact: true }).fill('500');

@@ -17,24 +17,30 @@ final class ClothingVariants
     public function resolve(array $rows, User $actor): array
     {
         BusinessProfile::whereKey(1)->lockForUpdate()->firstOrFail();
-        $color = $this->attribute('Color', $actor);
+        $hasAnyColor = collect($rows)->contains(fn ($r) => trim((string) ($r['color'] ?? '')) !== '');
         $hasAnySize = collect($rows)->contains(fn ($r) => trim((string) ($r['size'] ?? '')) !== '');
+        $color = $hasAnyColor ? $this->attribute('Color', $actor) : null;
         $size = $hasAnySize ? $this->attribute('Talla', $actor) : null;
         $seen = [];
         $variants = [];
         foreach ($rows as $row) {
-            $colorValue = $this->value($color, trim((string) ($row['color'] ?? '')), $actor);
+            $colorText = trim((string) ($row['color'] ?? ''));
             $sizeText = trim((string) ($row['size'] ?? ''));
+            $attrIds = [];
+            $comboParts = [];
+            if ($colorText !== '' && $color !== null) {
+                $colorValue = $this->value($color, $colorText, $actor);
+                $attrIds[] = $colorValue->id;
+                $comboParts[] = 'c:'.$colorValue->id;
+            }
             if ($sizeText !== '' && $size !== null) {
                 $sizeValue = $this->value($size, $sizeText, $actor);
-                $combination = $colorValue->id.':'.$sizeValue->id;
-                $attrIds = [$colorValue->id, $sizeValue->id];
-            } else {
-                $combination = (string) $colorValue->id;
-                $attrIds = [$colorValue->id];
+                $attrIds[] = $sizeValue->id;
+                $comboParts[] = 's:'.$sizeValue->id;
             }
+            $combination = $comboParts !== [] ? implode(':', $comboParts) : 'general';
             if (isset($seen[$combination])) {
-                throw ValidationException::withMessages(['clothing_variants' => 'No repitas el mismo color y talla.']);
+                throw ValidationException::withMessages(['clothing_variants' => 'No repitas la misma combinación.']);
             }
             $seen[$combination] = true;
             $variants[] = [...array_intersect_key($row, array_flip(['sku', 'barcode', 'description', 'sale_price', 'cost_price', 'is_active'])), 'attribute_value_ids' => $attrIds];

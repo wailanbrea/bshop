@@ -29,6 +29,7 @@ type QuickItem = {
     file: File | null;
     preview: string;
     categoryName: string;
+    footwearSystem: 'eu' | 'us';
     name: string;
     costPrice: string;
     salePrice: string;
@@ -45,12 +46,13 @@ type QuickItem = {
     itemError: string;
 };
 
-const defaultCategories = ['Ropa', 'Calzado', 'Lentes', 'Carteras / Bolsos', 'Accesorios', 'Joyería', 'Otros'];
+const defaultCategories = ['Ropa', 'Calzado', 'Electrónicos', 'Lentes', 'Joyería', 'Perfumes', 'Cremas', 'Carteras / Bolsos', 'Accesorios', 'Otros'];
 const defaultColors = ['Negro', 'Blanco', 'Gris', 'Verde', 'Azul', 'Celeste', 'Rojo', 'Vino', 'Rosado', 'Peach / Salmón', 'Beige', 'Crema', 'Marrón', 'Amarillo', 'Naranja', 'Morado', 'Dorado', 'Plateado', 'Multicolor'];
-const defaultSizes = ['XXS', 'XS', 'S', 'Sm', 'M', 'L', 'XL', 'Lxl', 'XXL', 'XXXL', 'Única'];
-const footwearSizes = ['5', '5.5', '6', '6.5', '7', '7.5', '8', '8.5', '9', '9.5', '10', '35', '36', '37', '38', '39', '40', '41', '42'];
+const clothingSizes = ['XS', 'S', 'M', 'L', 'XL', '2XL'];
+const footwearEuSizes = ['35', '36', '37', '38', '39', '40', '41', '42'];
+const footwearUsSizes = ['6', '6.5', '7', '7.5', '8', '8.5', '9', '9.5', '10'];
 
-const normalize = (value: string) => value.trim().toLocaleLowerCase('es');
+const normalize = (value: string) => value.trim().toLocaleLowerCase('es').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 function buildChoices(defaults: string[], attributeName: string): string[] {
     const existing = props.options.attributes.find(item => normalize(item.name) === attributeName && item.is_active)?.values.filter(item => item.is_active).map(item => item.value) || [];
     const seen = new Set<string>();
@@ -72,15 +74,39 @@ const categoryChoices = computed(() => {
     });
 });
 const colorChoices = computed(() => buildChoices(defaultColors, 'color'));
-const sizeChoices = computed(() => buildChoices([...defaultSizes, ...footwearSizes], 'talla'));
 
-function categoryRequiresSize(categoryName: string): boolean {
-    const clean = normalize(categoryName || 'Ropa');
-    if (!clean) return true;
-    if (['lentes', 'carteras / bolsos', 'carteras', 'bolsos', 'accesorios', 'joyería', 'joyeria', 'perfumes', 'otros', 'sin talla'].some(k => clean.includes(k))) {
-        return false;
+type CategoryProfile = {
+    showColor: boolean;
+    requireColor: boolean;
+    showSize: boolean;
+    requireSize: boolean;
+    isFootwear: boolean;
+};
+
+function categoryProfile(categoryName: string): CategoryProfile {
+    const clean = normalize(categoryName || 'ropa');
+    if (clean.includes('calzado') || clean.includes('zapato') || clean.includes('tenis') || clean.includes('sandalia')) {
+        return { showColor: true, requireColor: true, showSize: true, requireSize: true, isFootwear: true };
     }
-    return true;
+    if (clean === 'ropa' || clean.includes('vestido') || clean.includes('blusa') || clean.includes('pantalon')) {
+        return { showColor: true, requireColor: true, showSize: true, requireSize: true, isFootwear: false };
+    }
+    if (clean.includes('electronico') || clean.includes('audifono') || clean.includes('bocina')) {
+        return { showColor: true, requireColor: true, showSize: false, requireSize: false, isFootwear: false };
+    }
+    if (clean.includes('lente') || clean.includes('joyer') || clean.includes('pulsera') || clean.includes('anillo') || clean.includes('perfume') || clean.includes('crema')) {
+        return { showColor: false, requireColor: false, showSize: false, requireSize: false, isFootwear: false };
+    }
+    return { showColor: true, requireColor: false, showSize: false, requireSize: false, isFootwear: false };
+}
+
+function sizesForItem(item: QuickItem): string[] {
+    const profile = categoryProfile(item.categoryName);
+    if (!profile.showSize) return [];
+    if (profile.isFootwear) {
+        return item.footwearSystem === 'eu' ? footwearEuSizes : footwearUsSizes;
+    }
+    return clothingSizes;
 }
 
 const batchCategory = ref('Ropa');
@@ -95,6 +121,7 @@ function createEmptyItem(file: File | null = null, cat = 'Ropa'): QuickItem {
         file,
         preview: file ? URL.createObjectURL(file) : '',
         categoryName: cat,
+        footwearSystem: 'eu',
         name: '',
         costPrice: '',
         salePrice: '',
@@ -112,14 +139,18 @@ function createEmptyItem(file: File | null = null, cat = 'Ropa'): QuickItem {
     };
 }
 
+function syncItemCategory(item: QuickItem) {
+    const p = categoryProfile(item.categoryName);
+    if (!p.showSize) item.size = '';
+    if (!p.showColor) item.color = '';
+}
+
 function applyBatchCategory(cat: string) {
     batchCategory.value = cat;
     for (const item of batchItems.value) {
         if (item.productId === null) {
             item.categoryName = cat;
-            if (!categoryRequiresSize(cat)) {
-                item.size = '';
-            }
+            syncItemCategory(item);
         }
     }
 }
@@ -266,7 +297,7 @@ function removeBatchItem(index: number) {
 
 function validateCard(item: QuickItem, label: string): string | null {
     if (!item.name.trim()) return `Escribe el nombre en ${label}.`;
-    if (props.costs) {
+    if (props.costs && item.costPrice.trim()) {
         const cost = decimalInput(item.costPrice.trim());
         if (!cost || units(cost) === null) return `Indica un precio de compra válido en ${label}.`;
     }
@@ -274,10 +305,9 @@ function validateCard(item: QuickItem, label: string): string | null {
     if (!sale || units(sale) === null) return `Indica un precio de venta válido en ${label}.`;
     const qty = item.quantity.trim().replace(',', '.');
     if (!qty || units(qty) === null) return `Indica una cantidad válida en ${label}.`;
-    if (!item.color.trim()) return `Indica el color en ${label}.`;
-    if (categoryRequiresSize(item.categoryName) && !item.size.trim()) {
-        return `Indica el size (talla) en ${label}.`;
-    }
+    const p = categoryProfile(item.categoryName);
+    if (p.requireColor && !item.color.trim()) return `Indica el color en ${label}.`;
+    if (p.requireSize && !item.size.trim()) return `Indica la talla en ${label}.`;
     return null;
 }
 
@@ -290,7 +320,8 @@ async function persistItem(item: QuickItem, indexLabel: string): Promise<number>
         if (hasPositiveStock && (!props.store?.is_active || !activeWarehouseId.value)) {
             throw new Error('Selecciona una sucursal y un almacén activos para registrar la cantidad.');
         }
-        const needsSize = categoryRequiresSize(item.categoryName);
+        const p = categoryProfile(item.categoryName);
+        const costVal = item.costPrice.trim() ? decimalInput(item.costPrice.trim()) : null;
         const body: Record<string, unknown> = {
             name: item.name.trim(),
             description: item.description.trim() || null,
@@ -304,12 +335,12 @@ async function persistItem(item: QuickItem, indexLabel: string): Promise<number>
             request_key: item.requestKey,
             clothing_variants: [
                 {
-                    color: item.color.trim(),
-                    size: needsSize ? item.size.trim() : null,
+                    color: p.showColor && item.color.trim() ? item.color.trim() : null,
+                    size: p.showSize && item.size.trim() ? item.size.trim() : null,
                     sku: item.sku,
                     description: item.description.trim() || null,
                     sale_price: decimalInput(item.salePrice.trim()),
-                    ...(props.costs ? { cost_price: decimalInput(item.costPrice.trim()) } : {}),
+                    ...(props.costs ? { cost_price: costVal } : {}),
                     is_active: true,
                 },
             ],
@@ -429,9 +460,6 @@ defineExpose({ submit, busy });
         <datalist id="quick-catalog-colors">
             <option v-for="c in colorChoices" :key="c" :value="c" />
         </datalist>
-        <datalist id="quick-catalog-sizes">
-            <option v-for="s in sizeChoices" :key="s" :value="s" />
-        </datalist>
 
         <p v-if="progress" class="notice" role="status">{{ progress }}</p>
 
@@ -472,9 +500,20 @@ defineExpose({ submit, busy });
                         <select
                             v-model="singleItem.categoryName"
                             :disabled="busy || singleItem.productId !== null"
-                            @change="!categoryRequiresSize(singleItem.categoryName) && (singleItem.size = '')"
+                            @change="syncItemCategory(singleItem)"
                         >
                             <option v-for="cat in categoryChoices" :key="cat" :value="cat">{{ cat }}</option>
+                        </select>
+                    </label>
+                    <label v-if="categoryProfile(singleItem.categoryName).isFootwear">
+                        Sistema de tallas
+                        <select
+                            v-model="singleItem.footwearSystem"
+                            :disabled="busy || singleItem.productId !== null"
+                            @change="singleItem.size = ''"
+                        >
+                            <option value="eu">Europeas (35–42)</option>
+                            <option value="us">Regulares (6–10)</option>
                         </select>
                     </label>
                     <label>
@@ -489,13 +528,12 @@ defineExpose({ submit, busy });
                     </label>
                     <div class="quick-grid-2">
                         <label v-if="costs">
-                            Precio de compra
+                            Precio de compra (opcional)
                             <input
                                 v-model="singleItem.costPrice"
-                                required
                                 inputmode="decimal"
                                 :disabled="busy || singleItem.productId !== null"
-                                placeholder="Ej. 15.00"
+                                placeholder="Opcional — ej. 15.00"
                                 @input="singleItem.costPrice = decimalInput(singleItem.costPrice)"
                             >
                         </label>
@@ -511,7 +549,7 @@ defineExpose({ submit, busy });
                             >
                         </label>
                     </div>
-                    <div class="quick-grid-3" :class="{ 'no-size': !categoryRequiresSize(singleItem.categoryName) }">
+                    <div class="quick-grid-3" :class="{ 'no-size': !categoryProfile(singleItem.categoryName).showSize, 'only-qty': !categoryProfile(singleItem.categoryName).showColor && !categoryProfile(singleItem.categoryName).showSize }">
                         <label>
                             Cantidad
                             <input
@@ -523,28 +561,44 @@ defineExpose({ submit, busy });
                                 placeholder="1"
                             >
                         </label>
-                        <label>
-                            Color
+                        <label v-if="categoryProfile(singleItem.categoryName).showColor">
+                            Color{{ categoryProfile(singleItem.categoryName).requireColor ? '' : ' (opcional)' }}
                             <input
                                 v-model="singleItem.color"
-                                required
+                                :required="categoryProfile(singleItem.categoryName).requireColor"
                                 maxlength="120"
                                 list="quick-catalog-colors"
                                 :disabled="busy || singleItem.productId !== null"
                                 placeholder="Ej. Negro"
                             >
                         </label>
-                        <label v-if="categoryRequiresSize(singleItem.categoryName)">
+                        <label v-if="categoryProfile(singleItem.categoryName).showSize">
                             Size
                             <input
                                 v-model="singleItem.size"
                                 required
                                 maxlength="120"
-                                list="quick-catalog-sizes"
+                                :list="`quick-sizes-${singleItem.id}`"
                                 :disabled="busy || singleItem.productId !== null"
-                                placeholder="Ej. M"
+                                :placeholder="categoryProfile(singleItem.categoryName).isFootwear ? (singleItem.footwearSystem === 'eu' ? 'Ej. 38' : 'Ej. 7.5') : 'Ej. M'"
                             >
+                            <datalist :id="`quick-sizes-${singleItem.id}`">
+                                <option v-for="s in sizesForItem(singleItem)" :key="s" :value="s" />
+                            </datalist>
                         </label>
+                    </div>
+                    <div v-if="categoryProfile(singleItem.categoryName).showSize" class="size-chips" role="group" aria-label="Tallas disponibles">
+                        <button
+                            v-for="s in sizesForItem(singleItem)"
+                            :key="s"
+                            type="button"
+                            class="size-chip"
+                            :class="{ active: normalize(singleItem.size) === normalize(s) }"
+                            :disabled="busy || singleItem.productId !== null"
+                            @click="singleItem.size = s"
+                        >
+                            {{ s }}
+                        </button>
                     </div>
                     <label>
                         Descripción (opcional)
@@ -624,9 +678,20 @@ defineExpose({ submit, busy });
                             <select
                                 v-model="item.categoryName"
                                 :disabled="busy || item.productId !== null"
-                                @change="!categoryRequiresSize(item.categoryName) && (item.size = '')"
+                                @change="syncItemCategory(item)"
                             >
                                 <option v-for="cat in categoryChoices" :key="cat" :value="cat">{{ cat }}</option>
+                            </select>
+                        </label>
+                        <label v-if="categoryProfile(item.categoryName).isFootwear">
+                            Sistema de tallas (foto {{ index + 1 }})
+                            <select
+                                v-model="item.footwearSystem"
+                                :disabled="busy || item.productId !== null"
+                                @change="item.size = ''"
+                            >
+                                <option value="eu">Europeas (35–42)</option>
+                                <option value="us">Regulares (6–10)</option>
                             </select>
                         </label>
                         <label>
@@ -644,10 +709,9 @@ defineExpose({ submit, busy });
                                 Precio de compra (foto {{ index + 1 }})
                                 <input
                                     v-model="item.costPrice"
-                                    required
                                     inputmode="decimal"
                                     :disabled="busy || item.productId !== null"
-                                    placeholder="Ej. 15.00"
+                                    placeholder="Opcional — ej. 15.00"
                                     @input="item.costPrice = decimalInput(item.costPrice)"
                                 >
                             </label>
@@ -663,7 +727,7 @@ defineExpose({ submit, busy });
                                 >
                             </label>
                         </div>
-                        <div class="quick-grid-3" :class="{ 'no-size': !categoryRequiresSize(item.categoryName) }">
+                        <div class="quick-grid-3" :class="{ 'no-size': !categoryProfile(item.categoryName).showSize, 'only-qty': !categoryProfile(item.categoryName).showColor && !categoryProfile(item.categoryName).showSize }">
                             <label>
                                 Cantidad (foto {{ index + 1 }})
                                 <input
@@ -675,28 +739,44 @@ defineExpose({ submit, busy });
                                     placeholder="1"
                                 >
                             </label>
-                            <label>
+                            <label v-if="categoryProfile(item.categoryName).showColor">
                                 Color (foto {{ index + 1 }})
                                 <input
                                     v-model="item.color"
-                                    required
+                                    :required="categoryProfile(item.categoryName).requireColor"
                                     maxlength="120"
                                     list="quick-catalog-colors"
                                     :disabled="busy || item.productId !== null"
                                     placeholder="Ej. Negro"
                                 >
                             </label>
-                            <label v-if="categoryRequiresSize(item.categoryName)">
+                            <label v-if="categoryProfile(item.categoryName).showSize">
                                 Size (foto {{ index + 1 }})
                                 <input
                                     v-model="item.size"
                                     required
                                     maxlength="120"
-                                    list="quick-catalog-sizes"
+                                    :list="`quick-sizes-${item.id}`"
                                     :disabled="busy || item.productId !== null"
-                                    placeholder="Ej. M"
+                                    :placeholder="categoryProfile(item.categoryName).isFootwear ? (item.footwearSystem === 'eu' ? 'Ej. 38' : 'Ej. 7.5') : 'Ej. M'"
                                 >
+                                <datalist :id="`quick-sizes-${item.id}`">
+                                    <option v-for="s in sizesForItem(item)" :key="s" :value="s" />
+                                </datalist>
                             </label>
+                        </div>
+                        <div v-if="categoryProfile(item.categoryName).showSize" class="size-chips" role="group" :aria-label="`Tallas foto ${index + 1}`">
+                            <button
+                                v-for="s in sizesForItem(item)"
+                                :key="s"
+                                type="button"
+                                class="size-chip"
+                                :class="{ active: normalize(item.size) === normalize(s) }"
+                                :disabled="busy || item.productId !== null"
+                                @click="item.size = s"
+                            >
+                                {{ s }}
+                            </button>
                         </div>
                         <label>
                             Descripción (foto {{ index + 1 }}, opcional)
@@ -748,6 +828,30 @@ defineExpose({ submit, busy });
 }
 .quick-grid-3.no-size {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.quick-grid-3.only-qty {
+    grid-template-columns: minmax(0, 1fr);
+}
+.size-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+.size-chip {
+    min-height: 36px;
+    min-width: 40px;
+    padding: 4px 10px;
+    border: 1px solid #d5c9ea;
+    border-radius: 999px;
+    background: #fff;
+    color: #322745;
+    font-weight: 600;
+    cursor: pointer;
+}
+.size-chip.active {
+    background: #7050ca;
+    border-color: #7050ca;
+    color: #fff;
 }
 .photo-select-btn {
     position: relative;
