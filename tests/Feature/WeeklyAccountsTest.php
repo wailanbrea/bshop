@@ -93,6 +93,41 @@ class WeeklyAccountsTest extends TestCase
         return $id;
     }
 
+    public function test_weekly_cutoff_is_configurable_audited_and_does_not_change_existing_accounts(): void
+    {
+        $account = $this->createAccount()->assertCreated()->json('data.account.id');
+        $path = '/api/v1/business/weekly/settings';
+        $this->getJson($path)->assertOk()->assertJsonPath('data.close_weekday', 4);
+        $this->patchJson($path, ['close_weekday' => 6, 'previous_weekday' => 4])->assertOk()->assertJsonPath('data.close_weekday', 6);
+        $this->patchJson($path, ['close_weekday' => 7, 'previous_weekday' => 4])->assertConflict();
+        $this->patchJson($path, ['close_weekday' => 8, 'previous_weekday' => 6])->assertUnprocessable();
+        $this->assertDatabaseHas('weekly_accounts', ['id' => $account, 'period_start' => '2026-11-09', 'period_end' => '2026-11-15']);
+        $this->assertDatabaseHas('audit_logs', ['event' => 'weekly.policy.updated', 'user_id' => $this->owner->id]);
+        $this->actingAs(User::factory()->create());
+        $this->patchJson($path, ['close_weekday' => 7, 'previous_weekday' => 6])->assertForbidden();
+        $this->assertSame(6, (int) DB::table('business_settings')->where('id', 1)->value('weekly_close_weekday'));
+    }
+
+    public function test_cutoff_notice_uses_account_local_date_and_does_not_close_or_invoice(): void
+    {
+        $account = $this->createAccount()->assertCreated()->json('data.account.id');
+        $otherCustomer = Customer::factory()->create();
+        $other = $this->postJson($this->root().'/weekly-accounts', ['request_key' => (string) Str::uuid(), 'customer_id' => $otherCustomer->id, 'period_start' => '2026-11-09'])->assertCreated()->json('data.account.id');
+        WeeklyAccount::whereKey($other)->update(['timezone' => 'America/New_York']);
+        $this->travelTo(CarbonImmutable::parse('2026-11-15T03:59:59Z'));
+        $this->getJson($this->root().'/weekly-accounts?status=due')->assertOk()->assertJsonPath('meta.due_count', 0)->assertJsonCount(0, 'data');
+        $this->travelTo(CarbonImmutable::parse('2026-11-15T04:00:00Z'));
+        $this->getJson($this->root().'/weekly-accounts?status=due')->assertOk()->assertJsonPath('meta.due_count', 1)->assertJsonPath('data.0.id', $account);
+        $this->travelTo(CarbonImmutable::parse('2026-11-15T05:00:00Z'));
+        $this->getJson($this->root().'/weekly-accounts?status=due')->assertOk()->assertJsonPath('meta.due_count', 2)->assertJsonCount(2, 'data');
+        $this->assertDatabaseHas('weekly_accounts', ['id' => $account, 'status' => 'open']);
+        $this->assertDatabaseCount('invoices', 0);
+        $this->postJson($this->root()."/weekly-accounts/$account/cancel", ['request_key' => (string) Str::uuid(), 'version' => 0])->assertOk();
+        $this->getJson($this->root().'/weekly-accounts?status=due')->assertOk()->assertJsonPath('meta.due_count', 1)->assertJsonPath('data.0.id', $other);
+        $this->postJson($this->root()."/weekly-accounts/$other/cancel", ['request_key' => (string) Str::uuid(), 'version' => 0])->assertOk();
+        $this->getJson($this->root().'/weekly-accounts?status=due')->assertOk()->assertJsonPath('meta.due_count', 0)->assertJsonCount(0, 'data');
+    }
+
     public function test_adjustment_compensation_reopens_the_shared_invoice_hold_and_preserves_its_original_pdf(): void
     {
         $id = $this->grouped();

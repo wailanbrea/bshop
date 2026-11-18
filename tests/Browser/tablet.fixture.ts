@@ -44,6 +44,7 @@ async function mockBusiness(page: Page, state: State) {
         const json = (data: unknown, status = 200) => route.fulfill({ status, json: { data } });
         if (pathname === '/session') return json({ user: { id: 1, name: 'Propietaria QA', email: 'owner@example.test' }, business, roles: ['Propietario'], permissions });
         if (pathname === '/business/reservations/settings' && method === 'GET') return json({hours:null});
+        if (pathname === '/business/weekly/settings' && method === 'GET') return json({close_weekday:4});
         if (pathname === '/business/workspace') return json({ business, stores: state.stores, permissions });
         if (/^\/business\/stores\/\d+\/warehouses$/.test(pathname) && method === 'GET') return json([{ id: 1, store_id: Number(pathname.split('/')[3]), name: 'Almacén principal', is_default: true, is_active: true }]);
         if (pathname === '/business/team') return json({ members, roles, stores: state.stores, invitations: [] });

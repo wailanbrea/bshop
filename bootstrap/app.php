@@ -5,6 +5,7 @@ use App\Http\Middleware\ResolveStore;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Http\Request;
 use Laravel\Sanctum\Http\Middleware\AuthenticateSession;
 
 return Application::configure(basePath: dirname(__DIR__))
@@ -14,6 +15,7 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware) {
+        $middleware->trustProxies(headers: Request::HEADER_X_FORWARDED_PROTO | Request::HEADER_X_FORWARDED_FOR);
         $middleware->statefulApi();
         $middleware->validateCsrfTokens(except: ['webhooks/whatsapp']);
         $middleware->alias([

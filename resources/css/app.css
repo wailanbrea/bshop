@@ -27,6 +27,7 @@ h1,h2,h3 { letter-spacing: -.035em; }
 .brand-mark { display: inline-flex; align-items: center; justify-content: center; border-radius: 12px; background: var(--green); color: white; width: 39px; height: 42px; font-size: 35px; line-height: 1; font-weight: 700; padding-bottom: 5px; }
 .brand-mark span { color: #e5b374; }
 .brand.light { color: #fff; flex-wrap: wrap; }
+.auth-story .brand { min-height: 48px; }
 .brand.light .brand-mark { background: #fcf5e8; color: var(--green); }
 .brand-tag { font-size: 9px; letter-spacing: 2px; font-weight: 500; margin-left: 15px; opacity: .65; }
 .muted { color: var(--muted); font-size: 14px; line-height: 1.65; }

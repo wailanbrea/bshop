@@ -2,7 +2,9 @@
 
 namespace Tests\Feature;
 
+use App\Domain\Business\InstallBusiness;
 use App\Models\BusinessProfile;
+use App\Models\Store;
 use App\Models\User;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Foundation\Http\Middleware\ValidateCsrfToken;
@@ -40,6 +42,21 @@ class AuthenticationTest extends TestCase
         $user = User::factory()->create(['is_active' => false, 'password' => 'CorrectPassword123']);
         $this->postJson('/api/v1/login', ['email' => $user->email, 'password' => 'CorrectPassword123'])->assertUnprocessable();
         $this->assertGuest();
+    }
+
+    public function test_weekly_accounts_uses_the_logged_in_session_and_rejects_logged_out_requests(): void
+    {
+        $user = User::factory()->create(['password' => 'CorrectPassword123']);
+        app(InstallBusiness::class)->create($user, ['name' => 'Weekly session QA', 'default_currency' => 'USD', 'timezone' => 'UTC', 'store_name' => 'Principal']);
+        $url = '/api/v1/business/stores/'.Store::firstOrFail()->id.'/weekly-accounts';
+
+        $this->getJson($url)->assertUnauthorized();
+        $this->postJson('/api/v1/login', ['email' => $user->email, 'password' => 'CorrectPassword123'])->assertOk();
+        $this->getJson('/api/v1/session')->assertOk();
+        $this->getJson($url)->assertOk()->assertJsonPath('meta.total', 0);
+        $this->postJson('/api/v1/logout')->assertNoContent();
+        $this->app['auth']->forgetGuards();
+        $this->getJson($url)->assertUnauthorized();
     }
 
     public function test_login_is_rate_limited(): void

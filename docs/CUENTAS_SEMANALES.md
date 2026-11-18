@@ -18,8 +18,16 @@ Menú **Cuentas semanales** (`/app/cuentas-semanales`):
    envío, abonos asignados y saldo al cierre. PDF privado descargable después del
    commit. Un fallo de PDF permite reintentar ese documento sin volver a facturar.
 
-La fecha inicial se elige por cuenta; el cierre es manual. Una política global de
-día de corte y su ejecución automática quedan pendientes de configuración/QA.
+En Configuración → Corte semanal, el propietario puede elegir el día final del
+período (lunes a domingo). Al crear una cuenta se sugiere el inicio del período
+actual de siete días en la zona horaria del negocio; la fecha sigue siendo editable.
+Si no se puede consultar la configuración se solicita elegirla manualmente. El
+cambio no modifica períodos ya guardados. El cierre permanece manual; su ejecución
+automática de facturación no se realiza. Al llegar el día final local de una cuenta
+abierta, la pantalla indica cuántas cuentas requieren revisión y ofrece el filtro
+**Por revisar**. El aviso se consulta al abrir o actualizar la lista; no es una
+notificación externa ni un cierre en segundo plano. Revisar el aviso no modifica
+cuentas ni genera facturas.
 
 ## Agrupación, exclusiones y conservación
 
@@ -89,7 +97,7 @@ Prefijo `/api/v1/business/stores/{store}/weekly-accounts`:
 
 | Método | Ruta | Acción |
 |---|---|---|
-| GET | `/` | status=open/closed/all, page; listado paginado |
+| GET | `/` | status=open/closed/due/all, page; listado paginado y `meta.due_count` |
 | GET | `/{account}` | detalle, miembros, exclusiones, totales y review_hash |
 | GET | `/{account}/candidates` | apartados elegibles paginados |
 | POST | `/` | request_key, customer_id, period_start YYYY-MM-DD |
@@ -102,6 +110,9 @@ Prefijo `/api/v1/business/stores/{store}/weekly-accounts`:
 Sesión, CSRF, StoreContext y sales.view + customers.view en todas las rutas;
 sales.create para escribir e invoices.view adicional para cerrar. El permiso y el
 acceso se revalidan en transacción. PDF usa el endpoint privado de facturas existente.
+La configuración usa `GET /api/v1/business/weekly/settings` (sesión activa) y
+`PATCH` a la misma ruta con `close_weekday` y `previous_weekday` (ambos ISO 1–7,
+permiso `business.manage`). Una modificación concurrente devuelve 409.
 
 ## Evidencia y pendientes
 

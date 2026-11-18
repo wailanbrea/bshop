@@ -9,4 +9,9 @@ if (publicOrder) {
     import('./components/PublicOrderRequest.vue').then(({ default: PublicOrderRequest }) => createApp(PublicOrderRequest, { token: publicOrder[1] }).mount('#app'));
 } else {
     createApp(App).mount('#app');
+    if (window.isSecureContext && 'serviceWorker' in navigator) {
+        navigator.serviceWorker.register('/pwa-worker.js', { scope: '/' }).catch(() => {
+            // A failed registration must not interrupt normal online operation.
+        });
+    }
 }

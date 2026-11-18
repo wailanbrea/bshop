@@ -14,6 +14,7 @@ export async function csrf() {
 export function errorMessage(error: unknown): string {
     if (!axios.isAxiosError(error)) return 'Ocurrió un error inesperado. Inténtalo de nuevo.';
     if (!error.response) return 'No hay conexión. Comprueba tu red antes de reintentar.';
+    if (error.response.status === 401) return 'Tu sesión ha caducado o no está disponible. Recarga la página e inicia sesión de nuevo.';
     if (error.response.status === 419) return 'La sesión ha caducado. Recarga la página e inicia sesión.';
     if (error.response.status === 403) return 'Tu usuario no tiene permiso para esta acción.';
     if (error.response.status === 404) return 'Este recurso ya no está disponible o no tienes acceso.';

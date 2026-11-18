@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\V1\CatalogImportController;
 use App\Http\Controllers\Api\V1\CatalogLookupController;
 use App\Http\Controllers\Api\V1\CreditApplicationController;
 use App\Http\Controllers\Api\V1\CustomerController;
+use App\Http\Controllers\Api\V1\EmployeeController;
 use App\Http\Controllers\Api\V1\FinancialDocumentController;
 use App\Http\Controllers\Api\V1\InventoryController;
 use App\Http\Controllers\Api\V1\InvoiceDocumentController;
@@ -25,6 +26,7 @@ use App\Http\Controllers\Api\V1\SalesReturnReceiptController;
 use App\Http\Controllers\Api\V1\StoreController;
 use App\Http\Controllers\Api\V1\WarehouseController;
 use App\Http\Controllers\Api\V1\WeeklyAccountController;
+use App\Http\Controllers\Api\V1\WeeklySettingsController;
 use App\Http\Controllers\Api\V1\WhatsAppInvoiceController;
 use App\Http\Controllers\Api\V1\WhatsAppSettingsController;
 use App\Http\Controllers\Api\V1\WorkspaceController;
@@ -81,6 +83,8 @@ Route::middleware(['auth:sanctum', 'active', 'auth.session'])->group(function ()
         });
         Route::get('reservations/settings', [ReservationSettingsController::class, 'show'])->middleware('can:business.manage');
         Route::patch('reservations/settings', [ReservationSettingsController::class, 'update'])->middleware('can:business.manage');
+        Route::get('weekly/settings', [WeeklySettingsController::class, 'show']);
+        Route::patch('weekly/settings', [WeeklySettingsController::class, 'update'])->middleware('can:business.manage');
         Route::get('workspace', [WorkspaceController::class, 'show']);
         Route::patch('/', [WorkspaceController::class, 'update'])->middleware('can:business.manage');
         Route::post('stores', [StoreController::class, 'create'])->middleware('can:stores.manage');
@@ -91,6 +95,11 @@ Route::middleware(['auth:sanctum', 'active', 'auth.session'])->group(function ()
             Route::patch('users/{user}', [BusinessTeamController::class, 'update'])->whereNumber('user');
         });
         Route::prefix('stores/{store}')->whereNumber('store')->middleware('store')->group(function () {
+            Route::get('employees', [EmployeeController::class, 'index'])->middleware('can:members.manage');
+            Route::post('employees', [EmployeeController::class, 'create'])->middleware('can:members.manage');
+            Route::patch('employees/{employee}', [EmployeeController::class, 'update'])->whereNumber('employee')->middleware('can:members.manage');
+            Route::get('employees/{employee}/plans', [EmployeeController::class, 'plans'])->whereNumber('employee')->middleware('can:members.manage');
+            Route::post('employees/{employee}/plans', [EmployeeController::class, 'createPlan'])->whereNumber('employee')->middleware('can:members.manage');
             Route::get('sales/control', [SalesControlController::class, 'index'])->middleware('can:sales.view');
             Route::get('sales/control/export', [SalesControlController::class, 'export'])->middleware(['can:sales.view', 'throttle:sales-control-export']);
             Route::get('sales/orders/{order}/activity', [SalesControlController::class, 'activity'])->whereNumber('order')->middleware('can:sales.view');

@@ -39,7 +39,7 @@ export default defineConfig({
         { name: 'ipad-landscape-webkit', use: { ...devices['iPad Mini'], browserName: 'webkit', viewport: { width: 1024, height: 768 } } },
         { name: 'android-portrait-chromium', use: { browserName: 'chromium', hasTouch: true, isMobile: true, deviceScaleFactor: 2, viewport: { width: 800, height: 1280 } } },
         { name: 'tablet-wide-chromium', use: { browserName: 'chromium', hasTouch: true, isMobile: true, deviceScaleFactor: 2, viewport: { width: 1280, height: 800 } } },
-        { name: 'desktop-chromium', testMatch: /(?:responsive|sales|sales-control|baskets|catalog-photo-first|inventory-review|inventory-visual|reservation-settings|customers|public-orders|weekly-accounts)\.spec\.ts/, use: { browserName: 'chromium', viewport: { width: 1440, height: 1000 } } },
-        { name: 'mobile-webkit', testMatch: /(?:responsive|sales|sales-control|baskets|catalog-photo-first|inventory-review|inventory-visual|reservation-settings|customers|public-orders|weekly-accounts)\.spec\.ts/, use: { ...devices['iPhone 13'], browserName: 'webkit' } },
+        { name: 'desktop-chromium', testMatch: /(?:responsive|sales|sales-control|baskets|catalog-photo-first|inventory-review|inventory-visual|reservation-settings|customers|employees|public-orders|weekly-accounts)\.spec\.ts/, use: { browserName: 'chromium', viewport: { width: 1440, height: 1000 } } },
+        { name: 'mobile-webkit', testMatch: /(?:responsive|sales|sales-control|baskets|catalog-photo-first|inventory-review|inventory-visual|reservation-settings|customers|employees|public-orders|weekly-accounts)\.spec\.ts/, use: { ...devices['iPhone 13'], browserName: 'webkit' } },
     ],
 });
