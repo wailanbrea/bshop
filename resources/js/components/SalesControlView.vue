@@ -3,6 +3,7 @@ import axios from 'axios';
 import {computed,defineAsyncComponent,h,onMounted,onUnmounted,ref,watch} from 'vue';
 import {api,errorMessage} from '../api';
 import {amount} from '../catalog';
+import {quantity} from '../inventory';
 import type {Business,Store} from '../types';
 import AppDialog from './AppDialog.vue';
 import AppIcon from './AppIcon.vue';
@@ -69,6 +70,34 @@ onUnmounted(()=>{alive=false;++token;++detailToken;controller?.abort();detailCon
         <section v-for="s in report.summary" :key="s.currency" class="indicator-section" :aria-label="t.regions.indicators(s.currency)">
             <div class="metric-grid"><article v-for="metric in metrics(s)" :key="metric.key" class="metric-card" :class="`metric-${metric.key}`"><div class="metric-top"><span>{{ metric.label }}</span><span class="metric-icon"><AppIcon :name="metric.icon"/></span></div><strong class="metric-value">{{ amount(metric.value,s.currency) }}</strong><p>{{ metric.note }}</p><span class="metric-accent"></span></article></div>
             <div class="secondary-metrics"><div><span>{{ t.metrics.net }}</span><strong>{{ amount(s.net_total,s.currency) }}</strong></div><div><span>{{ t.metrics.adjustments }}</span><strong>{{ amount(s.return_credit_total,s.currency) }}</strong></div><div><span>{{ t.metrics.credit }}</span><strong>{{ amount(s.credit_available,s.currency) }}</strong></div><div><span>{{ t.metrics.returns }}</span><strong :class="{attention:s.pending_returns>0}">{{ s.pending_returns }}</strong></div></div>
+        </section>
+        <section v-if="report.inventory" class="indicator-section inventory-valuation-section" aria-label="Valor del inventario">
+            <div class="metric-grid">
+                <article class="metric-card metric-paid">
+                    <div class="metric-top"><span>Capital invertido en inventario</span><span class="metric-icon"><AppIcon name="inventory"/></span></div>
+                    <strong class="metric-value">{{ amount(report.inventory.invested_cost, report.inventory.currency) }}</strong>
+                    <p>Según precio de compra y existencia física{{ report.inventory.without_cost_variants > 0 ? ` (${report.inventory.without_cost_variants} sin costo registrado)` : '' }}</p>
+                    <span class="metric-accent"></span>
+                </article>
+                <article class="metric-card metric-sales">
+                    <div class="metric-top"><span>Valor del inventario en venta</span><span class="metric-icon"><AppIcon name="box"/></span></div>
+                    <strong class="metric-value">{{ amount(report.inventory.sale_value, report.inventory.currency) }}</strong>
+                    <p>Valor comercial a precio de venta actual</p>
+                    <span class="metric-accent"></span>
+                </article>
+                <article class="metric-card metric-unbilled">
+                    <div class="metric-top"><span>Ganancia proyectada</span><span class="metric-icon"><AppIcon name="document"/></span></div>
+                    <strong class="metric-value">{{ amount(report.inventory.estimated_profit, report.inventory.currency) }}</strong>
+                    <p>Diferencia entre valor de venta y capital invertido</p>
+                    <span class="metric-accent"></span>
+                </article>
+                <article class="metric-card metric-pending">
+                    <div class="metric-top"><span>Unidades en inventario</span><span class="metric-icon"><AppIcon name="warehouse"/></span></div>
+                    <strong class="metric-value">{{ quantity(report.inventory.units_on_hand) }}</strong>
+                    <p>Disponibles para vender: {{ quantity(report.inventory.units_available) }}</p>
+                    <span class="metric-accent"></span>
+                </article>
+            </div>
         </section>
         <SalesControlCharts :daily="report.daily" :cash="report.cash" :currencies="currencies" :from="report.filters.from" :to="report.filters.to"/>
         </template>

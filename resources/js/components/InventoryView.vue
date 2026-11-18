@@ -2,15 +2,16 @@
 import axios from 'axios';
 import { computed, onUnmounted, ref, watch } from 'vue';
 import { api, errorMessage } from '../api';
+import { amount as money } from '../catalog';
 import type { Store, Warehouse } from '../types';
-import { movementNames, quantity, type Movement, type StockRow } from '../inventory';
+import { movementNames, quantity, type InventoryValuation, type Movement, type StockRow } from '../inventory';
 import AppDialog from './AppDialog.vue';
 import InventoryReview from './InventoryReview.vue';
 
 const props = defineProps<{ store?: Store; warehouses: Warehouse[]; permissions: string[] }>();
 const manage = computed(() => props.permissions.includes('inventory.manage'));
 const warehouseId = ref<number | ''>(''); const query = ref(''); const filter = ref('all');
-const rows = ref<StockRow[]>([]); const loading = ref(false); const page = ref(1); const lastPage = ref(1); const total = ref(0); const error = ref(''); const notice = ref('');
+const rows = ref<StockRow[]>([]); const valuation = ref<InventoryValuation | null>(null); const loading = ref(false); const page = ref(1); const lastPage = ref(1); const total = ref(0); const error = ref(''); const notice = ref('');
 const history = ref<Movement[]>([]); const historyOpen = ref(false); const historyVariant = ref<StockRow | null>(null); const historyLoading = ref(false); const historyPage = ref(1); const historyLastPage = ref(1);
 const selected = ref<StockRow | null>(null); const open = ref(false); const opener = ref<HTMLElement | null>(null); const operation = ref('receipt'); const amount = ref(''); const note = ref(''); const destination = ref<number | ''>('');
 const destinations = ref<{ id: number; name: string; store_name: string }[]>([]); const busy = ref(false); const formError = ref(''); const pending = ref<Record<string, unknown> | null>(null);
@@ -24,7 +25,7 @@ async function load(target = 1) {
     try {
         const response = await api.get(`${root.value}/warehouses/${warehouseId.value}/stock`, { signal: controller.signal, params: { q: query.value, filter: filter.value, page: target } });
         if (token !== sequence) return;
-        rows.value = response.data.data; failedImages.value = new Set(); page.value = response.data.meta.current_page; lastPage.value = response.data.meta.last_page; total.value = response.data.meta.total;
+        rows.value = response.data.data; valuation.value = response.data.meta.valuation || null; failedImages.value = new Set(); page.value = response.data.meta.current_page; lastPage.value = response.data.meta.last_page; total.value = response.data.meta.total;
     } catch (e) { if (token === sequence && !axios.isCancel(e)) error.value = errorMessage(e); }
     finally { if (token === sequence) loading.value = false; }
 }
@@ -78,11 +79,33 @@ onUnmounted(() => { ++sequence; ++historySequence; controller?.abort(); clearTim
         <button type="button" class="button secondary" :disabled="loading || !warehouseId" @click="load(page); historyOpen && loadHistory()">Actualizar inventario</button>
     </section>
     <div class="panel-heading inventory-heading"><div><h2>{{ warehouse?.name || 'Selecciona un almacén' }}</h2><p class="muted">{{ store?.name }} · {{ total }} variantes · Físico − reservado = disponible</p></div><div class="actions"><InventoryReview :store="store" :warehouse="warehouse" /><button type="button" class="button secondary" :disabled="!warehouseId" @click="viewHistory(null)">Ver kardex completo</button></div></div>
+    <section v-if="valuation" class="inventory-valuation-grid" aria-label="Valor del inventario">
+        <article v-if="valuation.invested_cost !== null" class="valuation-card highlight">
+            <span>Capital invertido (costo)</span>
+            <strong>{{ money(valuation.invested_cost, valuation.currency) }}</strong>
+            <small>Físico × precio de compra</small>
+        </article>
+        <article class="valuation-card">
+            <span>Valor a precio de venta</span>
+            <strong>{{ money(valuation.sale_value, valuation.currency) }}</strong>
+            <small>Físico × precio de venta</small>
+        </article>
+        <article v-if="valuation.estimated_profit !== null" class="valuation-card">
+            <span>Ganancia estimada</span>
+            <strong>{{ money(valuation.estimated_profit, valuation.currency) }}</strong>
+            <small>Venta − capital invertido</small>
+        </article>
+        <article class="valuation-card">
+            <span>Unidades físicas</span>
+            <strong>{{ quantity(valuation.units_on_hand) }}</strong>
+            <small>Disponibles: {{ quantity(valuation.units_available) }}</small>
+        </article>
+    </section>
     <p v-if="loading" class="notice" role="status">Consultando existencias…</p>
     <div class="inventory-layout" :class="{ 'with-history': historyOpen }">
         <section class="panel" aria-label="Existencias por variante" :aria-busy="loading">
             <article v-for="row in rows" :key="row.variant_id" class="inventory-record">
-                <div class="inventory-identity"><div class="inventory-thumbnail"><img v-if="row.image_url && !failedImages.has(row.variant_id)" :src="row.image_url" :alt="`Foto de ${row.product_name}`" loading="lazy" @error="imageFailed(row.variant_id)"><span v-else role="img" aria-label="Sin fotografía">Sin foto</span></div><div><strong>{{ row.product_name }}</strong><p class="muted">{{ row.sku }} · {{ row.attributes.map(a => `${a.name}: ${a.value}`).join(' · ') || 'Variante general' }}</p><span v-if="!row.active" class="badge inactive">Inactivo</span></div></div>
+                <div class="inventory-identity"><div class="inventory-thumbnail"><img v-if="row.image_url && !failedImages.has(row.variant_id)" :src="row.image_url" :alt="`Foto de ${row.product_name}`" loading="lazy" @error="imageFailed(row.variant_id)"><span v-else role="img" aria-label="Sin fotografía">Sin foto</span></div><div><strong>{{ row.product_name }}</strong><p class="muted">{{ row.sku }} · {{ row.attributes.map(a => `${a.name}: ${a.value}`).join(' · ') || 'Variante general' }}</p><p v-if="row.sale_price || row.cost_price" class="inventory-price-line"><span v-if="row.cost_price && valuation">Costo: {{ money(row.cost_price, valuation.currency) }}</span><span v-if="row.sale_price && valuation">Venta: {{ money(row.sale_price, valuation.currency) }}</span><strong v-if="row.invested_total && valuation">Invertido: {{ money(row.invested_total, valuation.currency) }}</strong></p><span v-if="!row.active" class="badge inactive">Inactivo</span></div></div>
                 <dl class="stock-metrics"><div><dt>Físico</dt><dd>{{ quantity(row.on_hand) }}</dd></div><div><dt>Reservado</dt><dd>{{ quantity(row.reserved) }}</dd></div><div><dt>Disponible</dt><dd :class="{ empty: row.available === '0.0000' }">{{ quantity(row.available) }}</dd></div></dl>
                 <div class="actions"><button type="button" class="button secondary" :aria-label="`Movimientos de ${row.sku}`" @click="viewHistory(row)">Movimientos</button><button v-if="manage" type="button" class="button primary" :disabled="!row.active || !warehouse?.is_active || !store?.is_active || loading" :aria-label="`Ajustar ${row.sku}`" @click="edit(row, $event)">Ajustar inventario</button></div>
             </article>
@@ -117,6 +140,14 @@ onUnmounted(() => { ++sequence; ++historySequence; controller?.abort(); clearTim
 <style scoped>
 .inventory-filters { display: grid; grid-template-columns: minmax(160px, 1fr) minmax(180px, 2fr) minmax(150px, 1fr) auto; gap: 16px; align-items: end; }
 .inventory-heading { margin-top: 24px; }
+.inventory-valuation-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-bottom: 18px; }
+.valuation-card { display: grid; gap: 4px; padding: 16px; border: 1px solid var(--line); border-radius: 14px; background: #fff; min-width: 0; }
+.valuation-card.highlight { background: #f4effc; border-color: #d4c4f0; }
+.valuation-card span { font-size: 12px; font-weight: 600; color: var(--muted); }
+.valuation-card strong { font-size: 22px; font-weight: 800; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.valuation-card small { font-size: 12px; color: var(--muted); }
+.inventory-price-line { display: flex; flex-wrap: wrap; gap: 10px; margin: 4px 0 0; font-size: 13px; color: #4c3d63; }
+.inventory-price-line span, .inventory-price-line strong { white-space: nowrap; }
 .inventory-layout { display: grid; gap: 20px; }
 .inventory-record { display: grid; gap: 16px; padding: 20px 0; border-bottom: 1px solid var(--line); }
 .inventory-record:first-child { padding-top: 0; }

@@ -111,8 +111,66 @@ final class SalesControl
                 $value['methods'] = array_map(fn ($method, $amount) => ['method' => $method, 'amount' => $amount], array_keys($value['methods']), array_values($value['methods']));
             } unset($value);
 
-            return ['data' => $rows, 'summary' => array_values($summary ?: [$this->emptySummary($profile->default_currency)]), 'cash' => array_values($cash), 'daily' => array_values($days), 'filters' => ['from' => $from->toDateString(), 'to' => $to->toDateString(), 'timezone' => $tz], 'meta' => ['current_page' => $page, 'last_page' => max(1, (int) ceil($total / 20)), 'total' => $total]];
+            $inventory = $this->inventorySummary($store, $profile->default_currency);
+
+            return ['data' => $rows, 'summary' => array_values($summary ?: [$this->emptySummary($profile->default_currency)]), 'inventory' => $inventory, 'cash' => array_values($cash), 'daily' => array_values($days), 'filters' => ['from' => $from->toDateString(), 'to' => $to->toDateString(), 'timezone' => $tz], 'meta' => ['current_page' => $page, 'last_page' => max(1, (int) ceil($total / 20)), 'total' => $total]];
         });
+    }
+
+    private function inventorySummary(int $store, string $currency): array
+    {
+        $invested = '0.0000';
+        $saleValue = '0.0000';
+        $onHandTotal = '0.0000';
+        $availableTotal = '0.0000';
+        $withoutCost = 0;
+
+        $stockRows = DB::table('stock_balances as sb')
+            ->join('warehouses as w', 'w.id', '=', 'sb.warehouse_id')
+            ->join('product_variants as pv', 'pv.id', '=', 'sb.variant_id')
+            ->join('products as p', 'p.id', '=', 'pv.product_id')
+            ->where('w.store_id', $store)
+            ->where('w.is_active', true)
+            ->whereNull('pv.deleted_at')
+            ->where('pv.is_active', true)
+            ->whereNull('p.deleted_at')
+            ->where('p.status', 'active')
+            ->where('p.product_type', 'physical')
+            ->where('p.track_stock', true)
+            ->select('sb.on_hand', 'sb.reserved', 'pv.cost_price', 'pv.sale_price')
+            ->cursor();
+
+        foreach ($stockRows as $row) {
+            $onHand = bcadd((string) ($row->on_hand ?? '0'), '0', 4);
+            if (bccomp($onHand, '0', 4) <= 0) {
+                continue;
+            }
+            $reserved = bcadd((string) ($row->reserved ?? '0'), '0', 4);
+            $available = bcsub($onHand, $reserved, 4);
+            if (bccomp($available, '0', 4) < 0) {
+                $available = '0.0000';
+            }
+            $onHandTotal = bcadd($onHandTotal, $onHand, 4);
+            $availableTotal = bcadd($availableTotal, $available, 4);
+            if ($row->cost_price === null) {
+                $withoutCost++;
+            } else {
+                $costUnit = bcadd((string) $row->cost_price, '0', 4);
+                $invested = bcadd($invested, bcmul($onHand, $costUnit, 4), 4);
+            }
+            $saleUnit = bcadd((string) ($row->sale_price ?? '0'), '0', 4);
+            $saleValue = bcadd($saleValue, bcmul($onHand, $saleUnit, 4), 4);
+        }
+
+        return [
+            'currency' => $currency,
+            'invested_cost' => $invested,
+            'sale_value' => $saleValue,
+            'estimated_profit' => bcsub($saleValue, $invested, 4),
+            'units_on_hand' => $onHandTotal,
+            'units_available' => $availableTotal,
+            'without_cost_variants' => $withoutCost,
+        ];
     }
 
     private function emptySummary(string $currency): array
