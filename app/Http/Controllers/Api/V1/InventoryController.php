@@ -37,7 +37,7 @@ class InventoryController extends Controller
     public function index(Request $request, StoreContext $context)
     {
         $warehouse = $this->warehouse($request, $context);
-        $data = $request->validate(['q' => ['nullable', 'string', 'max:120'], 'page' => ['nullable', 'integer', 'min:1'], 'filter' => ['nullable', 'in:all,available,empty']]);
+        $data = $request->validate(['q' => ['nullable', 'string', 'max:120'], 'page' => ['nullable', 'integer', 'min:1'], 'filter' => ['nullable', 'in:all,available,low,empty']]);
         $query = ProductVariant::withTrashed()->with(['product' => fn ($q) => $q->withTrashed()->with('images.asset.renditions'), 'attributeValues.attribute'])
             ->leftJoin('stock_balances as stock', fn ($join) => $join->on('stock.variant_id', '=', 'product_variants.id')->where('stock.warehouse_id', $warehouse->id))
             ->where(fn ($q) => $q->whereHas('product', fn ($p) => $p->where('status', 'active')->where('product_type', 'physical')->where('track_stock', true))->orWhereNotNull('stock.variant_id'))
@@ -49,6 +49,9 @@ class InventoryController extends Controller
         if (($data['filter'] ?? '') === 'available') {
             $query->whereRaw('COALESCE(stock.on_hand, 0) > COALESCE(stock.reserved, 0)');
         }
+        if (($data['filter'] ?? '') === 'low') {
+            $query->whereRaw('COALESCE(stock.on_hand, 0) - COALESCE(stock.reserved, 0) <= 2');
+        }
         if (($data['filter'] ?? '') === 'empty') {
             $query->whereRaw('COALESCE(stock.on_hand, 0) = COALESCE(stock.reserved, 0)');
         }
@@ -58,15 +61,20 @@ class InventoryController extends Controller
         $saleValue = '0.0000';
         $unitsOnHand = '0.0000';
         $unitsAvailable = '0.0000';
+        $lowStockCount = 0;
+        $outOfStockCount = 0;
         foreach ((clone $query)->cursor() as $item) {
             $oh = bcadd((string) ($item->on_hand ?? '0'), '0', 4);
-            if (bccomp($oh, '0', 4) <= 0) {
-                continue;
-            }
             $res = bcadd((string) ($item->reserved ?? '0'), '0', 4);
             $avail = bcsub($oh, $res, 4);
-            if (bccomp($avail, '0', 4) < 0) {
+            if (bccomp($avail, '0', 4) <= 0) {
+                $outOfStockCount++;
                 $avail = '0.0000';
+            } elseif (bccomp($avail, '2', 4) <= 0) {
+                $lowStockCount++;
+            }
+            if (bccomp($oh, '0', 4) <= 0) {
+                continue;
             }
             $unitsOnHand = bcadd($unitsOnHand, $oh, 4);
             $unitsAvailable = bcadd($unitsAvailable, $avail, 4);
@@ -84,10 +92,10 @@ class InventoryController extends Controller
             $salePrice = bcadd((string) ($variant->sale_price ?? '0'), '0', 4);
             $positiveOnHand = bccomp($onHand, '0', 4) > 0 ? $onHand : '0.0000';
 
-            return ['variant_id' => $variant->id, 'warehouse_id' => $warehouse->id, 'sku' => $variant->sku, 'barcode' => $variant->barcode, 'product_name' => $variant->product->name, 'product_id' => $variant->product_id, 'unit_code' => $variant->product->unit_code, 'image_url' => app(VariantPhoto::class)->url($variant->product, $variant, 'thumb', $photoVariants), 'active' => ! $variant->trashed() && ! $variant->product->trashed() && $variant->is_active && $variant->product->status === 'active', 'attributes' => $variant->attributeValues->map(fn ($v) => ['name' => $v->attribute->name, 'value' => $v->value])->all(), 'on_hand' => $onHand, 'reserved' => $reserved, 'available' => bcsub($onHand, $reserved, 4), 'cost_price' => $costPrice, 'sale_price' => $salePrice, 'invested_total' => $costPrice !== null ? bcmul($positiveOnHand, $costPrice, 4) : null, 'sale_total' => bcmul($positiveOnHand, $salePrice, 4), 'version' => (int) ($variant->stock_version ?? 0)];
+            return ['variant_id' => $variant->id, 'warehouse_id' => $warehouse->id, 'sku' => $variant->sku, 'barcode' => $variant->barcode, 'product_name' => $variant->product->name, 'product_id' => $variant->product_id, 'unit_code' => $variant->product->unit_code, 'image_url' => app(VariantPhoto::class)->url($variant->product, $variant, 'thumb', $photoVariants), 'active' => ! $variant->trashed() && ! $variant->product->trashed() && $variant->is_active && $variant->product->status === 'active', 'attributes' => $variant->attributeValues->map(fn ($v) => ['name' => $v->attribute->name, 'value' => $v->value])->all(), 'on_hand' => $onHand, 'reserved' => $reserved, 'available' => bcsub($onHand, $reserved, 4), 'unit_cost' => $costPrice, 'sale_price' => $salePrice, 'invested_total' => $costPrice !== null ? bcmul($positiveOnHand, $costPrice, 4) : null, 'sale_total' => bcmul($positiveOnHand, $salePrice, 4), 'version' => (int) ($variant->stock_version ?? 0)];
         });
 
-        return response()->json(['data' => $rows, 'meta' => ['current_page' => $page->currentPage(), 'last_page' => $page->lastPage(), 'total' => $page->total(), 'valuation' => ['currency' => $currency, 'invested_cost' => $canSeeCosts ? $invested : null, 'sale_value' => $saleValue, 'estimated_profit' => $canSeeCosts ? bcsub($saleValue, $invested, 4) : null, 'units_on_hand' => $unitsOnHand, 'units_available' => $unitsAvailable]]]);
+        return response()->json(['data' => $rows, 'meta' => ['current_page' => $page->currentPage(), 'last_page' => $page->lastPage(), 'total' => $page->total(), 'valuation' => ['currency' => $currency, 'invested_cost' => $canSeeCosts ? $invested : null, 'sale_value' => $saleValue, 'estimated_profit' => $canSeeCosts ? bcsub($saleValue, $invested, 4) : null, 'units_on_hand' => $unitsOnHand, 'units_available' => $unitsAvailable, 'low_stock_count' => $lowStockCount, 'out_of_stock_count' => $outOfStockCount]]]);
     }
 
     public function destinations(Request $request, StoreAuthorizationService $authorization)

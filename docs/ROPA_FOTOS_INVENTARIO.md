@@ -3,10 +3,17 @@
 ## Operación
 
 - En ventas, apartados y el catálogo por enlace, los productos cuyas variantes
-  usan exactamente los atributos Color y Talla se seleccionan primero por color
-  y después por talla. Se muestran solo combinaciones existentes y la talla sin
-  disponible no se puede agregar. Cambiar color limpia la talla. Otros atributos
-  continúan usando la selección de variantes existente.
+  usan exactamente los atributos Color y Talla muestran siempre todas las tallas
+  del producto como chips. Al elegir un color, las tallas disponibles en ese color
+  quedan habilitadas y las tallas sin existencia (o no registradas para ese color)
+  se muestran en gris con la etiqueta `No disponible`. En las tarjetas de **Ventas**,
+  cuando un producto tiene una única variante disponible, la tarjeta muestra
+  directamente `Color: ... · Talla: ...` y `Disponible (X)` en lugar de `1 variante`,
+  y al abrir el selector esa combinación aparece preseleccionada.
+- En **Catálogo** existen tres modos de creación de productos:
+  1. **Uno por uno** (predeterminado al pulsar `+ Nuevo producto`): permite elegir la fotografía y completar debajo **Nombre, Precio de compra, Precio de venta, Cantidad, Color, Size y Descripción opcional**.
+  2. **Hasta 10 fotos** (`+ Subir hasta 10 fotos`): permite seleccionar hasta 10 fotografías simultáneamente; debajo de cada foto se capturan **Nombre, Precio de compra, Precio de venta, Cantidad, Color, Size y Descripción opcional**, creando un producto independiente con su costo contable y existencia inicial por cada foto.
+  3. **Modo avanzado**: conserva el formulario multipropósito para múltiples variantes por producto, SKU manuales, categorías y marcas.
 - Las imágenes muestran la asociación de la variante exacta; si no existe, se
   busca otra del mismo color y con los mismos atributos salvo talla, y finalmente
   la principal. Así no se confunden, por ejemplo, materiales diferentes.

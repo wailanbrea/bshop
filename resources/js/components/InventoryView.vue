@@ -75,7 +75,7 @@ onUnmounted(() => { ++sequence; ++historySequence; controller?.abort(); clearTim
     <section class="panel inventory-filters" aria-label="Filtros de inventario">
         <label>Almacén<select v-model="warehouseId"><option v-for="item in warehouses" :key="item.id" :value="item.id">{{ item.name }}{{ item.is_active ? '' : ' · Inactivo' }}</option><option v-if="!warehouses.length" value="">Sin almacenes</option></select></label>
         <label>Buscar existencias<input v-model="query" type="search" maxlength="120" placeholder="Producto, SKU, color o talla" autocomplete="off"></label>
-        <label>Disponibilidad<select v-model="filter"><option value="all">Todas</option><option value="available">Con disponible</option><option value="empty">Sin disponible</option></select></label>
+        <label>Disponibilidad<select v-model="filter"><option value="all">Todas</option><option value="available">Con disponible</option><option value="low">Por reponer (≤ 2)</option><option value="empty">Sin disponible</option></select></label>
         <button type="button" class="button secondary" :disabled="loading || !warehouseId" @click="load(page); historyOpen && loadHistory()">Actualizar inventario</button>
     </section>
     <div class="panel-heading inventory-heading"><div><h2>{{ warehouse?.name || 'Selecciona un almacén' }}</h2><p class="muted">{{ store?.name }} · {{ total }} variantes · Físico − reservado = disponible</p></div><div class="actions"><InventoryReview :store="store" :warehouse="warehouse" /><button type="button" class="button secondary" :disabled="!warehouseId" @click="viewHistory(null)">Ver kardex completo</button></div></div>
@@ -100,12 +100,17 @@ onUnmounted(() => { ++sequence; ++historySequence; controller?.abort(); clearTim
             <strong>{{ quantity(valuation.units_on_hand) }}</strong>
             <small>Disponibles: {{ quantity(valuation.units_available) }}</small>
         </article>
+        <article v-if="(valuation.low_stock_count || 0) > 0 || (valuation.out_of_stock_count || 0) > 0" class="valuation-card alert-card">
+            <span>Alertas de reposición</span>
+            <strong>{{ (valuation.low_stock_count || 0) + (valuation.out_of_stock_count || 0) }}</strong>
+            <small>{{ valuation.low_stock_count || 0 }} por agotarse (≤ 2) · {{ valuation.out_of_stock_count || 0 }} agotadas</small>
+        </article>
     </section>
     <p v-if="loading" class="notice" role="status">Consultando existencias…</p>
     <div class="inventory-layout" :class="{ 'with-history': historyOpen }">
         <section class="panel" aria-label="Existencias por variante" :aria-busy="loading">
             <article v-for="row in rows" :key="row.variant_id" class="inventory-record">
-                <div class="inventory-identity"><div class="inventory-thumbnail"><img v-if="row.image_url && !failedImages.has(row.variant_id)" :src="row.image_url" :alt="`Foto de ${row.product_name}`" loading="lazy" @error="imageFailed(row.variant_id)"><span v-else role="img" aria-label="Sin fotografía">Sin foto</span></div><div><strong>{{ row.product_name }}</strong><p class="muted">{{ row.sku }} · {{ row.attributes.map(a => `${a.name}: ${a.value}`).join(' · ') || 'Variante general' }}</p><p v-if="row.sale_price || row.cost_price" class="inventory-price-line"><span v-if="row.cost_price && valuation">Costo: {{ money(row.cost_price, valuation.currency) }}</span><span v-if="row.sale_price && valuation">Venta: {{ money(row.sale_price, valuation.currency) }}</span><strong v-if="row.invested_total && valuation">Invertido: {{ money(row.invested_total, valuation.currency) }}</strong></p><span v-if="!row.active" class="badge inactive">Inactivo</span></div></div>
+                <div class="inventory-identity"><div class="inventory-thumbnail"><img v-if="row.image_url && !failedImages.has(row.variant_id)" :src="row.image_url" :alt="`Foto de ${row.product_name}`" loading="lazy" @error="imageFailed(row.variant_id)"><span v-else role="img" aria-label="Sin fotografía">Sin foto</span></div><div><strong>{{ row.product_name }}</strong><p class="muted">{{ row.sku }} · {{ row.attributes.map(a => `${a.name}: ${a.value}`).join(' · ') || 'Variante general' }}</p><p v-if="row.sale_price || row.unit_cost" class="inventory-price-line"><span v-if="row.unit_cost && valuation">Costo: {{ money(row.unit_cost, valuation.currency) }}</span><span v-if="row.sale_price && valuation">Venta: {{ money(row.sale_price, valuation.currency) }}</span><strong v-if="row.invested_total && valuation">Invertido: {{ money(row.invested_total, valuation.currency) }}</strong></p><span v-if="!row.active" class="badge inactive">Inactivo</span></div></div>
                 <dl class="stock-metrics"><div><dt>Físico</dt><dd>{{ quantity(row.on_hand) }}</dd></div><div><dt>Reservado</dt><dd>{{ quantity(row.reserved) }}</dd></div><div><dt>Disponible</dt><dd :class="{ empty: row.available === '0.0000' }">{{ quantity(row.available) }}</dd></div></dl>
                 <div class="actions"><button type="button" class="button secondary" :aria-label="`Movimientos de ${row.sku}`" @click="viewHistory(row)">Movimientos</button><button v-if="manage" type="button" class="button primary" :disabled="!row.active || !warehouse?.is_active || !store?.is_active || loading" :aria-label="`Ajustar ${row.sku}`" @click="edit(row, $event)">Ajustar inventario</button></div>
             </article>
@@ -143,6 +148,7 @@ onUnmounted(() => { ++sequence; ++historySequence; controller?.abort(); clearTim
 .inventory-valuation-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-bottom: 18px; }
 .valuation-card { display: grid; gap: 4px; padding: 16px; border: 1px solid var(--line); border-radius: 14px; background: #fff; min-width: 0; }
 .valuation-card.highlight { background: #f4effc; border-color: #d4c4f0; }
+.valuation-card.alert-card { background: #fff8f1; border-color: #f0cfb0; }
 .valuation-card span { font-size: 12px; font-weight: 600; color: var(--muted); }
 .valuation-card strong { font-size: 22px; font-weight: 800; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .valuation-card small { font-size: 12px; color: var(--muted); }

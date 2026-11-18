@@ -26,7 +26,17 @@ entrega se verifica en MySQL, no se atribuye al almacenamiento numérico de SQLi
 `scripts/verify-demo.php` comprueba de sólo lectura kardex vs saldos, reservado vs
 reservas activas, importes/pagos/crédito y checksums de PDFs, en el SQLite local
 estrictamente identificado. La expiración de reservas dispone de fase funcional
-(ver abajo); alarmas de reposición y valoración/costos siguen pendientes.
+(ver abajo).
+
+## Valoración del inventario, capital invertido y alertas de reposición
+
+- En **Inventario** (`/api/v1/business/stores/{store}/warehouses/{warehouse}/stock`) y en **Vista general** (`/api/v1/business/stores/{store}/sales/control`) se calcula y presenta en tiempo real la valoración del inventario con precisión `DECIMAL(19,4)` (BCMath):
+  - **Capital invertido (al costo):** Suma de `existencia física × precio de compra (cost_price)` para las variantes con existencia positiva (visible para roles con permiso `catalog.costs`).
+  - **Valor del inventario en venta:** Suma de `existencia física × precio de venta (sale_price)`.
+  - **Ganancia proyectada:** Diferencia entre el valor comercial en venta y el capital invertido.
+  - **Unidades físicas y disponibles:** Total de unidades en mano y disponibles para la venta.
+  - **Alertas de reposición y filtro `Por reponer (≤ 2)`:** Cuenta variantes por agotarse (`0 < disponible <= 2`) y agotadas (`disponible <= 0`), permitiendo filtrarlas directamente desde el selector de disponibilidad (`filter=low`).
+- En cada renglón de **Inventario** se muestran además el costo unitario (`unit_cost`), el precio de venta y el monto invertido por variante.
 
 La revisión operativa ya está disponible en **Inventario → Revisar inventario**,
 API y comando `bshop:inventory-reconcile`. Compara saldos, reservas pendientes y

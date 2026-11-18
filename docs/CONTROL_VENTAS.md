@@ -2,7 +2,7 @@
 
 ## Pantallas
 
-- **Vista general** (`/`), título único **Resumen de ventas**: indicadores comerciales de la sucursal activa, gráficos
+- **Vista general** (`/`), título único **Resumen de ventas**: indicadores comerciales de la sucursal activa, valoración actual del inventario (**Capital invertido en inventario**, **Valor del inventario en venta**, **Ganancia proyectada** y **Unidades en inventario**), gráficos
   y cinco operaciones recientes. **Ver historial completo** abre la consulta paginada.
 - **Historial de ventas** (`/app/historial-ventas`): filtros por fechas, cliente,
   referencia/factura, tipo y estado;20 operaciones/página y exportación del conjunto
