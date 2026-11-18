@@ -233,3 +233,89 @@ test('batch mode selects category once at the top for all photos and supports 2 
     const overflow=await page.evaluate(()=>document.documentElement.scrollWidth-window.innerWidth);
     expect(overflow).toBeLessThanOrEqual(2);
 });
+
+test('batch same-product mode creates 1 product with 3 variant photos and sliding updates price per photo',async({page,catalog},testInfo)=>{
+    catalog.failPhoto=false;
+    const svgImg=(color:string)=>`data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160"><rect width="160" height="160" fill="${color}"/></svg>`)}`;
+    let storedVariants:any[]=[];
+    let storedImages:any[]=[];
+    await page.route('**/api/v1/business/products**',async route=>{
+        const req=route.request();const url=new URL(req.url());const match=url.pathname.match(/\/products\/(\d+)(\/images)?$/);
+        if(match?.[2]&&req.method()==='POST'){
+            const body=req.postData()||'';
+            catalog.uploads.push(body);
+            const vidMatch=body.match(/name="variant_id"\r?\n\r?\n(\d+)/);
+            const variantId=vidMatch?Number(vidMatch[1]):null;
+            const variant=storedVariants.find(v=>v.id===variantId);
+            const idx=storedImages.length;
+            const colors=['#d32f2f','#222222','#ef6c00'];
+            storedImages.push({
+                id:idx+1,variant_id:variantId,
+                variant_sale_price:variant?.sale_price??null,
+                variant_label:variant?.attribute_values?.map((a:any)=>`${a.attribute_name}: ${a.value}`).join(' · ')||null,
+                alt_text:null,is_primary:idx===0,sort_order:idx,
+                renditions:{thumb:{url:svgImg(colors[idx]||'#7050ca'),width:80,height:80},card:{url:svgImg(colors[idx]||'#7050ca'),width:160,height:160},detail:{url:svgImg(colors[idx]||'#7050ca'),width:320,height:320}},
+            });
+            if(catalog.products[0])catalog.products[0].images=[...storedImages];
+            return route.fulfill({status:201,json:{data:{status:'verified'}}});
+        }
+        if(match&&!match[2]&&req.method()==='GET'){
+            const product=catalog.products.find(p=>p.id===Number(match[1]));
+            return route.fulfill({json:{data:{product,variants:{data:storedVariants,current_page:1,last_page:1,total:storedVariants.length}}}});
+        }
+        if(req.method()==='GET')return route.fulfill({json:{data:catalog.products,meta:{current_page:1,last_page:1,total:catalog.products.length}}});
+        if(req.method()==='POST'){
+            const body=req.postDataJSON();
+            catalog.creates.push(body);
+            const rows=body.clothing_variants||body.variants||[];
+            storedVariants=rows.map((r:any,i:number)=>({
+                id:100+i,product_id:55,sku:r.sku,barcode:null,sale_price:r.sale_price,cost_price:r.cost_price??null,description:r.description??null,is_active:true,version:1,
+                attribute_values:r.color?[{id:i+1,attribute_id:1,attribute_name:'Color',value:r.color}]:[],
+            }));
+            const prices=rows.map((r:any)=>Number(r.sale_price)).sort((a:number,b:number)=>a-b);
+            const product={id:55,key:body.request_key,name:body.name,description:body.description??null,product_type:'physical',unit_code:'unit',track_stock:true,status:'active',version:1,category:{id:9,name:body.category_name||'Electrónicos'},brand:null,primary_sku:rows[0]?.sku??null,variants_count:rows.length,active_variants_count:rows.length,min_sale_price:String(prices[0]??'0'),max_sale_price:String(prices[prices.length-1]??'0'),images:storedImages};
+            catalog.products.push(product);
+            return route.fulfill({status:201,json:{data:product}});
+        }
+        return route.continue();
+    });
+
+    await page.goto('/');if((page.viewportSize()?.width||0)<768)await page.getByRole('button',{name:'Abrir menú',exact:true}).click();await page.getByRole('button',{name:'Catálogo',exact:true}).click();
+    await page.getByRole('button',{name:'+ Subir hasta 10 fotos',exact:true}).click();const dialog=page.getByRole('dialog',{name:'Nuevo producto'});
+    await dialog.getByRole('combobox',{name:'Categoría del lote',exact:true}).selectOption('Electrónicos');
+    await dialog.getByRole('button',{name:'Mismo producto (variantes)',exact:true}).click();
+    await dialog.getByLabel('Nombre del producto',{exact:true}).fill('Audifonos');
+    await dialog.getByLabel('Seleccionar hasta 10 fotos').setInputFiles([
+        {name:'rojo.png',mimeType:'image/png',buffer:Buffer.from('rojo')},
+        {name:'negro.png',mimeType:'image/png',buffer:Buffer.from('negro')},
+        {name:'naranja.png',mimeType:'image/png',buffer:Buffer.from('naranja')},
+    ]);
+    await dialog.getByLabel('Precio de venta (foto 1)').fill('43');await dialog.getByLabel('Color (foto 1)').fill('Rojo');
+    await dialog.getByLabel('Precio de venta (foto 2)').fill('34');await dialog.getByLabel('Color (foto 2)').fill('Negro');
+    await dialog.getByLabel('Precio de venta (foto 3)').fill('32');await dialog.getByLabel('Color (foto 3)').fill('Naranja');
+    await dialog.getByRole('button',{name:'Guardar productos',exact:true}).click();
+    await expect(dialog).not.toBeVisible();
+
+    // Created 1 single product with 3 variants and stayed on catalog grid (NOT detail view)
+    expect(catalog.creates).toHaveLength(1);
+    expect(catalog.creates[0].clothing_variants).toHaveLength(3);
+    expect(catalog.uploads).toHaveLength(3);
+    await expect(page.getByRole('button',{name:'← Volver a productos',exact:true})).toHaveCount(0);
+
+    // Card shows slide controls and updates price & color per image
+    const card=page.locator('.product-card').first();
+    await expect(card).toContainText('43.00');
+    await expect(card).toContainText('Color: Rojo');
+    await expect(card).toContainText('1 / 3');
+    await card.getByRole('button',{name:'Foto siguiente de Audifonos',exact:true}).click();
+    await expect(card).toContainText('34.00');
+    await expect(card).toContainText('Color: Negro');
+    await expect(card).toContainText('2 / 3');
+    await card.getByRole('button',{name:'Foto siguiente de Audifonos',exact:true}).click();
+    await expect(card).toContainText('32.00');
+    await expect(card).toContainText('Color: Naranja');
+    await expect(card).toContainText('3 / 3');
+    if((page.viewportSize()?.width||0)>=1024){
+        await page.screenshot({path:testInfo.outputPath('catalog-card-carousel.png')});
+    }
+});

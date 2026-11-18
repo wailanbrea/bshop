@@ -15,7 +15,7 @@ class MediaController extends Controller
 {
     public function gallery(Request $request)
     {
-        $product = Product::with('images.asset.renditions')->findOrFail($request->route('product'));
+        $product = Product::with(['images.asset.renditions', 'images.variant.attributeValues.attribute'])->findOrFail($request->route('product'));
         abort_if($product->status !== 'active' && ! $request->user()->permits('catalog.manage'), 404);
         $result = ['images' => ProductImageResource::collection($product->images)->resolve($request), 'version' => $product->lock_version];
         if ($request->user()->permits('catalog.manage')) {

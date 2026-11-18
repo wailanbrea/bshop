@@ -112,6 +112,12 @@ function sizesForItem(item: QuickItem): string[] {
 const batchCategory = ref('Ropa');
 const batchFootwearSystem = ref<'eu' | 'us'>('eu');
 const batchColumns = ref<2 | 4>(2);
+const batchGrouping = ref<'separate' | 'same'>('separate');
+const batchSharedName = ref('');
+const batchSharedDescription = ref('');
+const batchSharedProductId = ref<number | null>(null);
+const batchSharedRequestKey = ref(crypto.randomUUID());
+const batchVariantIdMap = ref<Record<string, number>>({});
 
 function makeSku(): string {
     return `ART-${crypto.randomUUID().replace(/-/g, '').slice(0, 12).toUpperCase()}`;
@@ -189,6 +195,12 @@ function clearAll() {
     for (const item of batchItems.value) revokeItem(item);
     singleItem.value = createEmptyItem();
     batchItems.value = [];
+    batchGrouping.value = 'separate';
+    batchSharedName.value = '';
+    batchSharedDescription.value = '';
+    batchSharedProductId.value = null;
+    batchSharedRequestKey.value = crypto.randomUUID();
+    batchVariantIdMap.value = {};
     error.value = '';
     progress.value = '';
 }
@@ -308,8 +320,8 @@ function removeBatchItem(index: number) {
     batchItems.value.splice(index, 1);
 }
 
-function validateCard(item: QuickItem, label: string): string | null {
-    if (!item.name.trim()) return `Escribe el nombre en ${label}.`;
+function validateCard(item: QuickItem, label: string, requireName = true): string | null {
+    if (requireName && !item.name.trim()) return `Escribe el nombre en ${label}.`;
     if (props.costs && item.costPrice.trim()) {
         const cost = decimalInput(item.costPrice.trim());
         if (!cost || units(cost) === null) return `Indica un precio de compra válido en ${label}.`;
@@ -412,12 +424,147 @@ async function persistItem(item: QuickItem, indexLabel: string): Promise<number>
     return item.productId!;
 }
 
+async function submitSharedBatch() {
+    const list = batchItems.value;
+    const sharedName = batchSharedName.value.trim();
+    if (!sharedName) {
+        error.value = 'Escribe el nombre del producto arriba para guardar todas las fotos juntas.';
+        return;
+    }
+    if (list.length > 5) {
+        error.value = 'Un mismo producto acepta hasta 5 fotos (variantes). Quita las fotos extra o cambia a Productos separados.';
+        return;
+    }
+    for (let i = 0; i < list.length; i++) {
+        const validationError = validateCard(list[i], `la foto ${i + 1}`, false);
+        if (validationError) {
+            error.value = validationError;
+            return;
+        }
+    }
+
+    busy.value = true;
+    const errors: string[] = [];
+    try {
+        if (batchSharedProductId.value === null) {
+            progress.value = `Guardando ${sharedName} con ${list.length} ${list.length === 1 ? 'variante' : 'variantes'}…`;
+            const p = categoryProfile(batchCategory.value);
+            const stockItems: { sku: string; quantity: string; request_key: string }[] = [];
+            const clothingVariants = list.map((item) => {
+                const qty = item.quantity.trim().replace(',', '.');
+                if (props.inventoryManage && units(qty) !== null && units(qty)! > 0n) {
+                    stockItems.push({ sku: item.sku, quantity: qty, request_key: item.stockKey });
+                }
+                const costVal = item.costPrice.trim() ? decimalInput(item.costPrice.trim()) : null;
+                return {
+                    color: p.showColor && item.color.trim() ? item.color.trim() : null,
+                    size: p.showSize && item.size.trim() ? item.size.trim() : null,
+                    sku: item.sku,
+                    description: item.description.trim() || null,
+                    sale_price: decimalInput(item.salePrice.trim()),
+                    ...(props.costs ? { cost_price: costVal } : {}),
+                    is_active: true,
+                };
+            });
+            if (stockItems.length > 0 && (!props.store?.is_active || !activeWarehouseId.value)) {
+                throw new Error('Selecciona una sucursal y un almacén activos para registrar la cantidad.');
+            }
+            const body: Record<string, unknown> = {
+                name: sharedName,
+                description: batchSharedDescription.value.trim() || null,
+                category_id: null,
+                ...(batchCategory.value && normalize(batchCategory.value) !== 'ropa' ? { category_name: batchCategory.value.trim() } : {}),
+                brand_id: null,
+                product_type: 'physical',
+                unit_code: 'unit',
+                track_stock: true,
+                status: 'active',
+                request_key: batchSharedRequestKey.value,
+                clothing_variants: clothingVariants,
+                ...(stockItems.length > 0
+                    ? {
+                          initial_stock: {
+                              store_id: props.store!.id,
+                              warehouse_id: activeWarehouseId.value,
+                              items: stockItems,
+                          },
+                      }
+                    : {}),
+            };
+            const response = await api.post('/business/products', body);
+            batchSharedProductId.value = response.data.data.id;
+            for (const item of list) item.productId = batchSharedProductId.value;
+            try {
+                const detailResp = await api.get(`/business/products/${batchSharedProductId.value}`, { params: { page: 1 } });
+                const createdVariants: { id: number; sku: string }[] = detailResp.data?.data?.variants?.data || [];
+                const map: Record<string, number> = {};
+                for (const v of createdVariants) {
+                    if (v?.sku && v?.id) map[v.sku.toUpperCase()] = v.id;
+                }
+                batchVariantIdMap.value = map;
+            } catch {
+                /* Fallback: upload photos without variant link if detail fetch fails */
+            }
+        }
+
+        const productId = batchSharedProductId.value!;
+        for (let i = 0; i < list.length; i++) {
+            const item = list[i];
+            item.productId = productId;
+            if (!item.file || item.photoUploaded) {
+                item.photoUploaded = true;
+                continue;
+            }
+            item.itemError = '';
+            progress.value = `Subiendo foto ${i + 1} de ${list.length}…`;
+            try {
+                const normalizedFile = await normalizePhotoForUpload(item.file);
+                const variantId = batchVariantIdMap.value[item.sku.toUpperCase()];
+                const uploadAttempt = async (key: string) => {
+                    const formData = new FormData();
+                    formData.append('file', normalizedFile);
+                    formData.append('request_key', key);
+                    if (variantId) formData.append('variant_id', String(variantId));
+                    await api.post(`/business/products/${productId}/images`, formData, { timeout: 90000 });
+                };
+                try {
+                    await uploadAttempt(item.photoKey);
+                } catch {
+                    item.photoKey = crypto.randomUUID();
+                    await uploadAttempt(item.photoKey);
+                }
+                item.photoUploaded = true;
+            } catch (itemErr) {
+                const msg = axios.isAxiosError(itemErr) ? errorMessage(itemErr) : (itemErr instanceof Error ? itemErr.message : errorMessage(itemErr));
+                item.itemError = msg;
+                errors.push(`Foto ${i + 1}: ${msg}`);
+            }
+        }
+
+        emit('saved', productId);
+        if (errors.length > 0) {
+            error.value = `${errors.join(' · ')}. Pulsa Guardar de nuevo para reintentar las fotos pendientes.`;
+        } else {
+            emit('close');
+        }
+    } catch (err) {
+        error.value = axios.isAxiosError(err) ? errorMessage(err) : (err instanceof Error ? err.message : errorMessage(err));
+    } finally {
+        busy.value = false;
+        progress.value = '';
+    }
+}
+
 async function submit() {
     if (busy.value) return;
     error.value = '';
     const list = props.mode === 'single' ? [singleItem.value] : batchItems.value;
     if (!list.length) {
         error.value = 'Selecciona al menos una foto para continuar.';
+        return;
+    }
+    if (props.mode === 'batch' && batchGrouping.value === 'same') {
+        await submitSharedBatch();
         return;
     }
     for (let i = 0; i < list.length; i++) {
@@ -656,12 +803,16 @@ defineExpose({ submit, busy });
                             <option value="us">Regulares (6–10)</option>
                         </select>
                     </label>
+                    <div class="batch-cols-toggle" role="group" aria-label="Cómo guardar las fotos">
+                        <button type="button" class="button" :class="batchGrouping === 'separate' ? 'primary' : 'secondary'" :aria-pressed="batchGrouping === 'separate'" :disabled="busy || batchSharedProductId !== null" @click="batchGrouping = 'separate'">Productos separados</button>
+                        <button type="button" class="button" :class="batchGrouping === 'same' ? 'primary' : 'secondary'" :aria-pressed="batchGrouping === 'same'" :disabled="busy || batchSharedProductId !== null" @click="batchGrouping = 'same'">Mismo producto (variantes)</button>
+                    </div>
                     <div class="batch-cols-toggle" role="group" aria-label="Productos por fila">
                         <button type="button" class="button" :class="batchColumns === 2 ? 'primary' : 'secondary'" :aria-pressed="batchColumns === 2" @click="batchColumns = 2">Ver 2</button>
                         <button type="button" class="button" :class="batchColumns === 4 ? 'primary' : 'secondary'" :aria-pressed="batchColumns === 4" @click="batchColumns = 4">Ver 4</button>
                     </div>
-                    <label v-if="batchItems.length < 10" class="button primary photo-select-btn">
-                        Seleccionar hasta 10 fotos
+                    <label v-if="batchItems.length < (batchGrouping === 'same' ? 5 : 10)" class="button primary photo-select-btn">
+                        {{ batchGrouping === 'same' ? 'Seleccionar hasta 5 fotos' : 'Seleccionar hasta 10 fotos' }}
                         <input
                             class="sr-only"
                             type="file"
@@ -675,14 +826,39 @@ defineExpose({ submit, busy });
                 </div>
             </div>
 
+            <div v-if="batchGrouping === 'same'" class="batch-shared-header">
+                <div class="quick-grid-2">
+                    <label>
+                        Nombre del producto
+                        <input
+                            v-model="batchSharedName"
+                            required
+                            maxlength="200"
+                            :disabled="busy || batchSharedProductId !== null"
+                            placeholder="Ej. Audífonos inalámbricos"
+                        >
+                    </label>
+                    <label>
+                        Descripción general (opcional)
+                        <input
+                            v-model="batchSharedDescription"
+                            maxlength="500"
+                            :disabled="busy || batchSharedProductId !== null"
+                            placeholder="Opcional — aplica al producto completo"
+                        >
+                    </label>
+                </div>
+                <p class="muted">Todas las fotos de abajo se guardarán juntas dentro de este producto (hasta 5 fotos). Cada foto tendrá su propio color/talla, cantidad y precio.</p>
+            </div>
+
             <p v-if="!batchItems.length" class="empty">
-                Elige la categoría arriba y selecciona de 1 a 10 fotos para completar los datos debajo de cada una.
+                Elige la categoría arriba y selecciona de 1 a {{ batchGrouping === 'same' ? '5' : '10' }} fotos para completar los datos debajo de cada una.
             </p>
 
             <div v-else class="batch-photo-grid" :class="`cols-${batchColumns}`">
                 <article v-for="(item, index) in batchItems" :key="item.id" class="quick-photo-card">
                     <div class="quick-card-header">
-                        <strong>Foto {{ index + 1 }} · {{ batchCategory }}</strong>
+                        <strong>{{ batchGrouping === 'same' ? `Variante ${index + 1}` : `Foto ${index + 1}` }} · {{ batchCategory }}</strong>
                         <span v-if="item.productId !== null && item.photoUploaded" class="badge">Guardado</span>
                         <span v-else-if="item.productId !== null" class="badge">Producto guardado · falta foto</span>
                         <button
@@ -701,7 +877,7 @@ defineExpose({ submit, busy });
                     <p v-if="item.itemError" class="notice error" role="alert">{{ item.itemError }}</p>
 
                     <div class="quick-fields">
-                        <label>
+                        <label v-if="batchGrouping === 'separate'">
                             Nombre (foto {{ index + 1 }})
                             <input
                                 v-model="item.name"
@@ -823,6 +999,17 @@ defineExpose({ submit, busy });
 }
 .batch-toolbar p {
     margin: 4px 0 0;
+}
+.batch-shared-header {
+    display: grid;
+    gap: 8px;
+    padding: 12px 14px;
+    background: #ffffff;
+    border: 1px solid #d7c7f0;
+    border-radius: 12px;
+}
+.batch-shared-header p {
+    margin: 0;
 }
 .batch-toolbar-controls {
     display: flex;

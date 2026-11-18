@@ -14,7 +14,7 @@ import ClothingVariantsEditor from './ClothingVariantsEditor.vue';
 import QuickPhotoProducts from './QuickPhotoProducts.vue';
 
 const props = defineProps<{ open: boolean; product: CatalogProduct | null; initialMode?: 'single' | 'batch' | 'advanced'; options: CatalogOptions; costs: boolean; opener: HTMLElement | null; actorId:number; store?:Store; warehouses:Warehouse[]; inventoryManage:boolean }>();
-const emit = defineEmits<{ close: []; saved: [id: number]; 'photo-recovery':[] }>();
+const emit = defineEmits<{ close: []; saved: [id: number, openDetail?: boolean]; 'photo-recovery':[] }>();
 const busy = ref(false); const error = ref(''); const errorNotice = ref<HTMLElement>();
 const activeMode = ref<'single' | 'batch' | 'advanced'>('single');
 const quickRef = ref<InstanceType<typeof QuickPhotoProducts> | null>(null);
@@ -86,7 +86,7 @@ async function save() {
             <button type="button" class="button" :class="activeMode === 'batch' ? 'primary' : 'secondary'" :aria-pressed="activeMode === 'batch'" :disabled="anyBusy" @click="activeMode = 'batch'">Hasta 10 fotos</button>
             <button type="button" class="button" :class="activeMode === 'advanced' ? 'primary' : 'secondary'" :aria-pressed="activeMode === 'advanced'" :disabled="anyBusy" @click="activeMode = 'advanced'">Modo avanzado</button>
         </div>
-        <QuickPhotoProducts v-if="!editing && (activeMode === 'single' || activeMode === 'batch')" ref="quickRef" :mode="activeMode" :options="options" :costs="costs" :actor-id="actorId" :store="store" :warehouses="warehouses" :inventory-manage="inventoryManage" @close="emit('close')" @saved="emit('saved', $event)" @photo-recovery="emit('photo-recovery')" />
+        <QuickPhotoProducts v-if="!editing && (activeMode === 'single' || activeMode === 'batch')" ref="quickRef" :mode="activeMode" :options="options" :costs="costs" :actor-id="actorId" :store="store" :warehouses="warehouses" :inventory-manage="inventoryManage" @close="emit('close')" @saved="emit('saved', $event, false)" @photo-recovery="emit('photo-recovery')" />
         <form v-else id="product-editor-form" class="form-stack" @submit.prevent="save">
             <p v-if="operation && createdId===null" class="notice" role="status">Hay un guardado pendiente. Reintenta la misma operación; las fotos que no estén seleccionadas deberán añadirse después en la galería.</p>
             <p v-if="createdId!==null" class="notice" role="status">Producto guardado. Puedes reintentar las fotografías pendientes sin crear otro producto.</p>

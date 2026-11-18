@@ -12,7 +12,7 @@ export interface CatalogProduct {
     min_sale_price: string | null; max_sale_price: string | null;
 }
 export interface ProductImage {
-    id: number; variant_id: number | null; alt_text: string | null; is_primary: boolean; sort_order: number;
+    id: number; variant_id: number | null; variant_sale_price?: string | null; variant_label?: string | null; alt_text: string | null; is_primary: boolean; sort_order: number;
     renditions: Record<'thumb' | 'card' | 'detail', { url: string | null; width: number; height: number }>;
 }
 export interface CatalogVariant {
