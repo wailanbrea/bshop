@@ -10,6 +10,7 @@ import VariantEditor from './VariantEditor.vue';
 import CatalogOptionsManager from './CatalogOptionsManager.vue';
 import CatalogImportView from './CatalogImportView.vue';
 import ProductGallery from './ProductGallery.vue';
+import AppDialog from './AppDialog.vue';
 import { forgetPhotos, photoRecoveries } from '../lib/productPhotoRecovery';
 
 const props = defineProps<{ business: Business; permissions: string[]; actorId:number; store?:Store; warehouses:Warehouse[] }>();
@@ -29,6 +30,56 @@ function openPhotos(event: Event) { photoOpener.value = event.currentTarget as H
 async function photosChanged() { if (selected.value) await Promise.all([loadProducts(page.value), detail(selected.value.id, variants.value.current_page, true)]); }
 const selected = ref<CatalogProduct | null>(null); const variants = ref<VariantPage>({ data: [], current_page: 1, last_page: 1, total: 0 }); const detailLoading = ref(false);
 const productOpen = ref(false); const productDraft = ref<CatalogProduct | null>(null); const editorMode = ref<'single' | 'batch' | 'advanced'>('single'); const variantOpen = ref(false); const variantDraft = ref<CatalogVariant | null>(null); const opener = ref<HTMLElement | null>(null);
+const deleteTarget = ref<CatalogProduct | null>(null);
+const deleteOpener = ref<HTMLElement | null>(null);
+const deleteBusy = ref(false);
+const deleteError = ref('');
+const deleteSalesCount = ref<number | null>(null);
+const deleteSalesMessage = ref('');
+function askDeleteProduct(product: CatalogProduct, event: Event) {
+    deleteOpener.value = event.currentTarget as HTMLElement;
+    deleteTarget.value = product;
+    deleteError.value = '';
+    deleteSalesCount.value = null;
+    deleteSalesMessage.value = '';
+}
+function closeDeleteDialog() {
+    if (deleteBusy.value) return;
+    deleteTarget.value = null;
+    deleteError.value = '';
+    deleteSalesCount.value = null;
+    deleteSalesMessage.value = '';
+}
+async function confirmDeleteProduct(confirmWithSales = false) {
+    if (!deleteTarget.value || deleteBusy.value) return;
+    deleteBusy.value = true;
+    deleteError.value = '';
+    try {
+        const target = deleteTarget.value;
+        await api.delete(`/business/products/${target.id}`, {
+            data: confirmWithSales ? { confirm_with_sales: true } : {},
+        });
+        deleteTarget.value = null;
+        deleteSalesCount.value = null;
+        deleteSalesMessage.value = '';
+        if (selected.value?.id === target.id) {
+            selected.value = null;
+        }
+        notice.value = confirmWithSales
+            ? 'Producto eliminado del catálogo. Su historial de ventas se conservó.'
+            : 'Producto eliminado del catálogo.';
+        await loadProducts(page.value);
+    } catch (e) {
+        if (axios.isAxiosError(e) && e.response?.status === 409 && e.response.data?.data?.requires_double_confirmation) {
+            deleteSalesCount.value = Number(e.response.data.data.sales_records_count || 1);
+            deleteSalesMessage.value = e.response.data.message || 'Este producto tiene ventas registradas.';
+        } else {
+            deleteError.value = errorMessage(e);
+        }
+    } finally {
+        deleteBusy.value = false;
+    }
+}
 let request = 0; let detailRequest = 0; let controller: AbortController | undefined; let searchTimer: ReturnType<typeof setTimeout> | undefined;
 async function loadOptions() {
     try { options.value = (await api.get('/business/catalog/options')).data.data; }
@@ -66,6 +117,7 @@ async function savedProduct(id: number, openDetail = true) {
 }
 const cardImageIndex = ref<Record<number, number>>({});
 const detailImageIndex = ref(0);
+const selectedVariantId = ref<number | null>(null);
 let swipeStartX = 0;
 
 function orderedImages(product: CatalogProduct): ProductImage[] {
@@ -114,13 +166,36 @@ function onCardTouchEnd(product: CatalogProduct, e: TouchEvent) {
         stepCardImage(product, diff < 0 ? 1 : -1);
     }
 }
-const detailImages = computed(() => (selected.value ? orderedImages(selected.value) : []));
+const allDetailImages = computed(() => (selected.value ? orderedImages(selected.value) : []));
+const detailImages = computed(() => {
+    const all = allDetailImages.value;
+    if (selectedVariantId.value === null) return all;
+    const filtered = all.filter(img => img.variant_id === selectedVariantId.value);
+    return filtered.length ? filtered : all;
+});
+const selectedVariantHasOwnPhotos = computed(() => {
+    if (selectedVariantId.value === null) return true;
+    return allDetailImages.value.some(img => img.variant_id === selectedVariantId.value);
+});
+const selectedDetailVariant = computed(() =>
+    selectedVariantId.value === null ? null : (variants.value.data.find(v => v.id === selectedVariantId.value) ?? null)
+);
 const activeDetailImage = computed(() => {
     const imgs = detailImages.value;
     if (!imgs.length) return null;
     const idx = ((detailImageIndex.value % imgs.length) + imgs.length) % imgs.length;
     return imgs[idx];
 });
+function selectDetailVariant(variantId: number | null) {
+    selectedVariantId.value = variantId;
+    detailImageIndex.value = 0;
+}
+function variantPhotoCount(variantId: number): number {
+    return allDetailImages.value.filter(img => img.variant_id === variantId).length;
+}
+function variantDisplayName(variant: CatalogVariant): string {
+    return variant.attribute_values.map(v => `${v.attribute_name}: ${v.value}`).join(' · ') || variant.sku;
+}
 function stepDetailImage(delta: number) {
     const imgs = detailImages.value;
     if (imgs.length < 2) return;
@@ -131,7 +206,7 @@ function onDetailTouchEnd(e: TouchEvent) {
     const diff = endX - swipeStartX;
     if (Math.abs(diff) >= 35) stepDetailImage(diff < 0 ? 1 : -1);
 }
-watch(() => selected.value?.id, () => { detailImageIndex.value = 0; });
+watch(() => selected.value?.id, () => { detailImageIndex.value = 0; selectedVariantId.value = null; });
 async function savedVariant() { if (!selected.value) return; notice.value = 'Variante guardada correctamente.'; await detail(selected.value.id, variants.value.current_page); await loadProducts(page.value); }
 function back() { ++detailRequest; selected.value = null; detailLoading.value = false; error.value = ''; }
 function openImport() { error.value = ''; notice.value = ''; importing.value = true; }
@@ -193,7 +268,7 @@ onUnmounted(() => { ++request; ++detailRequest; controller?.abort(); clearTimeou
                                 <img :src="img.renditions.thumb?.url || img.renditions.card?.url || undefined" alt="">
                             </button>
                         </div>
-                        <button type="button" class="button secondary" @click="openPhotos">{{ manage ? 'Administrar fotos' : 'Ver fotos' }} ({{ selected.images?.length || 0 }} / 5)</button>
+                        <button type="button" class="button secondary" @click="openPhotos">{{ manage ? 'Administrar fotos' : 'Ver fotos' }} ({{ selected.images?.length || 0 }} / 20)</button>
                     </div>
                     <div class="detail-summary">
                         <div class="panel-heading">
@@ -201,22 +276,45 @@ onUnmounted(() => { ++request; ++detailRequest; controller?.abort(); clearTimeou
                                 <span class="eyebrow">{{ selected.category?.name || 'SIN CATEGORÍA' }} <span v-if="selected.brand">· {{ selected.brand.name }}</span></span>
                                 <h2>{{ selected.name }}</h2>
                             </div>
-                            <button v-if="manage" type="button" class="button secondary" @click="editProduct(selected, $event)">Editar producto</button>
+                            <div v-if="manage" class="detail-actions">
+                                <button type="button" class="button secondary" @click="editProduct(selected, $event)">Editar producto</button>
+                                <button type="button" class="button danger-outline" @click="askDeleteProduct(selected, $event)">Eliminar</button>
+                            </div>
                         </div>
                         <p v-if="selected.description" class="muted">{{ selected.description }}</p>
                         <div class="detail-price-box">
                             <strong class="detail-active-price">
-                                {{ activeDetailImage?.variant_sale_price != null
-                                    ? amount(activeDetailImage.variant_sale_price, business.default_currency)
-                                    : (selected.min_sale_price === null ? 'Sin precio' : `${selected.min_sale_price !== selected.max_sale_price ? 'Desde ' : ''}${amount(selected.min_sale_price, business.default_currency)}`) }}
+                                {{ selectedDetailVariant
+                                    ? amount(selectedDetailVariant.sale_price, business.default_currency)
+                                    : (activeDetailImage?.variant_sale_price != null
+                                        ? amount(activeDetailImage.variant_sale_price, business.default_currency)
+                                        : (selected.min_sale_price === null ? 'Sin precio' : `${selected.min_sale_price !== selected.max_sale_price ? 'Desde ' : ''}${amount(selected.min_sale_price, business.default_currency)}`)) }}
                             </strong>
-                            <span v-if="activeDetailImage?.variant_label" class="badge">{{ activeDetailImage.variant_label }}</span>
+                            <span v-if="selectedDetailVariant" class="badge">{{ variantDisplayName(selectedDetailVariant) }}</span>
+                            <span v-else-if="activeDetailImage?.variant_label" class="badge">{{ activeDetailImage.variant_label }}</span>
                             <span v-if="selected.status === 'archived'" class="badge inactive">Archivado</span>
                         </div>
+                        <div v-if="variants.data.length > 1" class="variant-filter-pills" role="group" aria-label="Filtrar fotos por variante">
+                            <button
+                                type="button"
+                                class="variant-pill"
+                                :class="{ active: selectedVariantId === null }"
+                                @click="selectDetailVariant(null)"
+                            >Todas las fotos ({{ allDetailImages.length }})</button>
+                            <button
+                                v-for="variant in variants.data"
+                                :key="variant.id"
+                                type="button"
+                                class="variant-pill"
+                                :class="{ active: selectedVariantId === variant.id }"
+                                @click="selectDetailVariant(variant.id)"
+                            >{{ variantDisplayName(variant) }} ({{ variantPhotoCount(variant.id) }})</button>
+                        </div>
+                        <p v-if="selectedDetailVariant && !selectedVariantHasOwnPhotos" class="muted">Esta variante todavía no tiene fotos propias asignadas; mostrando las fotos generales del producto.</p>
                     </div>
                 </div>
                 <div class="panel-heading catalog-section-heading"><div><h3>Variantes y precios</h3><p class="muted">{{ variants.total }} {{ variants.total === 1 ? 'variante' : 'variantes' }}</p></div><button v-if="manage" type="button" class="button primary" :disabled="selected.status !== 'active'" @click="editVariant(null, $event)">+ Nueva variante</button></div>
-                <div class="record-list"><article v-for="variant in variants.data" :key="variant.id" class="record catalog-variant-record"><div class="record-main"><strong>{{ variant.attribute_values.map(v => `${v.attribute_name}: ${v.value}`).join(' · ') || 'Variante general' }}</strong><p class="muted">{{ variant.sku }}<span v-if="variant.barcode"> · Barras: {{ variant.barcode }}</span></p></div><div class="variant-price"><strong>{{ amount(variant.sale_price, business.default_currency) }}</strong><small v-if="costs">Costo: {{ amount(variant.cost_price, business.default_currency) }}</small><span class="badge" :class="{ inactive: !variant.is_active }">{{ variant.is_active ? 'Activa' : 'Inactiva' }}</span></div><button v-if="manage" type="button" class="button secondary" @click="editVariant(variant, $event)">Editar<span class="sr-only"> {{ variant.sku }}</span></button></article></div>
+                <div class="record-list"><article v-for="variant in variants.data" :key="variant.id" class="record catalog-variant-record" :class="{ 'variant-selected': selectedVariantId === variant.id }" @click="selectDetailVariant(variant.id)"><div class="record-main"><strong>{{ variant.attribute_values.map(v => `${v.attribute_name}: ${v.value}`).join(' · ') || 'Variante general' }}</strong><p class="muted">{{ variant.sku }}<span v-if="variant.barcode"> · Barras: {{ variant.barcode }}</span> · {{ variantPhotoCount(variant.id) }} {{ variantPhotoCount(variant.id) === 1 ? 'foto' : 'fotos' }}</p></div><div class="variant-price"><strong>{{ amount(variant.sale_price, business.default_currency) }}</strong><small v-if="costs">Costo: {{ amount(variant.cost_price, business.default_currency) }}</small><span class="badge" :class="{ inactive: !variant.is_active }">{{ variant.is_active ? 'Activa' : 'Inactiva' }}</span></div><button v-if="manage" type="button" class="button secondary" @click.stop="editVariant(variant, $event)">Editar<span class="sr-only"> {{ variant.sku }}</span></button></article></div>
                 <p v-if="!variants.data.length" class="empty">No hay variantes para mostrar.</p>
                 <div v-if="variants.last_page > 1" class="catalog-pagination"><button type="button" class="button secondary" :disabled="variants.current_page <= 1" @click="detail(selected.id, variants.current_page - 1)">Anterior</button><span>Página {{ variants.current_page }} de {{ variants.last_page }}</span><button type="button" class="button secondary" :disabled="variants.current_page >= variants.last_page" @click="detail(selected.id, variants.current_page + 1)">Siguiente</button></div>
             </section>
@@ -271,6 +369,9 @@ onUnmounted(() => { ++request; ++detailRequest; controller?.abort(); clearTimeou
                             <strong class="product-price">{{ cardDisplayPrice(product) }}</strong>
                             <p class="muted">{{ product.active_variants_count }} {{ product.active_variants_count === 1 ? 'variante' : 'variantes' }}</p>
                         </button>
+                        <div v-if="manage" class="product-card-footer">
+                            <button type="button" class="text-button danger-text" :aria-label="`Eliminar ${product.name}`" @click.stop="askDeleteProduct(product, $event)">Eliminar</button>
+                        </div>
                     </article>
                 </section>
                 <section v-if="!products.length" class="panel empty"><h3>{{ query || category || brand || type || status !== 'active' ? 'No encontramos coincidencias.' : 'Tu catálogo empieza aquí.' }}</h3><p>{{ manage ? 'Añade un producto con su SKU y precio, o ajusta los filtros.' : 'No hay productos disponibles con estos filtros.' }}</p></section>
@@ -281,6 +382,46 @@ onUnmounted(() => { ++request; ++detailRequest; controller?.abort(); clearTimeou
     <ProductEditor v-if="manage" :open="productOpen" :product="productDraft" :initial-mode="editorMode" :options="options" :costs="costs" :opener="opener" :actor-id="actorId" :store="store" :warehouses="warehouses" :inventory-manage="permissions.includes('inventory.manage')" @close="productOpen = false" @saved="savedProduct" @photo-recovery="refreshPhotoReminders" />
     <VariantEditor v-if="manage" :open="variantOpen" :product="selected" :variant="variantDraft" :options="options" :costs="costs" :opener="opener" @close="variantOpen = false" @saved="savedVariant" />
     <ProductGallery :open="photosOpen" :product="selected" :variants="variants.data" :manage="manage" :opener="photoOpener" @close="photosOpen = false" @changed="photosChanged" />
+    <AppDialog
+        v-if="manage"
+        :open="deleteTarget !== null"
+        :title="deleteSalesCount !== null ? 'Confirmar eliminación con ventas' : 'Eliminar producto'"
+        :busy="deleteBusy"
+        :opener="deleteOpener"
+        @close="closeDeleteDialog"
+    >
+        <div v-if="deleteTarget" class="delete-confirm-body">
+            <template v-if="deleteSalesCount === null">
+                <p>¿Seguro que deseas eliminar <strong>{{ deleteTarget.name }}</strong> del catálogo?</p>
+                <p class="muted">Si el producto ya tiene ventas o pedidos registrados, te avisaremos antes de eliminarlo.</p>
+            </template>
+            <template v-else>
+                <p class="notice error" role="alert">
+                    <strong>Atención: este producto tiene {{ deleteSalesCount }} {{ deleteSalesCount === 1 ? 'registro de venta o pedido' : 'registros de venta o pedidos' }}.</strong>
+                </p>
+                <p>{{ deleteSalesMessage }}</p>
+                <p class="muted">Si confirmas de nuevo, el producto saldrá del catálogo activo y no se podrá vender más, pero las facturas y reportes históricos se conservarán intactos.</p>
+            </template>
+            <p v-if="deleteError" class="notice error" role="alert">{{ deleteError }}</p>
+        </div>
+        <template #footer>
+            <button type="button" class="button secondary" :disabled="deleteBusy" @click="closeDeleteDialog">Cancelar</button>
+            <button
+                v-if="deleteSalesCount === null"
+                type="button"
+                class="button danger-solid"
+                :disabled="deleteBusy"
+                @click="confirmDeleteProduct(false)"
+            >{{ deleteBusy ? 'Verificando…' : 'Sí, eliminar' }}</button>
+            <button
+                v-else
+                type="button"
+                class="button danger-solid"
+                :disabled="deleteBusy"
+                @click="confirmDeleteProduct(true)"
+            >{{ deleteBusy ? 'Eliminando…' : 'Confirmar eliminación definitiva' }}</button>
+        </template>
+    </AppDialog>
 </template>
 
 <style scoped>
@@ -453,6 +594,65 @@ onUnmounted(() => { ++request; ++detailRequest; controller?.abort(); clearTimeou
     font-weight: 700;
     color: #1f1730;
     white-space: nowrap;
+}
+.detail-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+.product-card-footer {
+    display: flex;
+    justify-content: flex-end;
+    padding: 0 14px 12px;
+}
+.danger-outline {
+    border: 1px solid #e2a4a4;
+    background: #fff5f5;
+    color: #b42318;
+}
+.danger-solid {
+    border: 1px solid #b42318;
+    background: #d92d20;
+    color: #fff;
+}
+.danger-text {
+    color: #b42318;
+    font-size: 0.85rem;
+}
+.delete-confirm-body {
+    display: grid;
+    gap: 10px;
+}
+.delete-confirm-body p {
+    margin: 0;
+}
+.variant-filter-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+.variant-pill {
+    min-height: 38px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    border: 1px solid #d5c9ea;
+    background: #fff;
+    color: #322745;
+    font-size: 0.88rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+.variant-pill.active {
+    background: #6a46d8;
+    border-color: #6a46d8;
+    color: #fff;
+}
+.catalog-variant-record {
+    cursor: pointer;
+}
+.catalog-variant-record.variant-selected {
+    border-color: #6a46d8;
+    background: #f6f2ff;
 }
 @media (max-width: 760px) {
     .detail-hero {

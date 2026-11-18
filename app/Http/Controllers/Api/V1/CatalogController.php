@@ -149,6 +149,43 @@ class CatalogController extends Controller
         return response()->json(['data' => (new CatalogProductResource($this->products()->findOrFail($product->id)))->resolve($request)]);
     }
 
+    public function destroy(Request $request)
+    {
+        $data = $request->validate(['confirm_with_sales' => ['sometimes', 'boolean']]);
+        $product = Product::findOrFail((int) $request->route('product'));
+        $variantIds = $product->variants()->pluck('id');
+        $orderItemsCount = $variantIds->isEmpty() ? 0 : DB::table('order_items')->whereIn('variant_id', $variantIds)->count();
+        $invoiceItemsCount = $variantIds->isEmpty() ? 0 : DB::table('invoice_items')->whereIn('variant_id', $variantIds)->count();
+        $salesRecordsCount = $orderItemsCount + $invoiceItemsCount;
+
+        if ($salesRecordsCount > 0 && empty($data['confirm_with_sales'])) {
+            return response()->json([
+                'message' => "Este producto tiene {$salesRecordsCount} ".($salesRecordsCount === 1 ? 'registro' : 'registros').' de venta o pedidos asociados. Confirma nuevamente si deseas eliminarlo del catálogo.',
+                'data' => [
+                    'requires_double_confirmation' => true,
+                    'sales_records_count' => $salesRecordsCount,
+                    'order_items_count' => $orderItemsCount,
+                    'invoice_items_count' => $invoiceItemsCount,
+                ],
+            ], 409);
+        }
+
+        DB::transaction(function () use ($product) {
+            $product->variants()->update(['is_active' => false]);
+            $product->status = 'archived';
+            $product->save();
+            $product->delete();
+        });
+
+        return response()->json([
+            'data' => [
+                'id' => $product->id,
+                'deleted' => true,
+                'sales_records_count' => $salesRecordsCount,
+            ],
+        ]);
+    }
+
     public function addVariant(VariantRequest $request, ProductService $service)
     {
         $result = $service->addVariant((int) $request->route('product'), $request->validated(), $request->user());

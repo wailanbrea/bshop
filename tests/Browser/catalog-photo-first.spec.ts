@@ -116,7 +116,7 @@ test('quick one-by-one mode captures photo, name, cost price, sale price, quanti
 test('batch mode up to 10 photos creates independent products with cost and sale prices under each photo',async({page,catalog})=>{
     catalog.failPhoto=false;await page.goto('/');if((page.viewportSize()?.width||0)<768)await page.getByRole('button',{name:'Abrir menú',exact:true}).click();await page.getByRole('button',{name:'Catálogo',exact:true}).click();
     await page.getByRole('button',{name:'+ Subir hasta 10 fotos',exact:true}).click();const dialog=page.getByRole('dialog',{name:'Nuevo producto'});
-    await dialog.getByLabel('Seleccionar hasta 10 fotos').setInputFiles([
+    await dialog.getByLabel('Seleccionar hasta 20 fotos').setInputFiles([
         {name:'uno.png',mimeType:'image/png',buffer:Buffer.from('foto-1')},
         {name:'dos.png',mimeType:'image/png',buffer:Buffer.from('foto-2')},
     ]);
@@ -190,7 +190,7 @@ test('batch mode selects category once at the top for all photos and supports 2 
 
     // Choose category once at the top
     await dialog.getByRole('combobox',{name:'Categoría del lote',exact:true}).selectOption('Electrónicos');
-    await dialog.getByLabel('Seleccionar hasta 10 fotos').setInputFiles([
+    await dialog.getByLabel('Seleccionar hasta 20 fotos').setInputFiles([
         {name:'a1.png',mimeType:'image/png',buffer:Buffer.from('a1')},
         {name:'a2.png',mimeType:'image/png',buffer:Buffer.from('a2')},
         {name:'a3.png',mimeType:'image/png',buffer:Buffer.from('a3')},
@@ -285,7 +285,7 @@ test('batch same-product mode creates 1 product with 3 variant photos and slidin
     await dialog.getByRole('combobox',{name:'Categoría del lote',exact:true}).selectOption('Electrónicos');
     await dialog.getByRole('button',{name:'Mismo producto (variantes)',exact:true}).click();
     await dialog.getByLabel('Nombre del producto',{exact:true}).fill('Audifonos');
-    await dialog.getByLabel('Seleccionar hasta 10 fotos').setInputFiles([
+    await dialog.getByLabel('Seleccionar hasta 20 fotos').setInputFiles([
         {name:'rojo.png',mimeType:'image/png',buffer:Buffer.from('rojo')},
         {name:'negro.png',mimeType:'image/png',buffer:Buffer.from('negro')},
         {name:'naranja.png',mimeType:'image/png',buffer:Buffer.from('naranja')},
@@ -318,4 +318,61 @@ test('batch same-product mode creates 1 product with 3 variant photos and slidin
     if((page.viewportSize()?.width||0)>=1024){
         await page.screenshot({path:testInfo.outputPath('catalog-card-carousel.png')});
     }
+});
+
+test('detail view filters photos by selected variant and delete requires double confirmation when sales exist',async({page,businessState})=>{
+    const svgImg=(color:string)=>`data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160"><rect width="160" height="160" fill="${color}"/></svg>`)}`;
+    let deleted=false;
+    const product={
+        id:88,name:'Bolso Demo',description:null,product_type:'physical',unit_code:'unit',track_stock:true,status:'active',version:1,
+        category:{id:1,name:'Carteras'},brand:null,primary_sku:'BOL-R',variants_count:2,active_variants_count:2,min_sale_price:'30.0000',max_sale_price:'35.0000',
+        images:[
+            {id:1,variant_id:201,variant_sale_price:'30.0000',variant_label:'Color: Rojo',alt_text:'Rojo 1',is_primary:true,sort_order:0,renditions:{thumb:{url:svgImg('#c62828'),width:80,height:80},card:{url:svgImg('#c62828'),width:160,height:160},detail:{url:svgImg('#c62828'),width:320,height:320}}},
+            {id:2,variant_id:201,variant_sale_price:'30.0000',variant_label:'Color: Rojo',alt_text:'Rojo 2',is_primary:false,sort_order:1,renditions:{thumb:{url:svgImg('#e53935'),width:80,height:80},card:{url:svgImg('#e53935'),width:160,height:160},detail:{url:svgImg('#e53935'),width:320,height:320}}},
+            {id:3,variant_id:202,variant_sale_price:'35.0000',variant_label:'Color: Azul',alt_text:'Azul 1',is_primary:false,sort_order:2,renditions:{thumb:{url:svgImg('#1565c0'),width:80,height:80},card:{url:svgImg('#1565c0'),width:160,height:160},detail:{url:svgImg('#1565c0'),width:320,height:320}}},
+        ],
+    };
+    const variants=[
+        {id:201,product_id:88,sku:'BOL-R',barcode:null,sale_price:'30.0000',cost_price:'15.0000',description:null,is_active:true,version:1,attribute_values:[{id:1,attribute_id:1,attribute_name:'Color',value:'Rojo'}]},
+        {id:202,product_id:88,sku:'BOL-A',barcode:null,sale_price:'35.0000',cost_price:'16.0000',description:null,is_active:true,version:1,attribute_values:[{id:2,attribute_id:1,attribute_name:'Color',value:'Azul'}]},
+    ];
+    await page.route('**/api/v1/business/products**',async route=>{
+        const req=route.request();const url=new URL(req.url());
+        if(req.method()==='DELETE'&&url.pathname.endsWith('/products/88')){
+            const body=req.postDataJSON()||{};
+            if(!body.confirm_with_sales){
+                return route.fulfill({status:409,json:{message:'Este producto tiene 3 registros de venta o pedidos asociados.',data:{requires_double_confirmation:true,sales_records_count:3}}});
+            }
+            deleted=true;
+            return route.fulfill({status:200,json:{data:{id:88,deleted:true,sales_records_count:3}}});
+        }
+        if(req.method()==='GET'&&url.pathname.endsWith('/products/88')){
+            return route.fulfill({json:{data:{product,variants:{data:variants,current_page:1,last_page:1,total:2}}}});
+        }
+        if(req.method()==='GET'){
+            return route.fulfill({json:{data:deleted?[]:[product],meta:{current_page:1,last_page:1,total:deleted?0:1}}});
+        }
+        return route.continue();
+    });
+
+    await page.goto('/');if((page.viewportSize()?.width||0)<768)await page.getByRole('button',{name:'Abrir menú',exact:true}).click();await page.getByRole('button',{name:'Catálogo',exact:true}).click();
+    await page.getByRole('button',{name:'Ver Bolso Demo',exact:true}).click();
+
+    // Variant filter shows 2 photos for Rojo and 1 photo for Azul
+    const filterGroup=page.getByRole('group',{name:'Filtrar fotos por variante'});
+    await filterGroup.getByRole('button',{name:'Color: Rojo (2)',exact:true}).click();
+    await expect(page.locator('.detail-gallery .slide-counter')).toHaveText('1 / 2');
+    await filterGroup.getByRole('button',{name:'Color: Azul (1)',exact:true}).click();
+    await expect(page.locator('.detail-main-img')).toHaveAttribute('alt','Azul 1');
+
+    // Double confirmation delete flow when sales exist
+    await page.getByRole('button',{name:'Eliminar',exact:true}).click();
+    const dlg=page.getByRole('dialog',{name:'Eliminar producto'});
+    await dlg.getByRole('button',{name:'Sí, eliminar',exact:true}).click();
+    const dlg2=page.getByRole('dialog',{name:'Confirmar eliminación con ventas'});
+    await expect(dlg2).toContainText('3 registros de venta o pedidos');
+    await dlg2.getByRole('button',{name:'Confirmar eliminación definitiva',exact:true}).click();
+    await expect(dlg2).not.toBeVisible();
+    expect(deleted).toBe(true);
+    expect(businessState.writes).toBe(0);
 });

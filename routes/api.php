@@ -60,7 +60,7 @@ Route::middleware(['auth:sanctum', 'active', 'auth.session'])->group(function ()
             Route::get('products/{product}/images', [MediaController::class, 'gallery'])->whereNumber('product');
         });
         Route::middleware('can:catalog.manage')->group(function () {
-            Route::post('products/{product}/images', [MediaController::class, 'upload'])->whereNumber('product')->middleware('throttle:20,1');
+            Route::post('products/{product}/images', [MediaController::class, 'upload'])->whereNumber('product')->middleware('throttle:60,1');
             Route::get('products/{product}/uploads/{key}', [MediaController::class, 'status'])->whereNumber('product')->whereUuid('key');
             Route::patch('products/{product}/images', [MediaController::class, 'update'])->whereNumber('product');
             Route::delete('products/{product}/images/{image}', [MediaController::class, 'remove'])->whereNumber(['product', 'image']);
@@ -76,6 +76,7 @@ Route::middleware(['auth:sanctum', 'active', 'auth.session'])->group(function ()
             });
             Route::post('products', [CatalogController::class, 'create']);
             Route::patch('products/{product}', [CatalogController::class, 'update'])->whereNumber('product');
+            Route::delete('products/{product}', [CatalogController::class, 'destroy'])->whereNumber('product');
             Route::post('products/{product}/variants', [CatalogController::class, 'addVariant'])->whereNumber('product');
             Route::patch('products/{product}/variants/{variant}', [CatalogController::class, 'updateVariant'])->whereNumber(['product', 'variant']);
             Route::post('catalog/{kind}', [CatalogLookupController::class, 'create'])->where('kind', 'categories|brands|attributes|values');

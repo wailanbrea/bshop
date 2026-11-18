@@ -304,8 +304,8 @@ function chooseBatchPhotos(event: Event) {
     if (!files.length || busy.value) return;
     error.value = '';
     for (const file of files) {
-        if (batchItems.value.length >= 10) {
-            error.value = 'Puedes seleccionar hasta 10 fotos por lote.';
+        if (batchItems.value.length >= 20) {
+            error.value = 'Puedes seleccionar hasta 20 fotos por lote.';
             break;
         }
         if (!validateFile(file)) continue;
@@ -431,8 +431,8 @@ async function submitSharedBatch() {
         error.value = 'Escribe el nombre del producto arriba para guardar todas las fotos juntas.';
         return;
     }
-    if (list.length > 5) {
-        error.value = 'Un mismo producto acepta hasta 5 fotos (variantes). Quita las fotos extra o cambia a Productos separados.';
+    if (list.length > 20) {
+        error.value = 'Un mismo producto acepta hasta 20 fotos por lote.';
         return;
     }
     for (let i = 0; i < list.length; i++) {
@@ -778,7 +778,7 @@ defineExpose({ submit, busy });
         <template v-else>
             <div class="batch-toolbar">
                 <div>
-                    <strong>Fotos seleccionadas: {{ batchItems.length }} / 10</strong>
+                    <strong>Fotos seleccionadas: {{ batchItems.length }} / 20</strong>
                     <p class="muted">Elige la categoría una sola vez aquí arriba y aplicará para todas las fotos del lote.</p>
                 </div>
                 <div class="batch-toolbar-controls">
@@ -811,15 +811,15 @@ defineExpose({ submit, busy });
                         <button type="button" class="button" :class="batchColumns === 2 ? 'primary' : 'secondary'" :aria-pressed="batchColumns === 2" @click="batchColumns = 2">Ver 2</button>
                         <button type="button" class="button" :class="batchColumns === 4 ? 'primary' : 'secondary'" :aria-pressed="batchColumns === 4" @click="batchColumns = 4">Ver 4</button>
                     </div>
-                    <label v-if="batchItems.length < (batchGrouping === 'same' ? 5 : 10)" class="button primary photo-select-btn">
-                        {{ batchGrouping === 'same' ? 'Seleccionar hasta 5 fotos' : 'Seleccionar hasta 10 fotos' }}
+                    <label v-if="batchItems.length < 20" class="button primary photo-select-btn">
+                        Seleccionar hasta 20 fotos
                         <input
                             class="sr-only"
                             type="file"
                             accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
                             multiple
                             :disabled="busy"
-                            aria-label="Seleccionar hasta 10 fotos"
+                            aria-label="Seleccionar hasta 20 fotos"
                             @change="chooseBatchPhotos"
                         >
                     </label>
@@ -848,11 +848,11 @@ defineExpose({ submit, busy });
                         >
                     </label>
                 </div>
-                <p class="muted">Todas las fotos de abajo se guardarán juntas dentro de este producto (hasta 5 fotos). Cada foto tendrá su propio color/talla, cantidad y precio.</p>
+                <p class="muted">Todas las fotos de abajo se guardarán juntas dentro de este producto (hasta 20 fotos). Cada foto tendrá su propio color/talla, cantidad y precio.</p>
             </div>
 
             <p v-if="!batchItems.length" class="empty">
-                Elige la categoría arriba y selecciona de 1 a {{ batchGrouping === 'same' ? '5' : '10' }} fotos para completar los datos debajo de cada una.
+                Elige la categoría arriba y selecciona de 1 a 20 fotos para completar los datos debajo de cada una.
             </p>
 
             <div v-else class="batch-photo-grid" :class="`cols-${batchColumns}`">
@@ -1016,18 +1016,26 @@ defineExpose({ submit, busy });
     flex-wrap: wrap;
     gap: 10px;
     align-items: end;
+    width: 100%;
+    min-width: 0;
 }
 .batch-cat-label {
-    min-width: 170px;
+    min-width: 150px;
+    max-width: 100%;
+    flex: 1 1 160px;
 }
 .batch-cols-toggle {
-    display: inline-flex;
+    display: flex;
+    flex-wrap: wrap;
     gap: 6px;
+    max-width: 100%;
 }
 .batch-cols-toggle .button {
     min-height: 44px;
     padding: 0 12px;
-    white-space: nowrap;
+    max-width: 100%;
+    white-space: normal;
+    text-align: center;
 }
 .batch-photo-grid {
     display: grid;
@@ -1166,12 +1174,14 @@ defineExpose({ submit, busy });
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 10px;
+    align-items: end;
     min-width: 0;
 }
 .quick-grid-3 {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 10px;
+    align-items: end;
     min-width: 0;
 }
 .quick-fields input,
@@ -1181,6 +1191,20 @@ defineExpose({ submit, busy });
     width: 100%;
 }
 @media (max-width: 520px) {
+    .batch-toolbar {
+        padding: 10px;
+    }
+    .batch-cols-toggle,
+    .photo-select-btn {
+        width: 100%;
+    }
+    .batch-cols-toggle .button {
+        flex: 1 1 auto;
+    }
+    .photo-select-btn {
+        white-space: normal;
+        text-align: center;
+    }
     .quick-grid-2,
     .quick-grid-3 {
         grid-template-columns: minmax(0, 1fr);
