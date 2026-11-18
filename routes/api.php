@@ -96,6 +96,7 @@ Route::middleware(['auth:sanctum', 'active', 'auth.session'])->group(function ()
         });
         Route::prefix('stores/{store}')->whereNumber('store')->middleware('store')->group(function () {
             Route::get('employees', [EmployeeController::class, 'index'])->middleware('can:members.manage');
+            Route::get('employees/export', [EmployeeController::class, 'export'])->middleware('can:members.manage');
             Route::post('employees', [EmployeeController::class, 'create'])->middleware('can:members.manage');
             Route::patch('employees/{employee}', [EmployeeController::class, 'update'])->whereNumber('employee')->middleware('can:members.manage');
             Route::get('employees/{employee}/plans', [EmployeeController::class, 'plans'])->whereNumber('employee')->middleware('can:members.manage');

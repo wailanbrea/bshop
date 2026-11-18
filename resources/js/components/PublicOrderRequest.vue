@@ -14,11 +14,12 @@ type Product={id:number; name:string; image_url:string|null; variants:SalesVaria
 type Line={id:number; name:string; price:string; quantity:string};
 type Quote={currency:string; subtotal:string; tax_total:string; shipping_total:string; grand_total:string; quote_hash:string; lines?:{variant_id:number;unit_price:string;line_total:string}[]};
 type Receipt={number:number|string;status:string;currency:string;total:string;items:{name:string;quantity:string;price:string;total:string}[];return_pending?:boolean;original_total?:string;return_credit_total?:string;credit_available?:string;refunded_total?:string};
+type TargetOrder={number:number|string;items:{name:string;quantity:string;price:string;total:string}[]};
 type Pending={body:{request_key:string;quote_hash:string;lines:{variant_id:number;quantity:string}[]};cart:Line[];quote:Quote};
 const props=defineProps<{token:string}>();
 const endpoint=`/order-requests/${props.token}`;
 const storeName=ref('Pedido por enlace');const currency=ref('USD');const expires=ref('');const ready=ref(false);const error=ref('');const busy=ref(false);const loading=ref(false);
-const products=ref<Product[]>([]);const query=ref('');const page=ref(1);const lastPage=ref(1);const cart=ref<Line[]>([]);const quote=ref<Quote|null>(null);const receipt=ref<Receipt|null>(null);
+const products=ref<Product[]>([]);const query=ref('');const page=ref(1);const lastPage=ref(1);const cart=ref<Line[]>([]);const quote=ref<Quote|null>(null);const receipt=ref<Receipt|null>(null);const targetOrder=ref<TargetOrder|null>(null);
 const selections=ref<Record<number,number|''>>({});
 const detail=ref<Product|null>(null);const detailOpener=ref<HTMLElement|null>(null);
 function openDetail(product:Product,event:Event){detailOpener.value=event.currentTarget as HTMLElement;detail.value=product;}
@@ -35,7 +36,7 @@ async function catalog(target=1){
 function complete(value:Receipt){receipt.value=value;pending.value=null;review.value=false;cart.value=[];error.value='';try{clearPending(journal);clearPending(journal+':draft');}catch{/* Server receipt remains authoritative. */}}
 async function info(){
     busy.value=true;error.value='';
-    try{const value=(await api.get(endpoint)).data.data;storeName.value=value.store_name;currency.value=value.currency;expires.value=value.expires_at;ready.value=true;if(value.receipt)complete(value.receipt);else await catalog();}
+    try{const value=(await api.get(endpoint)).data.data;storeName.value=value.store_name;currency.value=value.currency;expires.value=value.expires_at;targetOrder.value=value.target_order||null;ready.value=true;if(value.receipt)complete(value.receipt);else await catalog();}
     catch(e){error.value=publicError(e);}
     finally{busy.value=false;}
 }
@@ -82,6 +83,7 @@ onUnmounted(()=>{++version;controller?.abort();clearTimeout(timer);});
     <p v-if="receipt?.return_credit_total&&receipt.return_credit_total!=='0.0000'" class="notice">Original {{ amount(receipt.original_total,receipt.currency) }} · Ajuste por devolución {{ amount(receipt.return_credit_total,receipt.currency) }} · Saldo a favor {{ amount(receipt.credit_available||'0',receipt.currency) }} · Reembolso registrado {{ amount(receipt.refunded_total||'0',receipt.currency) }}</p>
     <section v-if="receipt" class="panel" aria-label="Pedido confirmado"><h2>Pedido #{{ receipt.number }} confirmado</h2><p>La tienda recibió tu pedido. Contacta con ella para coordinar pago y entrega.</p><article v-for="(item,index) in receipt.items" :key="index" class="public-cart-line"><strong>{{ item.name }}</strong><span>{{ item.quantity.replace(/\.?0+$/,'') }} × {{ amount(item.price,receipt.currency) }}</span><strong>{{ amount(item.total,receipt.currency) }}</strong></article><p class="public-total">Total {{ amount(receipt.total,receipt.currency) }}</p></section>
     <template v-else-if="ready">
+    <section v-if="targetOrder" class="notice" aria-label="Apartado actual"><strong>Ampliando tu apartado #{{ targetOrder.number }}</strong><p class="muted">Artículos ya reservados en tu apartado: {{ targetOrder.items.map(i => `${i.name} (${i.quantity.replace(/\.?0+$/,'')})`).join(', ') || 'Ninguno todavía' }}. Selecciona abajo las prendas adicionales que deseas agregar.</p></section>
     <div class="public-order-layout"><section class="panel" aria-label="Catálogo autorizado"><h2>Artículos disponibles</h2><label>Buscar artículo<input v-model="query" type="search" maxlength="120" :disabled="busy||!!pending" placeholder="Nombre o código…"></label><p v-if="loading" role="status">Buscando artículos…</p>
         <p v-if="catalogError" class="notice error" role="alert">{{ catalogError }} <button type="button" class="button secondary" :disabled="loading||busy" @click="catalog(page)">Reintentar catálogo</button></p>
         <div class="public-product-grid"><article v-for="product in products" :key="product.id" class="public-product"><button type="button" class="product-open" :aria-label="`Ver producto ${product.name}`" :disabled="busy||!!pending||loading" @click="openDetail(product,$event)"><img v-if="product.image_url || product.variants.find(v=>v.image_url)?.image_url" :src="product.image_url || product.variants.find(v=>v.image_url)?.image_url || undefined" :alt="product.name" loading="lazy"><span v-else class="product-no-image">Sin foto</span><strong>{{ product.name }}</strong><span>Ver colores, tallas y precio</span></button></article></div>

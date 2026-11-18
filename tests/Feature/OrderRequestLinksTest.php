@@ -213,4 +213,50 @@ class OrderRequestLinksTest extends TestCase
         $this->assertDatabaseHas('stock_balances', ['variant_id' => $this->variant, 'reserved' => '2']);
         $this->assertSame(1, DB::table('audit_logs')->where('event', 'order.request_link.revoked')->count());
     }
+
+    public function test_public_link_can_append_items_to_an_existing_open_reservation(): void
+    {
+        $quoteData = [
+            'warehouse_id' => $this->warehouse,
+            'customer_id' => $this->customer,
+            'lines' => [['variant_id' => $this->variant, 'quantity' => '1']],
+            'shipping' => '0',
+            'discount' => '0',
+        ];
+        $qHash = $this->postJson($this->root().'/sales/quote', $quoteData)->assertOk()->json('data.quote_hash');
+        $order = $this->postJson($this->root().'/sales/orders', [
+            ...$quoteData,
+            'quote_hash' => $qHash,
+            'request_key' => (string) Str::uuid(),
+            'mode' => 'reservation',
+            'initial_payment' => '0',
+            'payment_method' => 'cash',
+        ])->assertCreated()->json('data.order');
+
+        $this->getJson($this->root().'/order-request-links?customer_id='.$this->customer)
+            ->assertOk()
+            ->assertJsonPath('open_orders.0.id', $order['id']);
+
+        $link = $this->issue(extra: ['target_order_id' => $order['id'], 'shipping' => '5'])->assertCreated()->json('data');
+        $endpoint = $this->endpoint($link['path']);
+        $this->guest();
+
+        $this->getJson($endpoint)
+            ->assertOk()
+            ->assertJsonPath('data.target_order.number', (string) $order['basket_number']);
+
+        $hash = $this->postJson($endpoint.'/quote', $this->lines('2'))
+            ->assertOk()
+            ->assertJsonPath('data.grand_total', '80.0000')
+            ->json('data.quote_hash');
+
+        $this->postJson($endpoint.'/confirm', [
+            ...$this->lines('2'),
+            'quote_hash' => $hash,
+            'request_key' => (string) Str::uuid(),
+        ])->assertCreated()->assertJsonPath('data.receipt.total', '80.0000');
+
+        $this->assertDatabaseCount('orders', 1);
+        $this->assertDatabaseHas('stock_balances', ['variant_id' => $this->variant, 'on_hand' => '10', 'reserved' => '3']);
+    }
 }

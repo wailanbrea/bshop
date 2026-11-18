@@ -242,6 +242,23 @@ class EmployeeContractsTest extends TestCase
             'seller_employee_id' => $secondSeller,
         ])->assertOk()->assertJsonPath('data.order.seller_employee_id', $secondSeller)->assertJsonPath('data.order.seller_name', 'Vendedor Dos');
 
+        $this->postJson($this->root()."/$secondSeller/plans", [
+            'request_key' => (string) Str::uuid(),
+            'pay_type' => 'salary',
+            'fixed_salary' => '700.0000',
+            'salary_period' => 'weekly',
+            'effective_from' => '2026-11-10',
+        ])->assertCreated();
+
+        $this->getJson($this->root()."/$secondSeller/plans?from=2026-11-10&to=2026-11-16")
+            ->assertOk()
+            ->assertJsonPath('summary.earned_salary', '700.0000')
+            ->assertJsonPath('summary.pending_balance', '700.0000');
+
+        $empCsv = $this->get($this->root().'/export?from=2026-11-10&to=2026-11-16')->assertOk()->streamedContent();
+        $this->assertStringContainsString('Sueldo devengado', $empCsv);
+        $this->assertStringContainsString('700.0000', $empCsv);
+
         $csv = $this->get('/api/v1/business/stores/'.$this->store.'/warehouses/'.$warehouseId.'/stock/export')->assertOk()->streamedContent();
         $this->assertStringContainsString('Precio de compra', $csv);
     }

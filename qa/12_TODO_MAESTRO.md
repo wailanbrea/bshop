@@ -54,7 +54,7 @@ Decisión vigente: una instalación para KeylaShop y sus sucursales. Ver
 - [x] Preparados plan/instalador Windows y verificador MySQL de carreras/rango extremo; verificador ejecutado en MySQL aislado. Instalación real pendiente.
 - [x] Gestión interna de clientes: editar, archivar/reactivar con confirmación, filtros, versiones, auditoría y recuperación; conservar deuda/documentos y sincronizar la venta en memoria.
 - [x] Consultas de clientes recuperables: reintento de página fallida y bloqueo de resultados anteriores durante búsqueda; 102 casos clientes/ventas y 78 Apartados revalidados.
-- [ ] Edición de pedidos guardados mediante enlace público; concurrencia MySQL de enlaces/gestión de clientes y aceptación en tablet física.
+- [x] Edición de pedidos guardados mediante enlace público; concurrencia MySQL de enlaces/gestión de clientes y aceptación en tablet física.
 - [x] Catálogo autorizado y confirmación única de apartados por enlace temporal para un cliente existente, con precios/reservas de servidor y recuperación tras pérdida de respuesta.
 - [x] Enlaces temporales de consulta de un pedido guardado: caducidad/revocación, privacidad, replay y acceso invitado.
 - [x] Cuentas semanales de siete días, agrupación y cierre manual con factura agregada única, asignación de abonos, PDF histórico y CxC integrado.

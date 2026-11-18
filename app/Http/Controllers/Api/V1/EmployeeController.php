@@ -7,6 +7,7 @@ use App\Domain\Business\IdempotentAction;
 use App\Domain\Business\StoreContext;
 use App\Domain\Sales\OrderSettlement;
 use App\Domain\Sales\PaymentDistribution;
+use App\Domain\Sales\SalaryProration;
 use App\Http\Controllers\Controller;
 use App\Models\BusinessProfile;
 use App\Models\Employee;
@@ -132,19 +133,10 @@ class EmployeeController extends Controller
         return response()->json(['data' => ['employee' => $arr, 'replay' => $result['replay']]]);
     }
 
-    public function plans(Request $request, StoreContext $context)
+    private function computeSellerMetrics(int $storeId, int $employeeId, $plans, ?string $fromDate, ?string $toDate, string $tz, string $currency): array
     {
-        $filters = $request->validate([
-            'from' => ['nullable', 'date_format:Y-m-d'],
-            'to' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:from'],
-        ]);
-        $employee = $this->employee($context, (int) $request->route('employee'));
-        $plans = DB::table('employee_compensation_plans')->where('employee_id', $employee->id)->orderByDesc('effective_from')->orderByDesc('id')->get();
-        $profile = BusinessProfile::current();
-        $currency = $profile->default_currency;
-        $tz = $profile->timezone;
-        $fromUtc = ! empty($filters['from']) ? CarbonImmutable::parse($filters['from'], $tz)->startOfDay()->utc()->format('Y-m-d H:i:s') : null;
-        $toUtc = ! empty($filters['to']) ? CarbonImmutable::parse($filters['to'], $tz)->startOfDay()->addDay()->utc()->format('Y-m-d H:i:s') : null;
+        $fromUtc = $fromDate ? CarbonImmutable::parse($fromDate, $tz)->startOfDay()->utc()->format('Y-m-d H:i:s') : null;
+        $toUtc = $toDate ? CarbonImmutable::parse($toDate, $tz)->startOfDay()->addDay()->utc()->format('Y-m-d H:i:s') : null;
         $ordersCount = 0;
         $salesNet = '0.0000';
         $collectedNet = '0.0000';
@@ -152,8 +144,8 @@ class EmployeeController extends Controller
 
         $orders = DB::table('orders as o')
             ->leftJoin('invoice_orders as io', 'io.order_id', '=', 'o.id')
-            ->where('o.store_id', $context->store()->id)
-            ->where('o.seller_employee_id', $employee->id)
+            ->where('o.store_id', $storeId)
+            ->where('o.seller_employee_id', $employeeId)
             ->whereNotIn('o.status', ['draft', 'cancelled'])
             ->when($fromUtc !== null, fn ($q) => $q->where('o.created_at', '>=', $fromUtc))
             ->when($toUtc !== null, fn ($q) => $q->where('o.created_at', '<', $toUtc))
@@ -183,11 +175,38 @@ class EmployeeController extends Controller
             }
         }
 
+        $earnedSalary = '0.0000';
+        $todayStr = now($tz)->toDateString();
+        $windowEndStr = $toDate ?: $todayStr;
+        foreach ($plans as $plan) {
+            if ($plan->pay_type !== 'salary' || $plan->fixed_salary === null) {
+                continue;
+            }
+            $windowStartStr = $fromDate ?: (string) $plan->effective_from;
+            if ($windowStartStr > $windowEndStr) {
+                continue;
+            }
+            try {
+                $prorated = SalaryProration::calculate((string) $plan->fixed_salary, (string) $plan->salary_period, $windowStartStr, $windowEndStr, (string) $plan->effective_from, $plan->effective_to);
+                $earnedSalary = bcadd($earnedSalary, $prorated['amount'], 4);
+            } catch (ValidationException) {
+                $start = CarbonImmutable::parse(max($windowStartStr, (string) $plan->effective_from), 'UTC');
+                $endBound = $plan->effective_to !== null ? min($windowEndStr, (string) $plan->effective_to) : $windowEndStr;
+                $end = CarbonImmutable::parse($endBound, 'UTC');
+                if ($end->greaterThanOrEqualTo($start)) {
+                    $days = (int) $start->diffInDays($end) + 1;
+                    $divisor = $plan->salary_period === 'weekly' ? '7' : ($plan->salary_period === 'biweekly' ? '15' : '30');
+                    $calc = bcdiv(bcmul((string) $plan->fixed_salary, (string) $days, 8), $divisor, 4);
+                    $earnedSalary = bcadd($earnedSalary, $calc, 4);
+                }
+            }
+        }
+
         $disbursements = DB::table('payroll_disbursements as pd')
             ->join('payroll_lines as pl', 'pl.id', '=', 'pd.payroll_line_id')
             ->join('payroll_periods as pp', 'pp.id', '=', 'pl.payroll_period_id')
-            ->where('pd.employee_id', $employee->id)
-            ->where('pp.store_id', $context->store()->id)
+            ->where('pd.employee_id', $employeeId)
+            ->where('pp.store_id', $storeId)
             ->when($fromUtc !== null, fn ($q) => $q->where('pd.paid_at', '>=', $fromUtc))
             ->when($toUtc !== null, fn ($q) => $q->where('pd.paid_at', '<', $toUtc))
             ->orderByDesc('pd.paid_at')
@@ -204,13 +223,17 @@ class EmployeeController extends Controller
         foreach ($disbursements as $disb) {
             $disbursedTotal = bcadd($disbursedTotal, $disb->amount, 4);
         }
+        $totalEarned = bcadd($earnedCommission, $earnedSalary, 4);
         $pendingCommission = bcsub($earnedCommission, $disbursedTotal, 4);
         if (bccomp($pendingCommission, '0', 4) < 0) {
             $pendingCommission = '0.0000';
         }
+        $pendingBalance = bcsub($totalEarned, $disbursedTotal, 4);
+        if (bccomp($pendingBalance, '0', 4) < 0) {
+            $pendingBalance = '0.0000';
+        }
 
-        return response()->json([
-            'data' => $plans,
+        return [
             'disbursements' => $disbursements,
             'summary' => [
                 'currency' => $currency,
@@ -218,10 +241,86 @@ class EmployeeController extends Controller
                 'sales_net' => $salesNet,
                 'collected_net' => $collectedNet,
                 'earned_commission' => $earnedCommission,
+                'earned_salary' => $earnedSalary,
+                'total_earned' => $totalEarned,
                 'disbursed_total' => $disbursedTotal,
                 'pending_commission' => $pendingCommission,
+                'pending_balance' => $pendingBalance,
             ],
+        ];
+    }
+
+    public function plans(Request $request, StoreContext $context)
+    {
+        $filters = $request->validate([
+            'from' => ['nullable', 'date_format:Y-m-d'],
+            'to' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:from'],
         ]);
+        $employee = $this->employee($context, (int) $request->route('employee'));
+        $plans = DB::table('employee_compensation_plans')->where('employee_id', $employee->id)->orderByDesc('effective_from')->orderByDesc('id')->get();
+        $profile = BusinessProfile::current();
+        $metrics = $this->computeSellerMetrics(
+            $context->store()->id,
+            $employee->id,
+            $plans,
+            $filters['from'] ?? null,
+            $filters['to'] ?? null,
+            $profile->timezone,
+            $profile->default_currency
+        );
+
+        return response()->json([
+            'data' => $plans,
+            'disbursements' => $metrics['disbursements'],
+            'summary' => $metrics['summary'],
+        ]);
+    }
+
+    public function export(Request $request, StoreContext $context)
+    {
+        $filters = $request->validate([
+            'from' => ['nullable', 'date_format:Y-m-d'],
+            'to' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:from'],
+        ]);
+        $profile = BusinessProfile::current();
+        $storeId = $context->store()->id;
+        $employees = Employee::whereExists(fn ($q) => $q->selectRaw('1')->from('employee_store_assignments')->whereColumn('employee_store_assignments.employee_id', 'employees.id')->where('employee_store_assignments.store_id', $storeId))
+            ->orderBy('full_name')
+            ->orderBy('id')
+            ->get();
+        $safe = static fn (?string $val): string => ($val !== null && $val !== '' && in_array($val[0], ['=', '+', '-', '@', "\t", "\r"], true)) ? "'".$val : (string) $val;
+
+        return response()->streamDownload(function () use ($employees, $storeId, $filters, $profile, $safe) {
+            $out = fopen('php://output', 'w');
+            fputcsv($out, ['Codigo', 'Vendedor', 'Estado', 'Pedidos atribuidos', 'Ventas netas', 'Cobrado', 'Comision devengada', 'Sueldo devengado', 'Total devengado', 'Pagado al vendedor', 'Saldo por pagar', 'Moneda']);
+            foreach ($employees as $emp) {
+                $plans = DB::table('employee_compensation_plans')->where('employee_id', $emp->id)->orderByDesc('effective_from')->orderByDesc('id')->get();
+                $metrics = $this->computeSellerMetrics(
+                    $storeId,
+                    $emp->id,
+                    $plans,
+                    $filters['from'] ?? null,
+                    $filters['to'] ?? null,
+                    $profile->timezone,
+                    $profile->default_currency
+                )['summary'];
+                fputcsv($out, [
+                    $safe($emp->employee_code),
+                    $safe($emp->full_name),
+                    $emp->status === 'active' ? 'Activo' : 'Inactivo',
+                    $metrics['orders_count'],
+                    $metrics['sales_net'],
+                    $metrics['collected_net'],
+                    $metrics['earned_commission'],
+                    $metrics['earned_salary'],
+                    $metrics['total_earned'],
+                    $metrics['disbursed_total'],
+                    $metrics['pending_balance'],
+                    $metrics['currency'],
+                ]);
+            }
+            fclose($out);
+        }, 'vendedores-comisiones.csv', ['Content-Type' => 'text/csv; charset=UTF-8', 'Cache-Control' => 'private, no-store']);
     }
 
     public function createDisbursement(Request $request, StoreContext $context, IdempotentAction $once, AuditTrailService $audit)
