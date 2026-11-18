@@ -5,8 +5,8 @@
 - **Vista general** (`/`), título único **Resumen de ventas**: indicadores comerciales de la sucursal activa (**Neto del período**, **Facturado neto**, **Sin facturar neto**, **Costo de lo vendido**, **Ganancia bruta del período**, **Aplicado** y **Pendiente**), valoración actual del inventario (**Capital invertido en inventario**, **Valor del inventario en venta**, **Ganancia proyectada** y **Unidades en inventario**), gráficos
   y cinco operaciones recientes. **Ver historial completo** abre la consulta paginada.
 - **Historial de ventas** (`/app/historial-ventas`): filtros por fechas, cliente,
-  referencia/factura, tipo y estado;20 operaciones/página y exportación del conjunto
-  filtrado completo, con neutralización de fórmulas CSV.
+  referencia/factura, tipo, estado y **vendedor** (`seller_id`); 20 operaciones/página y exportación del conjunto
+  filtrado completo, con neutralización de fórmulas CSV y nombre del vendedor atribuido en cada operación.
 - El historial tiene su propio resumen compacto y tabla; no vuelve a presentar el
   dashboard de gráficos. Un solo h1 por pantalla; sin cabecera genérica con fecha
   ni bloque de bienvenida/configuración repetidos bajo el dashboard comercial.

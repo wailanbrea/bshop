@@ -100,6 +100,7 @@ Route::middleware(['auth:sanctum', 'active', 'auth.session'])->group(function ()
             Route::patch('employees/{employee}', [EmployeeController::class, 'update'])->whereNumber('employee')->middleware('can:members.manage');
             Route::get('employees/{employee}/plans', [EmployeeController::class, 'plans'])->whereNumber('employee')->middleware('can:members.manage');
             Route::post('employees/{employee}/plans', [EmployeeController::class, 'createPlan'])->whereNumber('employee')->middleware('can:members.manage');
+            Route::post('employees/{employee}/disbursements', [EmployeeController::class, 'createDisbursement'])->whereNumber('employee')->middleware('can:members.manage');
             Route::get('sales/control', [SalesControlController::class, 'index'])->middleware('can:sales.view');
             Route::get('sales/control/export', [SalesControlController::class, 'export'])->middleware(['can:sales.view', 'throttle:sales-control-export']);
             Route::get('sales/orders/{order}/activity', [SalesControlController::class, 'activity'])->whereNumber('order')->middleware('can:sales.view');

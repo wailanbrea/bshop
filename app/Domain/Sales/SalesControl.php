@@ -16,6 +16,7 @@ final class SalesControl
             'from' => ['nullable', 'date_format:Y-m-d'], 'to' => ['nullable', 'date_format:Y-m-d'],
             'q' => ['nullable', 'string', 'max:120'], 'kind' => ['nullable', 'in:all,sale,reservation'],
             'state' => ['nullable', 'in:all,active,invoiced,unbilled,reserved,confirmed,fulfilled,cancelled,draft'],
+            'seller_id' => ['nullable', 'integer', 'min:1'],
             'page' => ['nullable', 'integer', 'min:1', 'max:1000000'],
         ])->validate();
         $profile = BusinessProfile::current();
@@ -28,12 +29,15 @@ final class SalesControl
         $bounds = [$from->utc()->format('Y-m-d H:i:s'), $to->addDay()->utc()->format('Y-m-d H:i:s')];
 
         return DB::transaction(function () use ($store, $filters, $export, $profile, $tz, $from, $to, $bounds) {
-            $query = DB::table('orders as o')->leftJoin('invoice_orders as io', 'io.order_id', '=', 'o.id')->leftJoin('invoices as i', 'i.id', '=', 'io.invoice_id')->leftJoin('customers as c', 'c.id', '=', 'o.customer_id')
+            $query = DB::table('orders as o')->leftJoin('invoice_orders as io', 'io.order_id', '=', 'o.id')->leftJoin('invoices as i', 'i.id', '=', 'io.invoice_id')->leftJoin('customers as c', 'c.id', '=', 'o.customer_id')->leftJoin('employees as e', 'e.id', '=', 'o.seller_employee_id')
                 ->where('o.store_id', $store)->where('o.created_at', '>=', $bounds[0])->where('o.created_at', '<', $bounds[1])
-                ->select('o.*', 'i.id as invoice_id', 'i.invoice_number', 'c.full_name as live_name')
+                ->select('o.*', 'i.id as invoice_id', 'i.invoice_number', 'c.full_name as live_name', 'e.full_name as seller_name')
                 ->selectRaw("EXISTS(SELECT 1 FROM sales_returns r WHERE r.invoice_id=i.id AND r.status='received') as return_pending");
             $kind = $filters['kind'] ?? 'all';
             $state = $filters['state'] ?? 'all';
+            if (! empty($filters['seller_id'])) {
+                $query->where('o.seller_employee_id', (int) $filters['seller_id']);
+            }
             if ($kind !== 'all') {
                 $query->where('o.order_kind', $kind);
             }
@@ -62,7 +66,7 @@ final class SalesControl
                 }
                 $position = OrderSettlement::position($order, $order->invoice_id);
                 $date = CarbonImmutable::parse($order->created_at, config('app.timezone'))->setTimezone($tz)->toDateString();
-                $row = ['id' => (int) $order->id, 'number' => $order->basket_number ?: (string) $order->id, 'customer_name' => $name, 'created_at' => $date, 'kind' => $order->order_kind, 'status' => $order->status, 'invoice_number' => $order->invoice_number, 'currency' => $order->currency, 'return_pending' => (bool) $order->return_pending, ...$position];
+                $row = ['id' => (int) $order->id, 'number' => $order->basket_number ?: (string) $order->id, 'customer_name' => $name, 'seller_name' => $order->seller_name, 'created_at' => $date, 'kind' => $order->order_kind, 'status' => $order->status, 'invoice_number' => $order->invoice_number, 'currency' => $order->currency, 'return_pending' => (bool) $order->return_pending, ...$position];
                 if ($export || ($total >= ($page - 1) * 20 && $total < $page * 20)) {
                     $rows[] = $row;
                 }
@@ -135,8 +139,9 @@ final class SalesControl
             } unset($value);
 
             $inventory = $this->inventorySummary($store, $profile->default_currency);
+            $sellers = DB::table('employees as e')->join('employee_store_assignments as esa', 'esa.employee_id', '=', 'e.id')->where('esa.store_id', $store)->orderBy('e.full_name')->get(['e.id', 'e.full_name', 'e.employee_code'])->all();
 
-            return ['data' => $rows, 'summary' => array_values($summary ?: [$this->emptySummary($profile->default_currency)]), 'inventory' => $inventory, 'cash' => array_values($cash), 'daily' => array_values($days), 'filters' => ['from' => $from->toDateString(), 'to' => $to->toDateString(), 'timezone' => $tz], 'meta' => ['current_page' => $page, 'last_page' => max(1, (int) ceil($total / 20)), 'total' => $total]];
+            return ['data' => $rows, 'summary' => array_values($summary ?: [$this->emptySummary($profile->default_currency)]), 'inventory' => $inventory, 'sellers' => $sellers, 'cash' => array_values($cash), 'daily' => array_values($days), 'filters' => ['from' => $from->toDateString(), 'to' => $to->toDateString(), 'timezone' => $tz], 'meta' => ['current_page' => $page, 'last_page' => max(1, (int) ceil($total / 20)), 'total' => $total]];
         });
     }
 

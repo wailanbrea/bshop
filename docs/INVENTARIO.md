@@ -36,7 +36,7 @@ estrictamente identificado. La expiración de reservas dispone de fase funcional
   - **Ganancia proyectada:** Diferencia entre el valor comercial en venta y el capital invertido.
   - **Unidades físicas y disponibles:** Total de unidades en mano y disponibles para la venta.
   - **Alertas de reposición y filtro `Por reponer (≤ 2)`:** Cuenta variantes por agotarse (`0 < disponible <= 2`) y agotadas (`disponible <= 0`), permitiendo filtrarlas directamente desde el selector de disponibilidad (`filter=low`).
-- En cada renglón de **Inventario** se muestran además el costo unitario (`unit_cost`), el precio de venta y el monto invertido por variante.
+- En cada renglón de **Inventario** se muestran además el costo unitario (`unit_cost`), el precio de venta y el monto invertido por variante, junto con el botón **Editar precios** (para usuarios con `catalog.manage`) que permite actualizar directamente el precio de compra y el precio de venta de la variante y recalcular de inmediato la valoración del almacén.
 
 La revisión operativa ya está disponible en **Inventario → Revisar inventario**,
 API y comando `bshop:inventory-reconcile`. Compara saldos, reservas pendientes y

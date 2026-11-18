@@ -2,7 +2,7 @@
 import axios from 'axios';
 import { computed, onUnmounted, ref, watch } from 'vue';
 import { api, errorMessage } from '../api';
-import { amount as money } from '../catalog';
+import { amount as money, decimalInput } from '../catalog';
 import type { Store, Warehouse } from '../types';
 import { movementNames, quantity, type InventoryValuation, type Movement, type StockRow } from '../inventory';
 import AppDialog from './AppDialog.vue';
@@ -10,11 +10,14 @@ import InventoryReview from './InventoryReview.vue';
 
 const props = defineProps<{ store?: Store; warehouses: Warehouse[]; permissions: string[] }>();
 const manage = computed(() => props.permissions.includes('inventory.manage'));
+const canEditPrices = computed(() => props.permissions.includes('catalog.manage'));
+const canEditCosts = computed(() => props.permissions.includes('catalog.costs'));
 const warehouseId = ref<number | ''>(''); const query = ref(''); const filter = ref('all');
 const rows = ref<StockRow[]>([]); const valuation = ref<InventoryValuation | null>(null); const loading = ref(false); const page = ref(1); const lastPage = ref(1); const total = ref(0); const error = ref(''); const notice = ref('');
 const history = ref<Movement[]>([]); const historyOpen = ref(false); const historyVariant = ref<StockRow | null>(null); const historyLoading = ref(false); const historyPage = ref(1); const historyLastPage = ref(1);
 const selected = ref<StockRow | null>(null); const open = ref(false); const opener = ref<HTMLElement | null>(null); const operation = ref('receipt'); const amount = ref(''); const note = ref(''); const destination = ref<number | ''>('');
 const destinations = ref<{ id: number; name: string; store_name: string }[]>([]); const busy = ref(false); const formError = ref(''); const pending = ref<Record<string, unknown> | null>(null);
+const priceOpen = ref(false); const priceTarget = ref<StockRow | null>(null); const editCostPrice = ref(''); const editSalePrice = ref(''); const priceBusy = ref(false); const priceError = ref('');
 const failedImages = ref<Set<number>>(new Set());
 function imageFailed(id: number) { failedImages.value = new Set([...failedImages.value, id]); }
 const warehouse = computed(() => props.warehouses.find(w => w.id === warehouseId.value));
@@ -38,6 +41,35 @@ async function loadHistory(target = 1) {
     finally { if (token === historySequence) historyLoading.value = false; }
 }
 function viewHistory(row: StockRow | null) { historyVariant.value = row; historyOpen.value = true; loadHistory(); }
+function openPriceEditor(row: StockRow, event: Event) {
+    priceTarget.value = { ...row };
+    opener.value = event.currentTarget as HTMLElement;
+    editCostPrice.value = row.unit_cost ? quantity(row.unit_cost) : '';
+    editSalePrice.value = row.sale_price ? quantity(row.sale_price) : '';
+    priceError.value = '';
+    priceOpen.value = true;
+}
+async function submitPriceUpdate() {
+    if (!priceTarget.value || priceBusy.value) return;
+    priceBusy.value = true;
+    priceError.value = '';
+    try {
+        await api.patch(`/business/products/${priceTarget.value.product_id}/variants/${priceTarget.value.variant_id}`, {
+            sku: priceTarget.value.sku,
+            sale_price: decimalInput(editSalePrice.value),
+            ...(canEditCosts.value ? { cost_price: editCostPrice.value.trim() ? decimalInput(editCostPrice.value) : null } : {}),
+            is_active: true,
+            version: priceTarget.value.variant_version ?? 0,
+        });
+        notice.value = 'Precios y valoración de inventario actualizados.';
+        priceOpen.value = false;
+        await load(page.value);
+    } catch (e) {
+        priceError.value = errorMessage(e);
+    } finally {
+        priceBusy.value = false;
+    }
+}
 async function edit(row: StockRow, event: Event) {
     selected.value = { ...row }; opener.value = event.currentTarget as HTMLElement; operation.value = 'receipt'; amount.value = ''; note.value = ''; destination.value = ''; formError.value = ''; pending.value = null; open.value = true;
     try { destinations.value = (await api.get(`${root.value}/inventory/destinations`)).data.data; }
@@ -112,7 +144,7 @@ onUnmounted(() => { ++sequence; ++historySequence; controller?.abort(); clearTim
             <article v-for="row in rows" :key="row.variant_id" class="inventory-record">
                 <div class="inventory-identity"><div class="inventory-thumbnail"><img v-if="row.image_url && !failedImages.has(row.variant_id)" :src="row.image_url" :alt="`Foto de ${row.product_name}`" loading="lazy" @error="imageFailed(row.variant_id)"><span v-else role="img" aria-label="Sin fotografía">Sin foto</span></div><div><strong>{{ row.product_name }}</strong><p class="muted">{{ row.sku }} · {{ row.attributes.map(a => `${a.name}: ${a.value}`).join(' · ') || 'Variante general' }}</p><p v-if="row.sale_price || row.unit_cost" class="inventory-price-line"><span v-if="row.unit_cost && valuation">Costo: {{ money(row.unit_cost, valuation.currency) }}</span><span v-if="row.sale_price && valuation">Venta: {{ money(row.sale_price, valuation.currency) }}</span><strong v-if="row.invested_total && valuation">Invertido: {{ money(row.invested_total, valuation.currency) }}</strong></p><span v-if="!row.active" class="badge inactive">Inactivo</span></div></div>
                 <dl class="stock-metrics"><div><dt>Físico</dt><dd>{{ quantity(row.on_hand) }}</dd></div><div><dt>Reservado</dt><dd>{{ quantity(row.reserved) }}</dd></div><div><dt>Disponible</dt><dd :class="{ empty: row.available === '0.0000' }">{{ quantity(row.available) }}</dd></div></dl>
-                <div class="actions"><button type="button" class="button secondary" :aria-label="`Movimientos de ${row.sku}`" @click="viewHistory(row)">Movimientos</button><button v-if="manage" type="button" class="button primary" :disabled="!row.active || !warehouse?.is_active || !store?.is_active || loading" :aria-label="`Ajustar ${row.sku}`" @click="edit(row, $event)">Ajustar inventario</button></div>
+                <div class="actions"><button type="button" class="button secondary" :aria-label="`Movimientos de ${row.sku}`" @click="viewHistory(row)">Movimientos</button><button v-if="canEditPrices" type="button" class="button secondary" :disabled="!row.active || loading" :aria-label="`Precios de ${row.sku}`" @click="openPriceEditor(row, $event)">Editar precios</button><button v-if="manage" type="button" class="button primary" :disabled="!row.active || !warehouse?.is_active || !store?.is_active || loading" :aria-label="`Ajustar ${row.sku}`" @click="edit(row, $event)">Ajustar inventario</button></div>
             </article>
             <p v-if="!rows.length && !loading" class="empty">No hay variantes con seguimiento de existencias para estos filtros.</p>
             <div v-if="lastPage > 1" class="catalog-pagination"><button type="button" class="button secondary" :disabled="page <= 1 || loading" @click="load(page - 1)">Anterior</button><span>{{ page }} / {{ lastPage }}</span><button type="button" class="button secondary" :disabled="page >= lastPage || loading" @click="load(page + 1)">Siguiente</button></div>
@@ -139,6 +171,17 @@ onUnmounted(() => { ++sequence; ++historySequence; controller?.abort(); clearTim
             </fieldset>
         </form>
         <template #footer><button type="button" class="button secondary" :disabled="busy || !!pending" @click="refreshBalance">Actualizar saldo</button><button type="button" class="button secondary" :disabled="busy || !!pending" @click="open = false">Cancelar</button><button type="submit" form="inventory-move" class="button primary" :disabled="busy">{{ busy ? 'Registrando…' : pending ? 'Reintentar operación' : 'Registrar movimiento' }}</button></template>
+    </AppDialog>
+    <AppDialog :open="priceOpen" title="Actualizar precios de variante" :busy="priceBusy" :return-focus="opener" @close="priceOpen = false">
+        <p v-if="priceError" class="notice error" role="alert">{{ priceError }}</p>
+        <div v-if="priceTarget" class="notice"><strong>{{ priceTarget.product_name }} · {{ priceTarget.sku }}</strong><p class="muted">{{ priceTarget.attributes.map(a => `${a.name}: ${a.value}`).join(' · ') || 'Variante general' }} · Físico: {{ quantity(priceTarget.on_hand) }}</p></div>
+        <form id="inventory-price-form" class="form-stack" @submit.prevent="submitPriceUpdate">
+            <fieldset class="form-fields" :disabled="priceBusy">
+                <label v-if="canEditCosts">Precio de compra (costo unitario)<input :value="editCostPrice" inputmode="decimal" autocomplete="off" maxlength="20" placeholder="0.00" @input="editCostPrice = ($event.target as HTMLInputElement).value.replace(',', '.')"></label>
+                <label>Precio de venta<input :value="editSalePrice" inputmode="decimal" autocomplete="off" required maxlength="20" placeholder="0.00" @input="editSalePrice = ($event.target as HTMLInputElement).value.replace(',', '.')"></label>
+            </fieldset>
+        </form>
+        <template #footer><button type="button" class="button secondary" :disabled="priceBusy" @click="priceOpen = false">Cancelar</button><button type="submit" form="inventory-price-form" class="button primary" :disabled="priceBusy">{{ priceBusy ? 'Guardando…' : 'Guardar precios' }}</button></template>
     </AppDialog>
 </template>
 

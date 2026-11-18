@@ -201,6 +201,33 @@ class EmployeeContractsTest extends TestCase
             ->assertJsonPath('summary.orders_count', 1)
             ->assertJsonPath('summary.sales_net', '200.0000')
             ->assertJsonPath('summary.collected_net', '150.0000')
-            ->assertJsonPath('summary.earned_commission', '15.0000');
+            ->assertJsonPath('summary.earned_commission', '15.0000')
+            ->assertJsonPath('summary.disbursed_total', '0.0000')
+            ->assertJsonPath('summary.pending_commission', '15.0000');
+
+        $disbPayload = [
+            'request_key' => (string) Str::uuid(),
+            'amount' => '10.0000',
+            'payment_method' => 'cash',
+            'reference' => 'Adelanto quincena',
+        ];
+        $this->postJson($this->root()."/$id/disbursements", $disbPayload)
+            ->assertCreated()
+            ->assertJsonPath('data.disbursement.amount', '10.0000')
+            ->assertJsonPath('data.disbursement.payment_method', 'cash');
+        $this->postJson($this->root()."/$id/disbursements", $disbPayload)
+            ->assertOk()
+            ->assertJsonPath('data.replay', true);
+
+        $this->getJson($url)
+            ->assertOk()
+            ->assertJsonCount(1, 'disbursements')
+            ->assertJsonPath('summary.disbursed_total', '10.0000')
+            ->assertJsonPath('summary.pending_commission', '5.0000');
+
+        $this->getJson('/api/v1/business/stores/'.$this->store.'/sales/control?seller_id='.$id)
+            ->assertOk()
+            ->assertJsonPath('meta.total', 1)
+            ->assertJsonPath('data.0.seller_name', 'Vendedora QA');
     }
 }

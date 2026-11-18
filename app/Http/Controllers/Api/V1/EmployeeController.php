@@ -173,16 +173,131 @@ class EmployeeController extends Controller
             }
         }
 
+        $disbursements = DB::table('payroll_disbursements as pd')
+            ->join('payroll_lines as pl', 'pl.id', '=', 'pd.payroll_line_id')
+            ->join('payroll_periods as pp', 'pp.id', '=', 'pl.payroll_period_id')
+            ->where('pd.employee_id', $employee->id)
+            ->where('pp.store_id', $context->store()->id)
+            ->orderByDesc('pd.paid_at')
+            ->orderByDesc('pd.id')
+            ->select('pd.id', 'pd.amount', 'pd.currency', 'pd.payment_method', 'pd.reference', 'pd.paid_at')
+            ->get()
+            ->map(function ($row) {
+                $row->amount = bcadd((string) $row->amount, '0', 4);
+
+                return $row;
+            });
+
+        $disbursedTotal = '0.0000';
+        foreach ($disbursements as $disb) {
+            $disbursedTotal = bcadd($disbursedTotal, $disb->amount, 4);
+        }
+        $pendingCommission = bcsub($earnedCommission, $disbursedTotal, 4);
+        if (bccomp($pendingCommission, '0', 4) < 0) {
+            $pendingCommission = '0.0000';
+        }
+
         return response()->json([
             'data' => $plans,
+            'disbursements' => $disbursements,
             'summary' => [
                 'currency' => $currency,
                 'orders_count' => $ordersCount,
                 'sales_net' => $salesNet,
                 'collected_net' => $collectedNet,
                 'earned_commission' => $earnedCommission,
+                'disbursed_total' => $disbursedTotal,
+                'pending_commission' => $pendingCommission,
             ],
         ]);
+    }
+
+    public function createDisbursement(Request $request, StoreContext $context, IdempotentAction $once, AuditTrailService $audit)
+    {
+        $data = $request->validate([
+            'request_key' => ['required', 'uuid'],
+            'amount' => ['required', new DecimalAmount],
+            'payment_method' => ['required', 'in:cash,bank_transfer,card'],
+            'reference' => ['nullable', 'string', 'max:160'],
+        ]);
+        $id = (int) $request->route('employee');
+        $key = $data['request_key'];
+        unset($data['request_key']);
+        $normalizedAmount = DecimalAmount::normalize($data['amount']);
+        if (bccomp($normalizedAmount, '0', 4) <= 0) {
+            throw ValidationException::withMessages(['amount' => 'El pago debe ser mayor que cero.']);
+        }
+        $result = $once->run('employees.disbursement.create', $key, [$request->user()->id, $context->store()->id, $id], $data, fn () => $this->authorizeWrite($request, $context), function () use ($data, $normalizedAmount, $id, $key, $request, $context, $audit) {
+            $this->employee($context, $id);
+            $employee = Employee::whereKey($id)->lockForUpdate()->firstOrFail();
+            $profile = BusinessProfile::current();
+            $currency = $profile->default_currency;
+            $today = now($profile->timezone)->toDateString();
+            $scopeKey = 'store:'.$context->store()->id;
+            $period = DB::table('payroll_periods')
+                ->where('scope_key', $scopeKey)
+                ->where('starts_on', $today)
+                ->where('ends_on', $today)
+                ->lockForUpdate()
+                ->first();
+            $periodId = $period ? (int) $period->id : DB::table('payroll_periods')->insertGetId([
+                'store_id' => $context->store()->id,
+                'scope_key' => $scopeKey,
+                'currency' => $currency,
+                'starts_on' => $today,
+                'ends_on' => $today,
+                'status' => 'paid',
+                'approved_at' => now(),
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+            $line = DB::table('payroll_lines')
+                ->where('payroll_period_id', $periodId)
+                ->where('employee_id', $id)
+                ->lockForUpdate()
+                ->first();
+            if ($line) {
+                $lineId = (int) $line->id;
+                DB::table('payroll_lines')->where('id', $lineId)->update([
+                    'commission_amount' => bcadd((string) $line->commission_amount, $normalizedAmount, 4),
+                    'total_payable' => bcadd((string) $line->total_payable, $normalizedAmount, 4),
+                    'updated_at' => now(),
+                ]);
+            } else {
+                $lineId = DB::table('payroll_lines')->insertGetId([
+                    'payroll_period_id' => $periodId,
+                    'employee_id' => $id,
+                    'compensation_type_snapshot' => 'commission',
+                    'currency' => $currency,
+                    'salary_amount' => '0.0000',
+                    'commission_amount' => $normalizedAmount,
+                    'adjustments' => '0.0000',
+                    'deductions' => '0.0000',
+                    'total_payable' => $normalizedAmount,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+            }
+            $disbId = DB::table('payroll_disbursements')->insertGetId([
+                'payroll_line_id' => $lineId,
+                'employee_id' => $id,
+                'amount' => $normalizedAmount,
+                'currency' => $currency,
+                'payment_method' => $data['payment_method'],
+                'reference' => isset($data['reference']) && trim($data['reference']) !== '' ? trim($data['reference']) : null,
+                'event_key' => 'disbursement:'.$key,
+                'paid_at' => now(),
+                'created_at' => now(),
+            ]);
+            $audit->record('employee.disbursement.created', $employee, after: ['disbursement_id' => $disbId, 'amount' => $normalizedAmount, 'payment_method' => $data['payment_method']], actor: $request->user());
+
+            return ['disbursement_id' => $disbId];
+        });
+        $this->employee($context, $id);
+        $disbRow = DB::table('payroll_disbursements')->where('employee_id', $id)->where('id', $result['disbursement_id'])->firstOrFail();
+        $disbRow->amount = bcadd((string) $disbRow->amount, '0', 4);
+
+        return response()->json(['data' => ['disbursement' => $disbRow, 'replay' => $result['replay']]], $result['replay'] ? 200 : 201);
     }
 
     public function createPlan(Request $request, StoreContext $context, IdempotentAction $once, AuditTrailService $audit)

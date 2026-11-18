@@ -1,7 +1,7 @@
 export interface StockRow {
     variant_id: number; warehouse_id: number; sku: string; barcode: string | null; product_name: string; product_id: number; unit_code: string;
     image_url?: string | null; active: boolean; attributes: { name: string; value: string }[]; on_hand: string; reserved: string; available: string;
-    unit_cost?: string | null; sale_price?: string | null; invested_total?: string | null; sale_total?: string | null; version: number;
+    unit_cost?: string | null; sale_price?: string | null; invested_total?: string | null; sale_total?: string | null; version: number; variant_version?: number;
 }
 export interface InventoryValuation {
     currency: string; invested_cost: string | null; sale_value: string; estimated_profit: string | null; units_on_hand: string; units_available: string;
