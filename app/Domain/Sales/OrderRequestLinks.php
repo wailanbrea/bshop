@@ -66,11 +66,8 @@ final class OrderRequestLinks
             abort_if(DB::table('share_links')->where('store_id', $store)->where('customer_id', $data['customer_id'])->where('status', 'active')->where('expires_at', '>', now())->lockForUpdate()->get(['id'])->count() >= 5, 409, 'Revoca un enlace activo de este cliente antes de generar otro.');
             $id = DB::table('share_links')->insertGetId(['store_id' => $store, 'customer_id' => $data['customer_id'], 'created_by_user_id' => $actor->id,
                 'token_hash' => hash('sha256', $token), 'status' => 'active', 'expires_at' => now()->addHours($data['hours']), 'created_at' => now(), 'updated_at' => now()]);
-            DB::table('share_link_catalogs')->insert(['share_link_id' => $id, 'store_id' => $store, 'warehouse_id' => $data['warehouse_id'], 'variant_ids' => json_encode($data['variant_ids'], JSON_THROW_ON_ERROR), 'shipping_total' => $data['shipping']]);
-            if ($targetOrder !== null) {
-                $targetOrder->share_link_id = $id;
-                $targetOrder->save();
-            }
+            $catalogPayload = $targetOrderId !== null ? ['variants' => $data['variant_ids'], 'target_order_id' => $targetOrderId] : $data['variant_ids'];
+            DB::table('share_link_catalogs')->insert(['share_link_id' => $id, 'store_id' => $store, 'warehouse_id' => $data['warehouse_id'], 'variant_ids' => json_encode($catalogPayload, JSON_THROW_ON_ERROR), 'shipping_total' => $data['shipping']]);
             $this->audit->record('order.request_link.created', Customer::findOrFail($data['customer_id']), after: ['link_id' => $id, 'store_id' => $store, 'customer_id' => $data['customer_id'], 'target_order_id' => $targetOrderId, 'variant_count' => count($data['variant_ids'])], actor: $actor);
 
             return ['link_id' => $id];
@@ -120,9 +117,33 @@ final class OrderRequestLinks
         return $context;
     }
 
+    private function extractVariantIds(object $link): array
+    {
+        $decoded = json_decode($link->variant_ids, true);
+        if (is_array($decoded) && isset($decoded['variants']) && is_array($decoded['variants'])) {
+            return $decoded['variants'];
+        }
+
+        return is_array($decoded) ? $decoded : [];
+    }
+
+    private function extractTargetOrderId(object $link): ?int
+    {
+        $decoded = json_decode($link->variant_ids, true);
+        if (is_array($decoded) && isset($decoded['target_order_id'])) {
+            return (int) $decoded['target_order_id'];
+        }
+
+        return null;
+    }
+
     private function receipt(int $linkId): array
     {
-        $order = SalesOrder::where('share_link_id', $linkId)->firstOrFail();
+        $catalog = DB::table('share_link_catalogs')->where('share_link_id', $linkId)->first();
+        $targetId = $catalog ? $this->extractTargetOrderId($catalog) : null;
+        $order = $targetId !== null
+            ? SalesOrder::where('store_id', $catalog->store_id)->findOrFail($targetId)
+            : SalesOrder::where('share_link_id', $linkId)->firstOrFail();
         $invoice = OrderInvoice::query($order->id)->first();
         $position = OrderSettlement::position($order, $invoice?->id);
 
@@ -133,7 +154,8 @@ final class OrderRequestLinks
     public function info(string $token): array
     {
         $link = $this->resolve($token);
-        $target = $link->status === 'active' ? SalesOrder::where('share_link_id', $link->id)->first() : null;
+        $targetId = $link->status === 'active' ? $this->extractTargetOrderId($link) : null;
+        $target = $targetId !== null ? SalesOrder::where('store_id', $link->store_id)->where('customer_id', $link->customer_id)->findOrFail($targetId) : null;
 
         return ['store_name' => Store::findOrFail($link->store_id)->name, 'currency' => BusinessProfile::current()->default_currency, 'status' => $link->status,
             'expires_at' => CarbonImmutable::parse($link->expires_at)->toIso8601String(), 'shipping' => (string) $link->shipping_total,
@@ -146,7 +168,7 @@ final class OrderRequestLinks
         $data = Validator::make($input, ['q' => ['nullable', 'string', 'max:120'], 'page' => ['nullable', 'integer', 'min:1', 'max:1000'], 'group_products' => ['nullable', 'boolean']])->validate();
         $link = $this->resolve($token);
         abort_unless($link->status === 'active', 409);
-        $query = ProductVariant::with(['product.images.asset.renditions', 'attributeValues.attribute'])->whereIn('id', json_decode($link->variant_ids, true))->where('is_active', true)->whereHas('product', fn ($q) => $q->where('status', 'active'));
+        $query = ProductVariant::with(['product.images.asset.renditions', 'attributeValues.attribute'])->whereIn('id', $this->extractVariantIds($link))->where('is_active', true)->whereHas('product', fn ($q) => $q->where('status', 'active'));
         if ($data['group_products'] ?? false) {
             $variants = $query->orderBy('id')->get();
             $balances = DB::table('stock_balances')->where('warehouse_id', $link->warehouse_id)->whereIn('variant_id', $variants->pluck('id'))->get()->keyBy('variant_id');
@@ -192,7 +214,7 @@ final class OrderRequestLinks
     {
         $data = $this->sales->validate([...$input, 'warehouse_id' => $link->warehouse_id, 'customer_id' => $link->customer_id,
             'discount' => '0', 'shipping' => (string) $link->shipping_total, 'mode' => 'reservation', 'initial_payment' => '0', 'payment_method' => 'cash', 'notes' => null, 'estimated_delivery' => null], $confirmation);
-        abort_unless(! array_diff(array_column($data['lines'], 'variant_id'), json_decode($link->variant_ids, true)), 422, 'Uno de los artículos no está autorizado en este enlace.');
+        abort_unless(! array_diff(array_column($data['lines'], 'variant_id'), $this->extractVariantIds($link)), 422, 'Uno de los artículos no está autorizado en este enlace.');
 
         return $data;
     }
@@ -228,8 +250,9 @@ final class OrderRequestLinks
         abort_unless($link->status === 'active', 409);
         $data = $this->data($link, $input, false);
         $actor = User::findOrFail($link->created_by_user_id);
-        $target = SalesOrder::where('share_link_id', $link->id)->first();
-        if ($target) {
+        $targetId = $this->extractTargetOrderId($link);
+        if ($targetId !== null) {
+            $target = SalesOrder::where('store_id', $link->store_id)->where('customer_id', $link->customer_id)->findOrFail($targetId);
             $merged = $this->mergeWithTargetOrder($target, $data['lines']);
             $quote = app(BasketService::class)->preview($this->context($link), $target->id, [
                 'version' => $target->lock_version,
@@ -259,8 +282,9 @@ final class OrderRequestLinks
             $hex = hash_hmac('sha256', 'order-request-confirm|'.$link->id.'|'.$key, config('app.key'));
             $salesKey = substr($hex, 0, 8).'-'.substr($hex, 8, 4).'-4'.substr($hex, 13, 3).'-8'.substr($hex, 17, 3).'-'.substr($hex, 20, 12);
             $actor = User::findOrFail($link->created_by_user_id);
-            $target = SalesOrder::where('share_link_id', $link->id)->lockForUpdate()->first();
-            if ($target) {
+            $targetId = $this->extractTargetOrderId($link);
+            if ($targetId !== null) {
+                $target = SalesOrder::where('store_id', $link->store_id)->where('customer_id', $link->customer_id)->lockForUpdate()->findOrFail($targetId);
                 $merged = $this->mergeWithTargetOrder($target, $data['lines']);
                 app(BasketService::class)->save($this->context($link), $target->id, [
                     'request_key' => $salesKey,

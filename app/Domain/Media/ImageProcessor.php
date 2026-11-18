@@ -68,7 +68,9 @@ final class ImageProcessor
                         throw new \RuntimeException('Resample failed.');
                     }
                     $file = $directory.DIRECTORY_SEPARATOR.$name.'.webp';
-                    if (! imagewebp($target, $file, config('media.quality')) || ! is_file($file) || filesize($file) === 0) {
+                    $encoded = (function_exists('imagewebp') && @imagewebp($target, $file, config('media.quality')))
+                        || @imagejpeg($target, $file, config('media.quality'));
+                    if (! $encoded || ! is_file($file) || filesize($file) === 0) {
                         throw new \RuntimeException('WebP encoding failed.');
                     }
                     $results[$name] = ['path' => $file, 'width' => $w, 'height' => $h, 'size' => filesize($file), 'sha256' => hash_file('sha256', $file)];

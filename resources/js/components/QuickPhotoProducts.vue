@@ -28,6 +28,7 @@ type QuickItem = {
     id: string;
     file: File | null;
     preview: string;
+    categoryName: string;
     name: string;
     costPrice: string;
     salePrice: string;
@@ -41,10 +42,13 @@ type QuickItem = {
     photoKey: string;
     productId: number | null;
     photoUploaded: boolean;
+    itemError: string;
 };
 
-const defaultColors = ['Negro', 'Blanco', 'Gris', 'Verde', 'Azul', 'Celeste', 'Rojo', 'Vino', 'Rosado', 'Beige', 'Crema', 'Marrón', 'Amarillo', 'Naranja', 'Morado', 'Dorado', 'Plateado', 'Multicolor'];
+const defaultCategories = ['Ropa', 'Calzado', 'Lentes', 'Carteras / Bolsos', 'Accesorios', 'Joyería', 'Otros'];
+const defaultColors = ['Negro', 'Blanco', 'Gris', 'Verde', 'Azul', 'Celeste', 'Rojo', 'Vino', 'Rosado', 'Peach / Salmón', 'Beige', 'Crema', 'Marrón', 'Amarillo', 'Naranja', 'Morado', 'Dorado', 'Plateado', 'Multicolor'];
 const defaultSizes = ['XXS', 'XS', 'S', 'Sm', 'M', 'L', 'XL', 'Lxl', 'XXL', 'XXXL', 'Única'];
+const footwearSizes = ['5', '5.5', '6', '6.5', '7', '7.5', '8', '8.5', '9', '9.5', '10', '35', '36', '37', '38', '39', '40', '41', '42'];
 
 const normalize = (value: string) => value.trim().toLocaleLowerCase('es');
 function buildChoices(defaults: string[], attributeName: string): string[] {
@@ -57,18 +61,40 @@ function buildChoices(defaults: string[], attributeName: string): string[] {
         return true;
     });
 }
+const categoryChoices = computed(() => {
+    const existing = (props.options.categories || []).filter(c => c.is_active).map(c => c.name);
+    const seen = new Set<string>();
+    return [...defaultCategories, ...existing].filter(name => {
+        const key = normalize(name);
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
+});
 const colorChoices = computed(() => buildChoices(defaultColors, 'color'));
-const sizeChoices = computed(() => buildChoices(defaultSizes, 'talla'));
+const sizeChoices = computed(() => buildChoices([...defaultSizes, ...footwearSizes], 'talla'));
+
+function categoryRequiresSize(categoryName: string): boolean {
+    const clean = normalize(categoryName || 'Ropa');
+    if (!clean) return true;
+    if (['lentes', 'carteras / bolsos', 'carteras', 'bolsos', 'accesorios', 'joyería', 'joyeria', 'perfumes', 'otros', 'sin talla'].some(k => clean.includes(k))) {
+        return false;
+    }
+    return true;
+}
+
+const batchCategory = ref('Ropa');
 
 function makeSku(): string {
     return `ART-${crypto.randomUUID().replace(/-/g, '').slice(0, 12).toUpperCase()}`;
 }
 
-function createEmptyItem(file: File | null = null): QuickItem {
+function createEmptyItem(file: File | null = null, cat = 'Ropa'): QuickItem {
     return {
         id: crypto.randomUUID(),
         file,
         preview: file ? URL.createObjectURL(file) : '',
+        categoryName: cat,
         name: '',
         costPrice: '',
         salePrice: '',
@@ -82,7 +108,20 @@ function createEmptyItem(file: File | null = null): QuickItem {
         photoKey: crypto.randomUUID(),
         productId: null,
         photoUploaded: false,
+        itemError: '',
     };
+}
+
+function applyBatchCategory(cat: string) {
+    batchCategory.value = cat;
+    for (const item of batchItems.value) {
+        if (item.productId === null) {
+            item.categoryName = cat;
+            if (!categoryRequiresSize(cat)) {
+                item.size = '';
+            }
+        }
+    }
 }
 
 const singleItem = ref<QuickItem>(createEmptyItem());
@@ -118,11 +157,67 @@ watch(() => props.mode, () => {
 });
 
 function validateFile(file: File): boolean {
-    if (file.size > 10485760 || !['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
-        error.value = 'Usa imágenes JPEG, PNG o WebP de hasta 10 MiB.';
+    const validMime = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'].includes(file.type) || /\.(jpe?g|png|webp|heic|heif)$/i.test(file.name);
+    if (file.size > 25 * 1024 * 1024 || !validMime) {
+        error.value = 'Usa imágenes JPEG, PNG o WebP de hasta 25 MiB.';
         return false;
     }
     return true;
+}
+
+async function normalizePhotoForUpload(file: File): Promise<File> {
+    if (file.size < 250000 && ['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+        return file;
+    }
+    return new Promise<File>((resolve) => {
+        const url = URL.createObjectURL(file);
+        const img = new Image();
+        img.onload = () => {
+            URL.revokeObjectURL(url);
+            try {
+                const maxDim = 1600;
+                const w = img.naturalWidth || img.width;
+                const h = img.naturalHeight || img.height;
+                if (!w || !h) {
+                    resolve(file);
+                    return;
+                }
+                const scale = Math.min(1, maxDim / Math.max(w, h));
+                const targetW = Math.max(1, Math.round(w * scale));
+                const targetH = Math.max(1, Math.round(h * scale));
+                const canvas = document.createElement('canvas');
+                canvas.width = targetW;
+                canvas.height = targetH;
+                const ctx = canvas.getContext('2d');
+                if (!ctx) {
+                    resolve(file);
+                    return;
+                }
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(0, 0, targetW, targetH);
+                ctx.drawImage(img, 0, 0, targetW, targetH);
+                canvas.toBlob(
+                    (blob) => {
+                        if (!blob || blob.size === 0) {
+                            resolve(file);
+                            return;
+                        }
+                        const cleanName = file.name.replace(/\.[^.]+$/, '') + '.jpg';
+                        resolve(new File([blob], cleanName, { type: 'image/jpeg' }));
+                    },
+                    'image/jpeg',
+                    0.88,
+                );
+            } catch {
+                resolve(file);
+            }
+        };
+        img.onerror = () => {
+            URL.revokeObjectURL(url);
+            resolve(file);
+        };
+        img.src = url;
+    });
 }
 
 function chooseSinglePhoto(event: Event) {
@@ -158,7 +253,7 @@ function chooseBatchPhotos(event: Event) {
             break;
         }
         if (!validateFile(file)) continue;
-        batchItems.value.push(createEmptyItem(file));
+        batchItems.value.push(createEmptyItem(file, batchCategory.value));
     }
 }
 
@@ -180,11 +275,14 @@ function validateCard(item: QuickItem, label: string): string | null {
     const qty = item.quantity.trim().replace(',', '.');
     if (!qty || units(qty) === null) return `Indica una cantidad válida en ${label}.`;
     if (!item.color.trim()) return `Indica el color en ${label}.`;
-    if (!item.size.trim()) return `Indica el size (talla) en ${label}.`;
+    if (categoryRequiresSize(item.categoryName) && !item.size.trim()) {
+        return `Indica el size (talla) en ${label}.`;
+    }
     return null;
 }
 
 async function persistItem(item: QuickItem, indexLabel: string): Promise<number> {
+    item.itemError = '';
     if (item.productId === null) {
         progress.value = `Guardando ${indexLabel}: ${item.name.trim()}…`;
         const qty = item.quantity.trim().replace(',', '.');
@@ -192,10 +290,12 @@ async function persistItem(item: QuickItem, indexLabel: string): Promise<number>
         if (hasPositiveStock && (!props.store?.is_active || !activeWarehouseId.value)) {
             throw new Error('Selecciona una sucursal y un almacén activos para registrar la cantidad.');
         }
+        const needsSize = categoryRequiresSize(item.categoryName);
         const body: Record<string, unknown> = {
             name: item.name.trim(),
             description: item.description.trim() || null,
             category_id: null,
+            ...(item.categoryName && normalize(item.categoryName) !== 'ropa' ? { category_name: item.categoryName.trim() } : {}),
             brand_id: null,
             product_type: 'physical',
             unit_code: 'unit',
@@ -205,7 +305,7 @@ async function persistItem(item: QuickItem, indexLabel: string): Promise<number>
             clothing_variants: [
                 {
                     color: item.color.trim(),
-                    size: item.size.trim(),
+                    size: needsSize ? item.size.trim() : null,
                     sku: item.sku,
                     description: item.description.trim() || null,
                     sale_price: decimalInput(item.salePrice.trim()),
@@ -241,10 +341,19 @@ async function persistItem(item: QuickItem, indexLabel: string): Promise<number>
         } catch {
             /* Continue upload */
         }
-        const formData = new FormData();
-        formData.append('file', item.file);
-        formData.append('request_key', item.photoKey);
-        await api.post(`/business/products/${item.productId}/images`, formData, { timeout: 90000 });
+        const normalizedFile = await normalizePhotoForUpload(item.file);
+        const uploadAttempt = async (key: string) => {
+            const formData = new FormData();
+            formData.append('file', normalizedFile);
+            formData.append('request_key', key);
+            await api.post(`/business/products/${item.productId}/images`, formData, { timeout: 90000 });
+        };
+        try {
+            await uploadAttempt(item.photoKey);
+        } catch {
+            item.photoKey = crypto.randomUUID();
+            await uploadAttempt(item.photoKey);
+        }
         item.photoUploaded = true;
         try {
             forgetPhotos(props.actorId, item.productId!);
@@ -278,6 +387,7 @@ async function submit() {
 
     busy.value = true;
     let lastSavedId: number | null = null;
+    const errors: string[] = [];
     try {
         for (let i = 0; i < list.length; i++) {
             const item = list[i];
@@ -286,17 +396,25 @@ async function submit() {
                 continue;
             }
             const label = props.mode === 'single' ? 'producto' : `producto ${i + 1} de ${list.length}`;
-            lastSavedId = await persistItem(item, label);
+            try {
+                lastSavedId = await persistItem(item, label);
+            } catch (itemErr) {
+                if (item.productId !== null) {
+                    lastSavedId = item.productId;
+                }
+                const msg = axios.isAxiosError(itemErr) ? errorMessage(itemErr) : (itemErr instanceof Error ? itemErr.message : errorMessage(itemErr));
+                item.itemError = msg;
+                errors.push(`${item.name.trim() || label}: ${msg}`);
+            }
         }
         if (lastSavedId !== null) {
             emit('saved', lastSavedId);
         }
-        emit('close');
-    } catch (e) {
-        if (lastSavedId !== null) {
-            emit('saved', lastSavedId);
+        if (errors.length > 0) {
+            error.value = `${errors.join(' · ')}. Pulsa Guardar de nuevo para reintentar las fotos pendientes.`;
+        } else {
+            emit('close');
         }
-        error.value = axios.isAxiosError(e) ? errorMessage(e) : (e instanceof Error ? e.message : errorMessage(e));
     } finally {
         busy.value = false;
         progress.value = '';
@@ -329,7 +447,7 @@ defineExpose({ submit, busy });
                             <input
                                 class="sr-only"
                                 type="file"
-                                accept="image/jpeg,image/png,image/webp"
+                                accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
                                 :disabled="busy || singleItem.photoUploaded"
                                 aria-label="Seleccionar foto del producto"
                                 @change="chooseSinglePhoto"
@@ -348,6 +466,17 @@ defineExpose({ submit, busy });
                 </div>
 
                 <div class="quick-fields" :class="{ locked: busy || (singleItem.productId !== null && singleItem.photoUploaded) }">
+                    <p v-if="singleItem.itemError" class="notice error" role="alert">{{ singleItem.itemError }}</p>
+                    <label>
+                        Categoría
+                        <select
+                            v-model="singleItem.categoryName"
+                            :disabled="busy || singleItem.productId !== null"
+                            @change="!categoryRequiresSize(singleItem.categoryName) && (singleItem.size = '')"
+                        >
+                            <option v-for="cat in categoryChoices" :key="cat" :value="cat">{{ cat }}</option>
+                        </select>
+                    </label>
                     <label>
                         Nombre
                         <input
@@ -382,7 +511,7 @@ defineExpose({ submit, busy });
                             >
                         </label>
                     </div>
-                    <div class="quick-grid-3">
+                    <div class="quick-grid-3" :class="{ 'no-size': !categoryRequiresSize(singleItem.categoryName) }">
                         <label>
                             Cantidad
                             <input
@@ -405,7 +534,7 @@ defineExpose({ submit, busy });
                                 placeholder="Ej. Negro"
                             >
                         </label>
-                        <label>
+                        <label v-if="categoryRequiresSize(singleItem.categoryName)">
                             Size
                             <input
                                 v-model="singleItem.size"
@@ -438,18 +567,30 @@ defineExpose({ submit, busy });
                     <strong>Fotos seleccionadas: {{ batchItems.length }} / 10</strong>
                     <p class="muted">Cada foto se guardará como un producto independiente con los datos que pongas debajo.</p>
                 </div>
-                <label v-if="batchItems.length < 10" class="button primary photo-select-btn">
-                    Seleccionar hasta 10 fotos
-                    <input
-                        class="sr-only"
-                        type="file"
-                        accept="image/jpeg,image/png,image/webp"
-                        multiple
-                        :disabled="busy"
-                        aria-label="Seleccionar hasta 10 fotos"
-                        @change="chooseBatchPhotos"
-                    >
-                </label>
+                <div class="batch-toolbar-controls">
+                    <label class="batch-cat-label">
+                        Categoría del lote
+                        <select
+                            :value="batchCategory"
+                            :disabled="busy"
+                            @change="applyBatchCategory(($event.target as HTMLSelectElement).value)"
+                        >
+                            <option v-for="cat in categoryChoices" :key="cat" :value="cat">{{ cat }}</option>
+                        </select>
+                    </label>
+                    <label v-if="batchItems.length < 10" class="button primary photo-select-btn">
+                        Seleccionar hasta 10 fotos
+                        <input
+                            class="sr-only"
+                            type="file"
+                            accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+                            multiple
+                            :disabled="busy"
+                            aria-label="Seleccionar hasta 10 fotos"
+                            @change="chooseBatchPhotos"
+                        >
+                    </label>
+                </div>
             </div>
 
             <p v-if="!batchItems.length" class="empty">
@@ -461,6 +602,7 @@ defineExpose({ submit, busy });
                     <div class="quick-card-header">
                         <strong>Foto {{ index + 1 }}</strong>
                         <span v-if="item.productId !== null && item.photoUploaded" class="badge">Guardado</span>
+                        <span v-else-if="item.productId !== null" class="badge">Producto guardado · falta foto</span>
                         <button
                             v-else
                             type="button"
@@ -474,8 +616,19 @@ defineExpose({ submit, busy });
                     </div>
 
                     <img :src="item.preview" :alt="`Foto de producto ${index + 1}`" class="quick-photo-img">
+                    <p v-if="item.itemError" class="notice error" role="alert">{{ item.itemError }}</p>
 
                     <div class="quick-fields">
+                        <label>
+                            Categoría (foto {{ index + 1 }})
+                            <select
+                                v-model="item.categoryName"
+                                :disabled="busy || item.productId !== null"
+                                @change="!categoryRequiresSize(item.categoryName) && (item.size = '')"
+                            >
+                                <option v-for="cat in categoryChoices" :key="cat" :value="cat">{{ cat }}</option>
+                            </select>
+                        </label>
                         <label>
                             Nombre (foto {{ index + 1 }})
                             <input
@@ -510,7 +663,7 @@ defineExpose({ submit, busy });
                                 >
                             </label>
                         </div>
-                        <div class="quick-grid-3">
+                        <div class="quick-grid-3" :class="{ 'no-size': !categoryRequiresSize(item.categoryName) }">
                             <label>
                                 Cantidad (foto {{ index + 1 }})
                                 <input
@@ -533,7 +686,7 @@ defineExpose({ submit, busy });
                                     placeholder="Ej. Negro"
                                 >
                             </label>
-                            <label>
+                            <label v-if="categoryRequiresSize(item.categoryName)">
                                 Size (foto {{ index + 1 }})
                                 <input
                                     v-model="item.size"
@@ -583,6 +736,18 @@ defineExpose({ submit, busy });
 }
 .batch-toolbar p {
     margin: 4px 0 0;
+}
+.batch-toolbar-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: end;
+}
+.batch-cat-label {
+    min-width: 170px;
+}
+.quick-grid-3.no-size {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 .photo-select-btn {
     position: relative;

@@ -236,9 +236,27 @@ class EmployeeContractsTest extends TestCase
             ->assertJsonPath('summary.disbursed_total', '10.0000');
 
         $secondSeller = $this->postJson($this->root(), ['request_key' => (string) Str::uuid(), 'employee_code' => 'VEN-02', 'full_name' => 'Vendedor Dos'])->assertCreated()->json('data.employee.id');
+        // Invoiced order cannot have its historical seller attribution rewritten:
         $this->postJson('/api/v1/business/stores/'.$this->store.'/sales/orders/'.$order['id'].'/seller', [
             'request_key' => (string) Str::uuid(),
             'version' => $order['lock_version'],
+            'seller_employee_id' => $secondSeller,
+        ])->assertConflict();
+
+        // Open reservation CAN have its seller assigned/updated before invoicing:
+        $resHash = $this->postJson('/api/v1/business/stores/'.$this->store.'/sales/quote', $quoteData)->assertOk()->json('data.quote_hash');
+        $openRes = $this->postJson('/api/v1/business/stores/'.$this->store.'/sales/orders', [
+            ...$quoteData,
+            'quote_hash' => $resHash,
+            'request_key' => (string) Str::uuid(),
+            'mode' => 'reservation',
+            'initial_payment' => '0',
+            'payment_method' => 'cash',
+        ])->assertCreated()->json('data.order');
+
+        $this->postJson('/api/v1/business/stores/'.$this->store.'/sales/orders/'.$openRes['id'].'/seller', [
+            'request_key' => (string) Str::uuid(),
+            'version' => $openRes['lock_version'],
             'seller_employee_id' => $secondSeller,
         ])->assertOk()->assertJsonPath('data.order.seller_employee_id', $secondSeller)->assertJsonPath('data.order.seller_name', 'Vendedor Dos');
 

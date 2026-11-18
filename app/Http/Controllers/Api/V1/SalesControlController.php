@@ -14,12 +14,15 @@ class SalesControlController extends Controller
 {
     public function index(Request $request, StoreContext $context, SalesControl $control)
     {
-        return response()->json($control->report($context->store()->id, $request->all()))->header('Cache-Control', 'private, no-store');
+        $canSeeCosts = (bool) $request->user()?->permits('catalog.costs');
+
+        return response()->json($control->report($context->store()->id, $request->all(), false, $canSeeCosts))->header('Cache-Control', 'private, no-store');
     }
 
     public function export(Request $request, StoreContext $context, SalesControl $control)
     {
-        $report = $control->report($context->store()->id, $request->all(), true);
+        $canSeeCosts = (bool) $request->user()?->permits('catalog.costs');
+        $report = $control->report($context->store()->id, $request->all(), true, $canSeeCosts);
 
         return response()->streamDownload(function () use ($report) {
             $out = fopen('php://output', 'w');

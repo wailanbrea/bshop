@@ -151,4 +151,22 @@ class SalesControlTest extends TestCase
         $this->app['session']->flush();
         $this->getJson($this->root().'/sales/control')->assertUnauthorized();
     }
+
+    public function test_sales_viewer_without_cost_permission_does_not_receive_costs_profit_or_inventory_cost(): void
+    {
+        $this->create('sale', '10');
+        $seller = User::factory()->create();
+        $role = Role::create(['code' => 'seller_no_costs', 'label' => 'Vendedor sin costos', 'permissions' => ['stores.view', 'sales.view']]);
+        $seller->roles()->attach($role);
+        DB::table('store_user')->insert(['store_id' => $this->store, 'user_id' => $seller->id]);
+        Auth::forgetGuards();
+        $this->app['session']->flush();
+        $this->actingAs($seller);
+
+        $this->getJson($this->root().'/sales/control')
+            ->assertOk()
+            ->assertJsonMissingPath('summary.0.cost_of_goods')
+            ->assertJsonMissingPath('summary.0.gross_profit')
+            ->assertJsonPath('inventory', null);
+    }
 }

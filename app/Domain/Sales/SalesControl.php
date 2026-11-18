@@ -10,7 +10,7 @@ use Illuminate\Validation\ValidationException;
 
 final class SalesControl
 {
-    public function report(int $store, array $input, bool $export = false): array
+    public function report(int $store, array $input, bool $export = false, bool $canSeeCosts = true): array
     {
         $filters = Validator::make($input, [
             'from' => ['nullable', 'date_format:Y-m-d'], 'to' => ['nullable', 'date_format:Y-m-d'],
@@ -28,7 +28,7 @@ final class SalesControl
         }
         $bounds = [$from->utc()->format('Y-m-d H:i:s'), $to->addDay()->utc()->format('Y-m-d H:i:s')];
 
-        return DB::transaction(function () use ($store, $filters, $export, $profile, $tz, $from, $to, $bounds) {
+        return DB::transaction(function () use ($store, $filters, $export, $canSeeCosts, $profile, $tz, $from, $to, $bounds) {
             $query = DB::table('orders as o')->leftJoin('invoice_orders as io', 'io.order_id', '=', 'o.id')->leftJoin('invoices as i', 'i.id', '=', 'io.invoice_id')->leftJoin('customers as c', 'c.id', '=', 'o.customer_id')->leftJoin('employees as e', 'e.id', '=', 'o.seller_employee_id')
                 ->where('o.store_id', $store)->where('o.created_at', '>=', $bounds[0])->where('o.created_at', '<', $bounds[1])
                 ->select('o.*', 'i.id as invoice_id', 'i.invoice_number', 'c.full_name as live_name', 'e.full_name as seller_name')
@@ -72,7 +72,7 @@ final class SalesControl
                 }
                 $total++;
                 $currency = $order->currency;
-                $summary[$currency] ??= $this->emptySummary($currency);
+                $summary[$currency] ??= $this->emptySummary($currency, $canSeeCosts);
                 $summary[$currency]['orders']++;
                 if (in_array($order->status, ['cancelled', 'draft'], true)) {
                     $summary[$currency][$order->status]++;
@@ -97,27 +97,52 @@ final class SalesControl
                 $days[$key]['net_total'] = bcadd($days[$key]['net_total'], $position['net_total'], 4);
             }
             ksort($days);
-            if ($activeOrders !== []) {
+            if ($canSeeCosts && $activeOrders !== []) {
+                $returnedByOrderItem = [];
+                $returnRows = DB::table('sales_return_items as sri')
+                    ->join('invoice_items as ii', 'ii.id', '=', 'sri.invoice_item_id')
+                    ->whereIn('ii.order_id', array_keys($activeOrders))
+                    ->whereNotNull('ii.order_item_id')
+                    ->whereNotExists(fn ($q) => $q->selectRaw('1')->from('return_receipt_reversals as rrr')->whereColumn('rrr.sales_return_id', 'sri.sales_return_id'))
+                    ->select('ii.order_item_id', 'sri.quantity')
+                    ->cursor();
+                foreach ($returnRows as $retRow) {
+                    $oid = (int) $retRow->order_item_id;
+                    $returnedByOrderItem[$oid] = bcadd($returnedByOrderItem[$oid] ?? '0.0000', bcadd((string) $retRow->quantity, '0', 4), 4);
+                }
+
                 $itemRows = DB::table('order_items as oi')
                     ->join('product_variants as pv', 'pv.id', '=', 'oi.variant_id')
                     ->whereIn('oi.order_id', array_keys($activeOrders))
                     ->whereNull('oi.removed_at')
-                    ->whereNotNull('pv.cost_price')
-                    ->select('oi.order_id', 'oi.quantity', 'pv.cost_price')
+                    ->select('oi.id', 'oi.order_id', 'oi.quantity', 'pv.cost_price')
                     ->cursor();
                 foreach ($itemRows as $itemRow) {
                     $curr = $activeOrders[(int) $itemRow->order_id] ?? null;
                     if ($curr === null || ! isset($summary[$curr])) {
                         continue;
                     }
-                    $lineCost = bcmul(bcadd((string) $itemRow->quantity, '0', 4), bcadd((string) $itemRow->cost_price, '0', 4), 4);
+                    $qty = bcadd((string) $itemRow->quantity, '0', 4);
+                    $retQty = $returnedByOrderItem[(int) $itemRow->id] ?? '0.0000';
+                    $netQty = bcsub($qty, $retQty, 4);
+                    if (bccomp($netQty, '0', 4) <= 0) {
+                        continue;
+                    }
+                    if ($itemRow->cost_price === null) {
+                        $summary[$curr]['without_cost_items'] = ($summary[$curr]['without_cost_items'] ?? 0) + 1;
+
+                        continue;
+                    }
+                    $lineCost = bcmul($netQty, bcadd((string) $itemRow->cost_price, '0', 4), 4);
                     $summary[$curr]['cost_of_goods'] = bcadd($summary[$curr]['cost_of_goods'], $lineCost, 4);
                 }
             }
-            foreach ($summary as &$sumItem) {
-                $sumItem['gross_profit'] = bcsub($sumItem['net_total'], $sumItem['cost_of_goods'], 4);
+            if ($canSeeCosts) {
+                foreach ($summary as &$sumItem) {
+                    $sumItem['gross_profit'] = bcsub($sumItem['net_total'], $sumItem['cost_of_goods'], 4);
+                }
+                unset($sumItem);
             }
-            unset($sumItem);
             $cash = [];
             foreach (DB::table('payments')->where('store_id', $store)->where('paid_at', '>=', $bounds[0])->where('paid_at', '<', $bounds[1])->whereIn('status', ['confirmed', 'reversed'])->orderBy('id')->cursor() as $payment) {
                 $currency = $payment->currency;
@@ -138,10 +163,10 @@ final class SalesControl
                 $value['methods'] = array_map(fn ($method, $amount) => ['method' => $method, 'amount' => $amount], array_keys($value['methods']), array_values($value['methods']));
             } unset($value);
 
-            $inventory = $this->inventorySummary($store, $profile->default_currency);
+            $inventory = $canSeeCosts ? $this->inventorySummary($store, $profile->default_currency) : null;
             $sellers = DB::table('employees as e')->join('employee_store_assignments as esa', 'esa.employee_id', '=', 'e.id')->where('esa.store_id', $store)->orderBy('e.full_name')->get(['e.id', 'e.full_name', 'e.employee_code'])->all();
 
-            return ['data' => $rows, 'summary' => array_values($summary ?: [$this->emptySummary($profile->default_currency)]), 'inventory' => $inventory, 'sellers' => $sellers, 'cash' => array_values($cash), 'daily' => array_values($days), 'filters' => ['from' => $from->toDateString(), 'to' => $to->toDateString(), 'timezone' => $tz], 'meta' => ['current_page' => $page, 'last_page' => max(1, (int) ceil($total / 20)), 'total' => $total]];
+            return ['data' => $rows, 'summary' => array_values($summary ?: [$this->emptySummary($profile->default_currency, $canSeeCosts)]), 'inventory' => $inventory, 'sellers' => $sellers, 'cash' => array_values($cash), 'daily' => array_values($days), 'filters' => ['from' => $from->toDateString(), 'to' => $to->toDateString(), 'timezone' => $tz], 'meta' => ['current_page' => $page, 'last_page' => max(1, (int) ceil($total / 20)), 'total' => $total]];
         });
     }
 
@@ -201,8 +226,15 @@ final class SalesControl
         ];
     }
 
-    private function emptySummary(string $currency): array
+    private function emptySummary(string $currency, bool $canSeeCosts = true): array
     {
-        return ['currency' => $currency, 'orders' => 0, 'invoices' => 0, 'cancelled' => 0, 'draft' => 0, 'pending_returns' => 0, ...array_fill_keys(['original_total', 'return_credit_total', 'net_total', 'paid_total', 'pending_total', 'credit_available', 'sales_net', 'unbilled_net', 'cost_of_goods', 'gross_profit'], '0.0000')];
+        $base = ['currency' => $currency, 'orders' => 0, 'invoices' => 0, 'cancelled' => 0, 'draft' => 0, 'pending_returns' => 0, ...array_fill_keys(['original_total', 'return_credit_total', 'net_total', 'paid_total', 'pending_total', 'credit_available', 'sales_net', 'unbilled_net'], '0.0000')];
+        if ($canSeeCosts) {
+            $base['cost_of_goods'] = '0.0000';
+            $base['gross_profit'] = '0.0000';
+            $base['without_cost_items'] = 0;
+        }
+
+        return $base;
     }
 }

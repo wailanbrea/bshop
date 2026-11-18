@@ -138,7 +138,7 @@ onUnmounted(() => {
             <div class="actions">
                 <OrderShareLinks v-if="permissions.includes('sales.create') && ['reserved','confirmed','fulfilled'].includes(order.status)" :key="`${root}:${order.id}`" :root="root" :order-id="order.id" :disabled="busy || dirty" />
                 <button
-                    v-if="permissions.includes('sales.create') && order.status !== 'cancelled'"
+                    v-if="permissions.includes('members.manage') && !order.invoice && !order.closed_at && order.status !== 'cancelled'"
                     type="button"
                     class="button secondary"
                     :disabled="busy || dirty || sellerSaving"

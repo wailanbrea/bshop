@@ -405,4 +405,21 @@ class CatalogTest extends TestCase
         $this->assertSame('B001', $variant->fresh()->barcode);
         $this->assertSame('700.0000', $variant->fresh()->cost_price);
     }
+
+    public function test_quick_product_with_category_without_size_creates_category_and_color_only_variant(): void
+    {
+        $this->postJson('/api/v1/business/products', [
+            'name' => 'Lentes Solares QA',
+            'category_name' => 'Lentes',
+            'product_type' => 'physical',
+            'unit_code' => 'unit',
+            'track_stock' => true,
+            'status' => 'active',
+            'request_key' => (string) Str::uuid(),
+            'clothing_variants' => [
+                ['color' => 'Peach / Salmón', 'size' => null, 'sku' => 'LENTES-01', 'sale_price' => '25', 'cost_price' => '10', 'is_active' => true],
+            ],
+        ])->assertCreated()
+            ->assertJsonPath('data.category.name', 'Lentes');
+    }
 }

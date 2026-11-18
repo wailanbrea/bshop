@@ -13,12 +13,14 @@ use App\Http\Requests\ProductRequest;
 use App\Http\Requests\VariantRequest;
 use App\Http\Resources\CatalogProductResource;
 use App\Http\Resources\CatalogVariantResource;
+use App\Models\Category;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\User;
 use App\Rules\DecimalAmount;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
@@ -70,7 +72,8 @@ class CatalogController extends Controller
     public function create(Request $request, ProductService $service, IdempotentAction $once, InventoryService $inventory, StoreAuthorizationService $stores, ClothingVariants $clothing)
     {
         $key = $request->validate(['request_key' => ['sometimes', 'required', 'uuid']])['request_key'] ?? null;
-        $clothingRows = $request->validate(['clothing_variants' => ['sometimes', 'required', 'array', 'list', 'min:1', 'max:100'], 'clothing_variants.*.color' => ['required', 'string', 'max:120'], 'clothing_variants.*.size' => ['required', 'string', 'max:120'], 'clothing_variants.*.sku' => ['required', 'string', 'max:90'], 'clothing_variants.*.sale_price' => ['required', new DecimalAmount], 'clothing_variants.*.barcode' => ['nullable', 'string', 'max:100'], 'clothing_variants.*.description' => ['nullable', 'string', 'max:2000'], 'clothing_variants.*.cost_price' => $request->user()->permits('catalog.costs') ? ['nullable', new DecimalAmount] : ['missing'], 'clothing_variants.*.is_active' => ['sometimes', 'boolean']])['clothing_variants'] ?? null;
+        $categoryName = $request->validate(['category_name' => ['sometimes', 'nullable', 'string', 'max:120']])['category_name'] ?? null;
+        $clothingRows = $request->validate(['clothing_variants' => ['sometimes', 'required', 'array', 'list', 'min:1', 'max:100'], 'clothing_variants.*.color' => ['required', 'string', 'max:120'], 'clothing_variants.*.size' => ['nullable', 'string', 'max:120'], 'clothing_variants.*.sku' => ['required', 'string', 'max:90'], 'clothing_variants.*.sale_price' => ['required', new DecimalAmount], 'clothing_variants.*.barcode' => ['nullable', 'string', 'max:100'], 'clothing_variants.*.description' => ['nullable', 'string', 'max:2000'], 'clothing_variants.*.cost_price' => $request->user()->permits('catalog.costs') ? ['nullable', new DecimalAmount] : ['missing'], 'clothing_variants.*.is_active' => ['sometimes', 'boolean']])['clothing_variants'] ?? null;
         if ($clothingRows !== null && ($key === null || $request->has('variants'))) {
             throw ValidationException::withMessages(['clothing_variants' => 'La ropa requiere una clave de recuperación y no puede mezclar variantes manuales.']);
         }
@@ -78,10 +81,26 @@ class CatalogController extends Controller
         if ($stock !== null && $key === null) {
             throw ValidationException::withMessages(['request_key' => 'La existencia inicial requiere una clave de recuperación.']);
         }
-        $create = function () use ($request, $service, $inventory, $stores, $stock, $clothing, $clothingRows) {
+        $create = function () use ($request, $service, $inventory, $stores, $stock, $clothing, $clothingRows, $categoryName) {
             // Validate inside the idempotent transaction so a completed replay is not rejected by SKU uniqueness.
             $form = ProductRequest::createFrom($request);
             $form->setContainer(app())->setRedirector(app('redirect'));
+            if (empty($request->input('category_id')) && is_string($categoryName) && trim($categoryName) !== '') {
+                $cleanCat = trim($categoryName);
+                $existingCat = Category::orderBy('id')->lockForUpdate()->get()->first(fn ($c) => mb_strtolower(trim($c->name)) === mb_strtolower($cleanCat));
+                if (! $existingCat) {
+                    $baseSlug = Str::slug($cleanCat) ?: 'categoria';
+                    $slug = $baseSlug;
+                    $suffix = 1;
+                    while (Category::where('slug', $slug)->exists()) {
+                        $slug = $baseSlug.'-'.(++$suffix);
+                    }
+                    $existingCat = Category::create(['name' => $cleanCat, 'slug' => $slug, 'is_active' => true]);
+                } elseif (! $existingCat->is_active) {
+                    $existingCat->update(['is_active' => true]);
+                }
+                $form->merge(['category_id' => $existingCat->id]);
+            }
             if ($clothingRows !== null) {
                 $form->merge(['variants' => $clothing->resolve($clothingRows, $request->user())]);
             }

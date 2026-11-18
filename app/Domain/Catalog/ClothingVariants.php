@@ -18,18 +18,26 @@ final class ClothingVariants
     {
         BusinessProfile::whereKey(1)->lockForUpdate()->firstOrFail();
         $color = $this->attribute('Color', $actor);
-        $size = $this->attribute('Talla', $actor);
+        $hasAnySize = collect($rows)->contains(fn ($r) => trim((string) ($r['size'] ?? '')) !== '');
+        $size = $hasAnySize ? $this->attribute('Talla', $actor) : null;
         $seen = [];
         $variants = [];
         foreach ($rows as $row) {
-            $colorValue = $this->value($color, trim($row['color']), $actor);
-            $sizeValue = $this->value($size, trim($row['size']), $actor);
-            $combination = $colorValue->id.':'.$sizeValue->id;
+            $colorValue = $this->value($color, trim((string) ($row['color'] ?? '')), $actor);
+            $sizeText = trim((string) ($row['size'] ?? ''));
+            if ($sizeText !== '' && $size !== null) {
+                $sizeValue = $this->value($size, $sizeText, $actor);
+                $combination = $colorValue->id.':'.$sizeValue->id;
+                $attrIds = [$colorValue->id, $sizeValue->id];
+            } else {
+                $combination = (string) $colorValue->id;
+                $attrIds = [$colorValue->id];
+            }
             if (isset($seen[$combination])) {
                 throw ValidationException::withMessages(['clothing_variants' => 'No repitas el mismo color y talla.']);
             }
             $seen[$combination] = true;
-            $variants[] = [...array_intersect_key($row, array_flip(['sku', 'barcode', 'description', 'sale_price', 'cost_price', 'is_active'])), 'attribute_value_ids' => [$colorValue->id, $sizeValue->id]];
+            $variants[] = [...array_intersect_key($row, array_flip(['sku', 'barcode', 'description', 'sale_price', 'cost_price', 'is_active'])), 'attribute_value_ids' => $attrIds];
         }
 
         return $variants;

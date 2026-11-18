@@ -265,7 +265,7 @@ final class SalesService
         $key = $data['request_key'];
         unset($data['request_key']);
         $data['version'] = (int) $data['version'];
-        $permission = $action === 'cancel' ? 'sales.cancel' : ($action === 'payment' ? 'payments.record' : 'sales.create');
+        $permission = $action === 'cancel' ? 'sales.cancel' : ($action === 'payment' ? 'payments.record' : ($action === 'seller' ? 'members.manage' : 'sales.create'));
 
         return $this->idempotency->run('sales.'.$action, $key, [$actor->id, $context->store()->id, $orderId], $data, fn () => $this->authorize($context, $actor, $permission), function () use ($context, $actor, $orderId, $action, $data, $key) {
             $reference = SalesOrder::where('store_id', $context->store()->id)->findOrFail($orderId);
@@ -301,6 +301,7 @@ final class SalesService
                 abort_if($order->status === 'fulfilled', 409, 'El pedido ya está entregado.');
                 $this->deliver($order, $warehouse, $variants, $balances, $actor, $key, isset($data['item_id']) ? (int) $data['item_id'] : null, $data['quantity'] ?? null);
             } elseif ($action === 'seller') {
+                abort_if($invoice || $order->closed_at, 409, 'El pedido ya está cerrado o facturado; su atribución histórica no se puede modificar.');
                 $sellerId = $data['seller_employee_id'] ?? null;
                 $commissionPlanId = null;
                 $commissionRate = null;
@@ -335,13 +336,6 @@ final class SalesService
                     'commission_plan_id' => $commissionPlanId,
                     'commission_rate_snapshot' => $commissionRate,
                 ]);
-                if ($invoice) {
-                    DB::table('invoice_items')->where('order_id', $order->id)->update([
-                        'seller_employee_id' => $sellerId,
-                        'commission_plan_id' => $commissionPlanId,
-                        'commission_rate_snapshot' => $commissionRate,
-                    ]);
-                }
             } else {
                 abort_if($invoice, 409, 'El pedido ya está facturado. Usa el flujo de devolución para cambios comerciales.');
                 abort_if(bccomp($this->paid($order->id), '0', 4) > 0, 409, 'Hay abonos registrados. Deben resolverse explícitamente antes de retirar artículos o cancelar.');
