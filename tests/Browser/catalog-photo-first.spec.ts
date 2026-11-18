@@ -18,6 +18,7 @@ const test=base.extend<{catalog:State}>({catalog:async({page,businessState},use)
 test('photos are selected first and a failed upload retries without duplicating the product or initial stock',async({page,catalog})=>{
     await page.goto('/');if((page.viewportSize()?.width||0)<768)await page.getByRole('button',{name:'Abrir menú',exact:true}).click();await page.getByRole('button',{name:'Catálogo',exact:true}).click();
     await page.getByRole('button',{name:'+ Nuevo producto',exact:true}).click();const dialog=page.getByRole('dialog',{name:'Nuevo producto'});
+    await dialog.getByRole('button',{name:'Modo avanzado',exact:true}).click();
     await dialog.getByLabel('Seleccionar fotos').setInputFiles([{name:'verde.png',mimeType:'image/png',buffer:Buffer.from('foto-verde')},{name:'negro.png',mimeType:'image/png',buffer:Buffer.from('foto-negro')}]);
     await expect(dialog.getByAltText('Foto seleccionada 1')).toBeVisible();await expect(dialog.getByAltText('Foto seleccionada 2')).toBeVisible();await dialog.getByLabel('Principal').nth(1).check();
     await dialog.getByLabel('Nombre del producto').fill('Blusa QA');await dialog.getByLabel('SKU',{exact:true}).fill('BLUSA-QA');await dialog.getByLabel('Precio de venta',{exact:true}).fill('25');
@@ -33,6 +34,7 @@ test('photos are selected first and a failed upload retries without duplicating 
 test('an uncertain product save is retried after reload with the original key and stock payload',async({page,catalog})=>{
     await page.goto('/');if((page.viewportSize()?.width||0)<768)await page.getByRole('button',{name:'Abrir menú',exact:true}).click();await page.getByRole('button',{name:'Catálogo',exact:true}).click();
     await page.getByRole('button',{name:'+ Nuevo producto',exact:true}).click();let dialog=page.getByRole('dialog',{name:'Nuevo producto'});
+    await dialog.getByRole('button',{name:'Modo avanzado',exact:true}).click();
     await dialog.getByLabel('Nombre del producto').fill('Prenda recuperada');await dialog.getByLabel('SKU',{exact:true}).fill('REC-01');await dialog.getByLabel('Precio de venta',{exact:true}).fill('25');
     await dialog.getByLabel('Registrar entrada inicial por variante').check();await dialog.getByLabel(/REC-01 · Variante general/).fill('3');catalog.lostCreate=true;
     await dialog.getByRole('button',{name:'Guardar producto'}).click();await expect(dialog.getByRole('alert')).toContainText('No hay conexión');
@@ -45,6 +47,7 @@ test('an uncertain product save is retried after reload with the original key an
 test('after a photo failure, reloading keeps a reminder pointing to the saved product gallery',async({page,catalog})=>{
     await page.goto('/');if((page.viewportSize()?.width||0)<768)await page.getByRole('button',{name:'Abrir menú',exact:true}).click();await page.getByRole('button',{name:'Catálogo',exact:true}).click();
     await page.getByRole('button',{name:'+ Nuevo producto',exact:true}).click();const dialog=page.getByRole('dialog',{name:'Nuevo producto'});
+    await dialog.getByRole('button',{name:'Modo avanzado',exact:true}).click();
     await dialog.getByLabel('Seleccionar fotos').setInputFiles({name:'foto.png',mimeType:'image/png',buffer:Buffer.from('foto')});
     await dialog.getByLabel('Nombre del producto').fill('Producto con foto pendiente');await dialog.getByLabel('SKU',{exact:true}).fill('FOTO-QA');await dialog.getByLabel('Precio de venta',{exact:true}).fill('25');
     await dialog.getByRole('button',{name:'Guardar producto'}).click();await expect(dialog.getByRole('alert')).toContainText('El producto se guardó.');await dialog.getByRole('button',{name:'Cerrar',exact:true}).click();
@@ -56,7 +59,7 @@ test('after a photo failure, reloading keeps a reminder pointing to the saved pr
 test('initial quantities are entered separately for color and size combinations',async({page,catalog})=>{
     await page.route('**/api/v1/business/catalog/options',route=>route.fulfill({json:{data:{categories:[],brands:[],attributes:[{id:1,name:'Color',is_active:true,values:[{id:11,attribute_id:1,value:'Verde',is_active:true}]},{id:2,name:'Talla',is_active:true,values:[{id:21,attribute_id:2,value:'S',is_active:true},{id:22,attribute_id:2,value:'M',is_active:true}]}]}}}));
     await page.goto('/');if((page.viewportSize()?.width||0)<768)await page.getByRole('button',{name:'Abrir menú',exact:true}).click();await page.getByRole('button',{name:'Catálogo',exact:true}).click();
-    await page.getByRole('button',{name:'+ Nuevo producto'}).click();const dialog=page.getByRole('dialog',{name:'Nuevo producto'});await dialog.getByLabel('Nombre del producto').fill('Blusa');
+    await page.getByRole('button',{name:'+ Nuevo producto'}).click();const dialog=page.getByRole('dialog',{name:'Nuevo producto'});await dialog.getByRole('button',{name:'Modo avanzado',exact:true}).click();await dialog.getByLabel('Nombre del producto').fill('Blusa');
     const first=dialog.locator('.variant-draft').nth(0);await first.getByLabel('SKU',{exact:true}).fill('VERDE-S');await first.getByLabel('Precio de venta',{exact:true}).fill('25');await first.getByRole('combobox',{name:'Color',exact:true}).selectOption('11');await first.getByRole('combobox',{name:'Talla',exact:true}).selectOption('21');
     await dialog.getByRole('button',{name:'+ Añadir otra variante'}).click();const second=dialog.locator('.variant-draft').nth(1);await second.getByLabel('SKU',{exact:true}).fill('VERDE-M');await second.getByLabel('Precio de venta',{exact:true}).fill('25');await second.getByRole('combobox',{name:'Color',exact:true}).selectOption('11');await second.getByRole('combobox',{name:'Talla',exact:true}).selectOption('22');
     await dialog.getByLabel('Registrar entrada inicial por variante').check();await dialog.getByLabel(/VERDE-S ·/).fill('5');await dialog.getByLabel(/VERDE-M ·/).fill('3');
@@ -66,7 +69,7 @@ test('initial quantities are entered separately for color and size combinations'
 
 test('clothing can be created from photos using preset colors, sizes and individual quantities',async({page,catalog},testInfo)=>{
     catalog.failPhoto=false;await page.goto('/');if((page.viewportSize()?.width||0)<768)await page.getByRole('button',{name:'Abrir menú',exact:true}).click();await page.getByRole('button',{name:'Catálogo',exact:true}).click();
-    await page.getByRole('button',{name:'+ Nuevo producto'}).click();const dialog=page.getByRole('dialog',{name:'Nuevo producto'});
+    await page.getByRole('button',{name:'+ Nuevo producto'}).click();const dialog=page.getByRole('dialog',{name:'Nuevo producto'});await dialog.getByRole('button',{name:'Modo avanzado',exact:true}).click();
     const png=await page.evaluate(()=>{const canvas=document.createElement('canvas');canvas.width=64;canvas.height=64;const context=canvas.getContext('2d')!;context.fillStyle='#30935a';context.fillRect(0,0,64,64);return canvas.toDataURL('image/png').split(',')[1];});
     await dialog.getByLabel('Seleccionar fotos').setInputFiles({name:'blusa.png',mimeType:'image/png',buffer:Buffer.from(png,'base64')});await expect(dialog.getByLabel('Fotos de referencia')).toBeVisible();await expect.poll(()=>dialog.getByAltText('Referencia 1').evaluate((image:HTMLImageElement)=>image.naturalWidth)).toBeGreaterThan(0);
     await dialog.getByLabel('Nombre del producto').fill('Blusa');await dialog.getByLabel('Esta prenda tiene colores y tallas').check();await dialog.getByLabel('Precio de venta de la prenda').fill('25');
@@ -85,10 +88,54 @@ test('clothing can be created from photos using preset colors, sizes and individ
 
 test('custom colors and sizes can be added from the clothing form',async({page,catalog})=>{
     await page.goto('/');if((page.viewportSize()?.width||0)<768)await page.getByRole('button',{name:'Abrir menú',exact:true}).click();await page.getByRole('button',{name:'Catálogo',exact:true}).click();
-    await page.getByRole('button',{name:'+ Nuevo producto'}).click();const dialog=page.getByRole('dialog',{name:'Nuevo producto'});
+    await page.getByRole('button',{name:'+ Nuevo producto'}).click();const dialog=page.getByRole('dialog',{name:'Nuevo producto'});await dialog.getByRole('button',{name:'Modo avanzado',exact:true}).click();
     await dialog.getByLabel('Nombre del producto').fill('Prenda especial');await dialog.getByLabel('Esta prenda tiene colores y tallas').check();await dialog.getByLabel('Precio de venta de la prenda').fill('25');
     await dialog.getByLabel('Otro color').fill('Lavanda');await dialog.getByRole('button',{name:'Añadir color',exact:true}).click();
     await dialog.getByLabel('Otra talla para Lavanda').fill('2XL especial');await dialog.getByRole('button',{name:'Añadir talla para Lavanda'}).click();
     await dialog.getByRole('button',{name:'Guardar producto'}).click();await expect(dialog).not.toBeVisible();
     expect(catalog.creates[0].clothing_variants).toMatchObject([{color:'Lavanda',size:'2XL especial'}]);
+});
+
+test('quick one-by-one mode captures photo, name, cost price, sale price, quantity, color, size and optional description',async({page,catalog})=>{
+    catalog.failPhoto=false;await page.goto('/');if((page.viewportSize()?.width||0)<768)await page.getByRole('button',{name:'Abrir menú',exact:true}).click();await page.getByRole('button',{name:'Catálogo',exact:true}).click();
+    await page.getByRole('button',{name:'+ Nuevo producto',exact:true}).click();const dialog=page.getByRole('dialog',{name:'Nuevo producto'});
+    await dialog.getByLabel('Seleccionar foto del producto').setInputFiles({name:'tshirt.png',mimeType:'image/png',buffer:Buffer.from('foto-tshirt')});
+    await dialog.getByLabel('Nombre',{exact:true}).fill('T-shirt Alo');
+    await dialog.getByLabel('Precio de compra',{exact:true}).fill('15');
+    await dialog.getByLabel('Precio de venta',{exact:true}).fill('30');
+    await dialog.getByLabel('Cantidad',{exact:true}).fill('3');
+    await dialog.getByLabel('Color',{exact:true}).fill('Negro');
+    await dialog.getByLabel('Size',{exact:true}).fill('M');
+    await dialog.getByRole('button',{name:'Guardar producto',exact:true}).click();await expect(dialog).not.toBeVisible();
+    expect(catalog.creates).toHaveLength(1);
+    expect(catalog.creates[0]).toMatchObject({name:'T-shirt Alo',description:null,clothing_variants:[{color:'Negro',size:'M',cost_price:'15',sale_price:'30'}]});
+    expect(catalog.creates[0].initial_stock.items[0].quantity).toBe('3');
+    expect(catalog.uploads).toHaveLength(1);
+});
+
+test('batch mode up to 10 photos creates independent products with cost and sale prices under each photo',async({page,catalog})=>{
+    catalog.failPhoto=false;await page.goto('/');if((page.viewportSize()?.width||0)<768)await page.getByRole('button',{name:'Abrir menú',exact:true}).click();await page.getByRole('button',{name:'Catálogo',exact:true}).click();
+    await page.getByRole('button',{name:'+ Subir hasta 10 fotos',exact:true}).click();const dialog=page.getByRole('dialog',{name:'Nuevo producto'});
+    await dialog.getByLabel('Seleccionar hasta 10 fotos').setInputFiles([
+        {name:'uno.png',mimeType:'image/png',buffer:Buffer.from('foto-1')},
+        {name:'dos.png',mimeType:'image/png',buffer:Buffer.from('foto-2')},
+    ]);
+    await dialog.getByLabel('Nombre (foto 1)').fill('Conjunto Gris');
+    await dialog.getByLabel('Precio de compra (foto 1)').fill('18');
+    await dialog.getByLabel('Precio de venta (foto 1)').fill('35');
+    await dialog.getByLabel('Cantidad (foto 1)').fill('2');
+    await dialog.getByLabel('Color (foto 1)').fill('Gris');
+    await dialog.getByLabel('Size (foto 1)').fill('S');
+    await dialog.getByLabel('Nombre (foto 2)').fill('Vestido Negro');
+    await dialog.getByLabel('Precio de compra (foto 2)').fill('22');
+    await dialog.getByLabel('Precio de venta (foto 2)').fill('45');
+    await dialog.getByLabel('Cantidad (foto 2)').fill('4');
+    await dialog.getByLabel('Color (foto 2)').fill('Negro');
+    await dialog.getByLabel('Size (foto 2)').fill('L');
+    await dialog.getByLabel('Descripción (foto 2, opcional)').fill('Tela elástica');
+    await dialog.getByRole('button',{name:'Guardar productos',exact:true}).click();await expect(dialog).not.toBeVisible();
+    expect(catalog.creates).toHaveLength(2);
+    expect(catalog.creates[0]).toMatchObject({name:'Conjunto Gris',description:null,clothing_variants:[{color:'Gris',size:'S',cost_price:'18',sale_price:'35'}]});
+    expect(catalog.creates[1]).toMatchObject({name:'Vestido Negro',description:'Tela elástica',clothing_variants:[{color:'Negro',size:'L',cost_price:'22',sale_price:'45'}]});
+    expect(catalog.uploads).toHaveLength(2);
 });

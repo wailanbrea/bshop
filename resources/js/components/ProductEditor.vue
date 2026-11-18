@@ -11,10 +11,14 @@ import { forgetPhotos, rememberPhotos } from '../lib/productPhotoRecovery';
 import AppDialog from './AppDialog.vue';
 import VariantFields from './VariantFields.vue';
 import ClothingVariantsEditor from './ClothingVariantsEditor.vue';
+import QuickPhotoProducts from './QuickPhotoProducts.vue';
 
-const props = defineProps<{ open: boolean; product: CatalogProduct | null; options: CatalogOptions; costs: boolean; opener: HTMLElement | null; actorId:number; store?:Store; warehouses:Warehouse[]; inventoryManage:boolean }>();
+const props = defineProps<{ open: boolean; product: CatalogProduct | null; initialMode?: 'single' | 'batch' | 'advanced'; options: CatalogOptions; costs: boolean; opener: HTMLElement | null; actorId:number; store?:Store; warehouses:Warehouse[]; inventoryManage:boolean }>();
 const emit = defineEmits<{ close: []; saved: [id: number]; 'photo-recovery':[] }>();
 const busy = ref(false); const error = ref(''); const errorNotice = ref<HTMLElement>();
+const activeMode = ref<'single' | 'batch' | 'advanced'>('single');
+const quickRef = ref<InstanceType<typeof QuickPhotoProducts> | null>(null);
+const anyBusy = computed(() => busy.value || !!quickRef.value?.busy);
 const form = reactive({ name: '', description: '', category_id: '' as number | '', brand_id: '' as number | '', product_type: 'physical', unit_code: 'unit', track_stock: true, status: 'active' });
 const variants = ref<VariantDraft[]>([]); let nextKey = 1;
 type PhotoDraft = { file:File; preview:string; key:string; uploaded:boolean; uncertain:boolean; variantSku:string };
@@ -37,6 +41,7 @@ watch(() => props.open, open => {
     Object.assign(form, props.product ? { name: props.product.name, description: props.product.description || '', category_id: props.product.category?.id || '', brand_id: props.product.brand?.id || '', product_type: props.product.product_type, unit_code: props.product.unit_code, track_stock: props.product.track_stock, status: props.product.status } : { name: '', description: '', category_id: '', brand_id: '', product_type: 'physical', unit_code: 'unit', track_stock: true, status: 'active' });
     variants.value = [emptyVariant(nextKey++)];
     operation.value=props.product?null:readPending(journal.value);
+    activeMode.value=props.product||operation.value?'advanced':(props.initialMode||'single');
 }, { immediate: true });
 onUnmounted(clearPhotos);
 async function save() {
@@ -75,8 +80,14 @@ async function save() {
 }
 </script>
 <template>
-    <AppDialog :open="open" :title="editing ? 'Editar producto' : 'Nuevo producto'" :busy="busy" :return-focus="opener" @close="emit('close')">
-        <form id="product-editor-form" class="form-stack" @submit.prevent="save">
+    <AppDialog :open="open" :title="editing ? 'Editar producto' : 'Nuevo producto'" :busy="anyBusy" :return-focus="opener" @close="emit('close')">
+        <div v-if="!editing" class="editor-mode-tabs" role="group" aria-label="Modo de registro de productos">
+            <button type="button" class="button" :class="activeMode === 'single' ? 'primary' : 'secondary'" :aria-pressed="activeMode === 'single'" :disabled="anyBusy" @click="activeMode = 'single'">Uno por uno</button>
+            <button type="button" class="button" :class="activeMode === 'batch' ? 'primary' : 'secondary'" :aria-pressed="activeMode === 'batch'" :disabled="anyBusy" @click="activeMode = 'batch'">Hasta 10 fotos</button>
+            <button type="button" class="button" :class="activeMode === 'advanced' ? 'primary' : 'secondary'" :aria-pressed="activeMode === 'advanced'" :disabled="anyBusy" @click="activeMode = 'advanced'">Modo avanzado</button>
+        </div>
+        <QuickPhotoProducts v-if="!editing && (activeMode === 'single' || activeMode === 'batch')" ref="quickRef" :mode="activeMode" :options="options" :costs="costs" :actor-id="actorId" :store="store" :warehouses="warehouses" :inventory-manage="inventoryManage" @close="emit('close')" @saved="emit('saved', $event)" @photo-recovery="emit('photo-recovery')" />
+        <form v-else id="product-editor-form" class="form-stack" @submit.prevent="save">
             <p v-if="operation && createdId===null" class="notice" role="status">Hay un guardado pendiente. Reintenta la misma operación; las fotos que no estén seleccionadas deberán añadirse después en la galería.</p>
             <p v-if="createdId!==null" class="notice" role="status">Producto guardado. Puedes reintentar las fotografías pendientes sin crear otro producto.</p>
             <p v-if="progress" role="status">{{ progress }}</p>
@@ -115,7 +126,7 @@ async function save() {
             </fieldset>
             <p v-if="error" ref="errorNotice" tabindex="-1" class="notice error" role="alert">{{ error }}</p>
         </form>
-        <template #footer><button type="button" class="button secondary" :disabled="busy" @click="emit('close')">{{ createdId!==null?'Cerrar':'Cancelar' }}</button><button type="submit" form="product-editor-form" class="button primary" :disabled="busy">{{ busy ? 'Guardando…' : createdId!==null ? 'Reintentar fotos' : operation ? 'Reintentar guardado' : 'Guardar producto' }}</button></template>
+        <template #footer><button type="button" class="button secondary" :disabled="anyBusy" @click="emit('close')">{{ createdId!==null?'Cerrar':'Cancelar' }}</button><button v-if="!editing && (activeMode === 'single' || activeMode === 'batch')" type="submit" form="quick-photo-products-form" class="button primary" :disabled="anyBusy">{{ anyBusy ? 'Guardando…' : activeMode === 'batch' ? 'Guardar productos' : 'Guardar producto' }}</button><button v-else type="submit" form="product-editor-form" class="button primary" :disabled="anyBusy">{{ anyBusy ? 'Guardando…' : createdId!==null ? 'Reintentar fotos' : operation ? 'Reintentar guardado' : 'Guardar producto' }}</button></template>
     </AppDialog>
 </template>
-<style scoped>.photo-first,.initial-stock{display:grid;gap:12px;padding:16px;border:1px solid #ddd5ec;border-radius:14px}.photo-select{position:relative;display:inline-flex;align-items:center;justify-content:center;min-height:48px;cursor:pointer}.photo-select:focus-within{outline:3px solid #8d53ff;outline-offset:3px}.photo-reference{position:sticky;top:0;z-index:3;display:flex;align-items:center;gap:12px;padding:8px;background:#fff;border-bottom:1px solid #ddd5ec;min-width:0}.photo-reference>div{display:flex;gap:8px;overflow-x:auto;min-width:0}.photo-reference img{width:56px;height:56px;flex:0 0 56px;object-fit:contain;background:#f5f1fc;border-radius:8px}.photo-drafts{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px}.photo-drafts article{display:grid;gap:8px;min-width:0}.photo-drafts img{width:100%;height:120px;object-fit:contain;background:#f5f1fc;border-radius:10px}.photo-drafts .check-label,.photo-drafts button{min-height:48px}</style>
+<style scoped>.editor-mode-tabs{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}.photo-first,.initial-stock{display:grid;gap:12px;padding:16px;border:1px solid #ddd5ec;border-radius:14px}.photo-select{position:relative;display:inline-flex;align-items:center;justify-content:center;min-height:48px;cursor:pointer}.photo-select:focus-within{outline:3px solid #8d53ff;outline-offset:3px}.photo-reference{position:sticky;top:0;z-index:3;display:flex;align-items:center;gap:12px;padding:8px;background:#fff;border-bottom:1px solid #ddd5ec;min-width:0}.photo-reference>div{display:flex;gap:8px;overflow-x:auto;min-width:0}.photo-reference img{width:56px;height:56px;flex:0 0 56px;object-fit:contain;background:#f5f1fc;border-radius:8px}.photo-drafts{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px}.photo-drafts article{display:grid;gap:8px;min-width:0}.photo-drafts img{width:100%;height:120px;object-fit:contain;background:#f5f1fc;border-radius:10px}.photo-drafts .check-label,.photo-drafts button{min-height:48px}</style>

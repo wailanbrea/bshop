@@ -28,7 +28,7 @@ function dismissPhotoReminder(id:number){try{forgetPhotos(props.actorId,id);refr
 function openPhotos(event: Event) { photoOpener.value = event.currentTarget as HTMLElement; photosOpen.value = true; }
 async function photosChanged() { if (selected.value) await Promise.all([loadProducts(page.value), detail(selected.value.id, variants.value.current_page, true)]); }
 const selected = ref<CatalogProduct | null>(null); const variants = ref<VariantPage>({ data: [], current_page: 1, last_page: 1, total: 0 }); const detailLoading = ref(false);
-const productOpen = ref(false); const productDraft = ref<CatalogProduct | null>(null); const variantOpen = ref(false); const variantDraft = ref<CatalogVariant | null>(null); const opener = ref<HTMLElement | null>(null);
+const productOpen = ref(false); const productDraft = ref<CatalogProduct | null>(null); const editorMode = ref<'single' | 'batch' | 'advanced'>('single'); const variantOpen = ref(false); const variantDraft = ref<CatalogVariant | null>(null); const opener = ref<HTMLElement | null>(null);
 let request = 0; let detailRequest = 0; let controller: AbortController | undefined; let searchTimer: ReturnType<typeof setTimeout> | undefined;
 async function loadOptions() {
     try { options.value = (await api.get('/business/catalog/options')).data.data; }
@@ -54,7 +54,7 @@ async function detail(id: number, target = 1, quiet = false) {
     } catch (e) { if (version === detailRequest) error.value = errorMessage(e); }
     finally { if (version === detailRequest) detailLoading.value = false; }
 }
-function editProduct(product: CatalogProduct | null, event: Event) { opener.value = event.currentTarget as HTMLElement; productDraft.value = product; productOpen.value = true; notice.value = ''; }
+function editProduct(product: CatalogProduct | null, event: Event, mode: 'single' | 'batch' | 'advanced' = 'single') { opener.value = event.currentTarget as HTMLElement; productDraft.value = product; editorMode.value = mode; productOpen.value = true; notice.value = ''; }
 function editVariant(variant: CatalogVariant | null, event: Event) { opener.value = event.currentTarget as HTMLElement; variantDraft.value = variant; variantOpen.value = true; notice.value = ''; }
 async function savedProduct(id: number) { notice.value = 'Producto guardado correctamente.'; await Promise.all([loadProducts(page.value), detail(id)]); }
 async function savedVariant() { if (!selected.value) return; notice.value = 'Variante guardada correctamente.'; await detail(selected.value.id, variants.value.current_page); await loadProducts(page.value); }
@@ -74,7 +74,7 @@ onUnmounted(() => { ++request; ++detailRequest; controller?.abort(); clearTimeou
     <CatalogImportView v-if="importing && manage" :business="business" :options="options" :costs="costs" @back="importing = false" @changed="importChanged" @product="id => { importing = false; detail(id); }" />
     <CatalogOptionsManager v-else-if="organizing && manage" :options="options" @back="organizing = false" @changed="loadOptions" />
     <template v-else>
-        <div class="catalog-actions"><div><span class="eyebrow">PRODUCTOS Y SERVICIOS</span><p class="muted">{{ business.name }} · Catálogo del negocio</p></div><div class="actions"><button type="button" class="button secondary" :disabled="loading || detailLoading" @click="refreshCatalog">Actualizar</button><button v-if="manage" type="button" class="button secondary" @click="organizing = true">Organizar catálogo</button><button v-if="manage" type="button" class="button secondary" @click="openImport">Importar CSV</button><button v-if="manage" type="button" class="button primary" @click="editProduct(null, $event)">+ Nuevo producto</button></div></div>
+        <div class="catalog-actions"><div><span class="eyebrow">PRODUCTOS Y SERVICIOS</span><p class="muted">{{ business.name }} · Catálogo del negocio</p></div><div class="actions"><button type="button" class="button secondary" :disabled="loading || detailLoading" @click="refreshCatalog">Actualizar</button><button v-if="manage" type="button" class="button secondary" @click="organizing = true">Organizar catálogo</button><button v-if="manage" type="button" class="button secondary" @click="openImport">Importar CSV</button><button v-if="manage" type="button" class="button secondary" @click="editProduct(null, $event, 'batch')">+ Subir hasta 10 fotos</button><button v-if="manage" type="button" class="button primary" @click="editProduct(null, $event, 'single')">+ Nuevo producto</button></div></div>
         <template v-if="selected || detailLoading">
             <button type="button" class="text-button" @click="back">← Volver a productos</button>
             <p v-if="detailLoading" class="notice" role="status">Cargando producto…</p>
@@ -106,7 +106,7 @@ onUnmounted(() => { ++request; ++detailRequest; controller?.abort(); clearTimeou
             </template>
         </template>
     </template>
-    <ProductEditor v-if="manage" :open="productOpen" :product="productDraft" :options="options" :costs="costs" :opener="opener" :actor-id="actorId" :store="store" :warehouses="warehouses" :inventory-manage="permissions.includes('inventory.manage')" @close="productOpen = false" @saved="savedProduct" @photo-recovery="refreshPhotoReminders" />
+    <ProductEditor v-if="manage" :open="productOpen" :product="productDraft" :initial-mode="editorMode" :options="options" :costs="costs" :opener="opener" :actor-id="actorId" :store="store" :warehouses="warehouses" :inventory-manage="permissions.includes('inventory.manage')" @close="productOpen = false" @saved="savedProduct" @photo-recovery="refreshPhotoReminders" />
     <VariantEditor v-if="manage" :open="variantOpen" :product="selected" :variant="variantDraft" :options="options" :costs="costs" :opener="opener" @close="variantOpen = false" @saved="savedVariant" />
     <ProductGallery :open="photosOpen" :product="selected" :variants="variants.data" :manage="manage" :opener="photoOpener" @close="photosOpen = false" @changed="photosChanged" />
 </template>
