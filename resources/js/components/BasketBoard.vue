@@ -451,7 +451,7 @@ onUnmounted(() => {
     <div class="basket-board">
         <header class="basket-board-header">
             <div>
-                <span class="eyebrow">{{ business.name }}</span>
+                <span class="eyebrow">{{ store?.name || business.name }}</span>
                 <h1>Tablero de Apartados</h1>
                 <p class="muted">Selecciona una tarjeta para trabajar su detalle aquí mismo.</p>
             </div>

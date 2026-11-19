@@ -253,7 +253,7 @@ onUnmounted(() => { ++request; ++detailRequest; controller?.abort(); clearTimeou
         <div class="cat-top-header">
             <div class="cat-top-title">
                 <span class="eyebrow">PRODUCTOS Y SERVICIOS</span>
-                <p class="muted">{{ business.name }} · Catálogo del negocio</p>
+                <p class="muted">{{ store?.name || business.name }} · Catálogo del negocio</p>
             </div>
             <div class="cat-primary-ctas" v-if="manage">
                 <button type="button" class="button primary" @click="editProduct(null, $event, 'single')">+ Nuevo producto</button>

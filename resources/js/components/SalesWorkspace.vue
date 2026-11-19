@@ -304,10 +304,11 @@ async function downloadPdf() {
 async function share() {
     if (!saved.value) return;
     const order = saved.value;
-    const text = `${props.business.name} · Pedido #${order.id}\n${order.customer_snapshot.full_name}\n${order.items.map((item) => `${item.product_name_snapshot} (${item.sku_snapshot}) × ${item.quantity}`).join('\n')}\nTotal: ${amount(order.grand_total, order.currency)}\nAbonado: ${amount(order.paid_total, order.currency)}\nPendiente: ${amount(order.pending_total, order.currency)}${order.invoice ? '\nFactura: ' + order.invoice.invoice_number : ''}`;
+    const brand = props.store?.name || props.business.name;
+    const text = `${brand} · Pedido #${order.id}\n${order.customer_snapshot.full_name}\n${order.items.map((item) => `${item.product_name_snapshot} (${item.sku_snapshot}) × ${item.quantity}`).join('\n')}\nTotal: ${amount(order.grand_total, order.currency)}\nAbonado: ${amount(order.paid_total, order.currency)}\nPendiente: ${amount(order.pending_total, order.currency)}${order.invoice ? '\nFactura: ' + order.invoice.invoice_number : ''}`;
     try {
         if (navigator.share) {
-            await navigator.share({ title: `${props.business.name} · Resumen`, text });
+            await navigator.share({ title: `${brand} · Resumen`, text });
             notice.value = 'Resumen compartido mediante la opción elegida en tu dispositivo.';
         } else {
             await navigator.clipboard.writeText(text);
