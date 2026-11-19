@@ -166,13 +166,22 @@ onUnmounted(() => {
                     :disabled="
                         busy ||
                         !!order.invoice ||
-                        order.paid_total !== '0.0000' ||
+                        Number(order.paid_total || 0) > 0 ||
                         !permissions.includes('sales.cancel') ||
                         order.status === 'cancelled'
                     "
+                    :title="
+                        order.status === 'cancelled'
+                            ? 'Este apartado ya está cancelado.'
+                            : order.invoice
+                              ? 'Ya tiene factura emitida; usa el flujo de devolución.'
+                              : Number(order.paid_total || 0) > 0
+                                ? 'Tiene depósitos registrados. Revierte el depósito en Pagos y reversiones antes de cancelar.'
+                                : 'Cancela el apartado y devuelve los artículos al inventario disponible.'
+                    "
                     @click="emit('action', 'cancel')"
                 >
-                    Eliminar de la venta
+                    Cancelar apartado
                 </button>
             </div>
         </header>

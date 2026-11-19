@@ -253,7 +253,10 @@ async function commit(record: Record<string, any>) {
         modal.value = '';
         clientOpen.value = false;
         newCustomer.value = null;
-        notice.value = 'Apartado actualizado correctamente.';
+        notice.value =
+            record.operation === 'cancel'
+                ? 'Apartado cancelado. Los artículos volvieron al inventario disponible.'
+                : 'Apartado actualizado correctamente.';
         await load(page.value);
         return true;
     } catch (e) {
@@ -610,7 +613,7 @@ onUnmounted(() => {
                     number: 'Cambiar número de apartado',
                     payment: 'Registrar depósito',
                     close: 'Cerrar pedido y generar factura',
-                    cancel: 'Eliminar apartado de la venta',
+                    cancel: 'Cancelar apartado',
                     deliver: 'Registrar entrega',
                     dispatch: 'Marcar mercancía enviada',
                 } as Record<string, string>
@@ -666,7 +669,7 @@ onUnmounted(() => {
                     </p></template
                 >
                 <p v-if="modal === 'cancel'">
-                    Se liberarán las reservas compatibles y se conservará el historial. Los depósitos no se eliminan.
+                    Al cancelar este apartado, todos los artículos reservados volverán automáticamente al inventario disponible y se conservará el historial.
                 </p>
                 <p v-if="modal === 'deliver'">Se entregará todo lo reservado pendiente, sin descontarlo dos veces.</p>
                 <p v-if="modal === 'dispatch'">Confirma que la mercancía ya fue enviada o entregada a la clienta.</p>
