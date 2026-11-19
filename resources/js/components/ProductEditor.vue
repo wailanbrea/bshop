@@ -54,7 +54,7 @@ async function save() {
                 const validSkus=clothingEnabled.value?clothingRows.value.map(row=>row.sku.trim()):variants.value.map(row=>row.sku.trim());
                 if(photos.value.some(photo=>photo.variantSku&&!validSkus.includes(photo.variantSku))){error.value='Revisa la variante seleccionada para cada fotografía.';return;}
                 if(clothingEnabled.value&&(!clothingValid.value||clothingRows.value.some(row=>!row.sku.trim()))){error.value='Elige al menos un color y una talla para cada color, con una referencia válida.';return;}
-                const body:Record<string,unknown>={...form,category_id:form.category_id||null,brand_id:form.brand_id||null,request_key:crypto.randomUUID()};
+                const body:Record<string,unknown>={...form,store_id:props.store?.id||undefined,category_id:form.category_id||null,brand_id:form.brand_id||null,request_key:crypto.randomUUID()};
                 if(clothingEnabled.value)body.clothing_variants=clothingRows.value.map(row=>({color:row.color,size:row.size,sku:row.sku.trim(),description:row.description?.trim()||null,sale_price:decimalInput((row.sale_price?.trim() || clothingPrice.value.trim())),...(props.costs&&clothingCost.value.trim()?{cost_price:decimalInput(clothingCost.value.trim())}:{}),is_active:true}));
                 else body.variants=variants.value.map(v=>variantPayload(v,props.costs));
                 if(addStock.value&&props.inventoryManage&&form.track_stock&&form.product_type==='physical'){

@@ -3,6 +3,7 @@
 namespace Database\Factories;
 
 use App\Models\Customer;
+use App\Models\Store;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 class CustomerFactory extends Factory
@@ -11,6 +12,6 @@ class CustomerFactory extends Factory
 
     public function definition(): array
     {
-        return ['full_name' => fake()->name(), 'email' => fake()->unique()->safeEmail(), 'phone' => fake()->numerify('809#######'), 'status' => 'active'];
+        return ['store_id' => Store::orderBy('id')->value('id'), 'full_name' => fake()->name(), 'email' => fake()->unique()->safeEmail(), 'phone' => fake()->numerify('809#######'), 'status' => 'active'];
     }
 }

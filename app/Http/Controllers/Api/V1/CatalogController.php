@@ -34,9 +34,17 @@ class CatalogController extends Controller
             ->addSelect(['primary_sku' => ProductVariant::select('sku')->whereColumn('product_id', 'products.id')->where('is_active', true)->orderBy('id')->limit(1)]);
     }
 
-    private function authorizeRead(Product $product, Request $request): void
+    private function authorizeRead(Product $product, Request $request, StoreAuthorizationService $stores): void
     {
+        $accessibleIds = $stores->accessibleIds($request->user());
+        abort_unless($product->store_id !== null && in_array((int) $product->store_id, $accessibleIds, true), 404);
         abort_if($product->status !== 'active' && ! $request->user()->permits('catalog.manage'), 404);
+    }
+
+    private function authorizeStoreProduct(Product $product, Request $request, StoreAuthorizationService $stores): void
+    {
+        $accessibleIds = $stores->accessibleIds($request->user());
+        abort_unless($product->store_id !== null && in_array((int) $product->store_id, $accessibleIds, true), 404);
     }
 
     private function attachAvailableStock(iterable $products, ?int $storeId = null): array
@@ -100,12 +108,24 @@ class CatalogController extends Controller
         return $byVariant;
     }
 
-    public function index(Request $request)
+    public function index(Request $request, StoreAuthorizationService $stores)
     {
         $data = $request->validate(['q' => ['nullable', 'string', 'max:120'], 'category_id' => ['nullable', 'integer', 'exists:categories,id'], 'brand_id' => ['nullable', 'integer', 'exists:brands,id'], 'status' => ['nullable', Rule::in(['active', 'archived', 'all'])], 'product_type' => ['nullable', Rule::in(['physical', 'service'])], 'store_id' => ['nullable', 'integer', 'min:1'], 'page' => ['nullable', 'integer', 'min:1'], 'per_page' => ['nullable', 'integer', 'between:1,60']]);
         $status = $data['status'] ?? 'active';
         abort_if($status !== 'active' && ! $request->user()->permits('catalog.manage'), 403);
+        $accessibleIds = $stores->accessibleIds($request->user());
+        $requestedStoreId = isset($data['store_id']) ? (int) $data['store_id'] : null;
+        if ($requestedStoreId !== null) {
+            abort_unless(in_array($requestedStoreId, $accessibleIds, true), 404);
+        }
         $query = $this->products()->when($status !== 'all', fn ($q) => $q->where('status', $status));
+        if ($requestedStoreId !== null) {
+            $query->where('store_id', $requestedStoreId);
+        } elseif (! empty($accessibleIds)) {
+            $query->whereIn('store_id', $accessibleIds);
+        } else {
+            $query->whereRaw('1 = 0');
+        }
         foreach (['category_id', 'brand_id', 'product_type'] as $field) {
             if (! empty($data[$field])) {
                 $query->where($field, $data[$field]);
@@ -118,17 +138,18 @@ class CatalogController extends Controller
         }
 
         $paginated = $query->orderByDesc('id')->paginate($data['per_page'] ?? 24)->withQueryString();
-        $this->attachAvailableStock($paginated->getCollection(), isset($data['store_id']) ? (int) $data['store_id'] : null);
+        $stockStoreId = $requestedStoreId ?? (count($accessibleIds) === 1 ? $accessibleIds[0] : null);
+        $this->attachAvailableStock($paginated->getCollection(), $stockStoreId);
 
         return CatalogProductResource::collection($paginated);
     }
 
-    public function show(Request $request)
+    public function show(Request $request, StoreAuthorizationService $stores)
     {
         $data = $request->validate(['page' => ['nullable', 'integer', 'min:1'], 'store_id' => ['nullable', 'integer', 'min:1']]);
         $product = $this->products()->findOrFail($request->route('product'));
-        $this->authorizeRead($product, $request);
-        $storeId = isset($data['store_id']) ? (int) $data['store_id'] : null;
+        $this->authorizeRead($product, $request, $stores);
+        $storeId = isset($data['store_id']) ? (int) $data['store_id'] : $product->store_id;
         $byVariant = $this->attachAvailableStock([$product], $storeId);
         $variants = $product->variants()->with('attributeValues.attribute')->when(! $request->user()->permits('catalog.manage'), fn ($q) => $q->where('is_active', true))->orderBy('id')->paginate(24);
         foreach ($variants->items() as $v) {
@@ -141,6 +162,7 @@ class CatalogController extends Controller
     public function create(Request $request, ProductService $service, IdempotentAction $once, InventoryService $inventory, StoreAuthorizationService $stores, ClothingVariants $clothing)
     {
         $key = $request->validate(['request_key' => ['sometimes', 'required', 'uuid']])['request_key'] ?? null;
+        $requestedStoreId = $request->validate(['store_id' => ['sometimes', 'nullable', 'integer', 'min:1']])['store_id'] ?? null;
         $categoryName = $request->validate(['category_name' => ['sometimes', 'nullable', 'string', 'max:120']])['category_name'] ?? null;
         $clothingRows = $request->validate(['clothing_variants' => ['sometimes', 'required', 'array', 'list', 'min:1', 'max:100'], 'clothing_variants.*.color' => ['nullable', 'string', 'max:120'], 'clothing_variants.*.size' => ['nullable', 'string', 'max:120'], 'clothing_variants.*.sku' => ['required', 'string', 'max:90'], 'clothing_variants.*.sale_price' => ['required', new DecimalAmount], 'clothing_variants.*.barcode' => ['nullable', 'string', 'max:100'], 'clothing_variants.*.description' => ['nullable', 'string', 'max:2000'], 'clothing_variants.*.cost_price' => $request->user()->permits('catalog.costs') ? ['nullable', new DecimalAmount] : ['missing'], 'clothing_variants.*.is_active' => ['sometimes', 'boolean']])['clothing_variants'] ?? null;
         if ($clothingRows !== null && ($key === null || $request->has('variants'))) {
@@ -150,7 +172,15 @@ class CatalogController extends Controller
         if ($stock !== null && $key === null) {
             throw ValidationException::withMessages(['request_key' => 'La existencia inicial requiere una clave de recuperación.']);
         }
-        $create = function () use ($request, $service, $inventory, $stores, $stock, $clothing, $clothingRows, $categoryName) {
+        $accessibleIds = $stores->accessibleIds($request->user());
+        $targetStoreId = $requestedStoreId !== null
+            ? (int) $requestedStoreId
+            : ($stock !== null ? (int) $stock['store_id'] : ($accessibleIds[0] ?? null));
+        abort_unless($targetStoreId !== null && in_array($targetStoreId, $accessibleIds, true), 404);
+        if ($stock !== null && (int) $stock['store_id'] !== $targetStoreId) {
+            throw ValidationException::withMessages(['initial_stock' => 'La existencia inicial debe corresponder a la tienda seleccionada.']);
+        }
+        $create = function () use ($request, $service, $inventory, $stores, $stock, $clothing, $clothingRows, $categoryName, $targetStoreId) {
             // Validate inside the idempotent transaction so a completed replay is not rejected by SKU uniqueness.
             $form = ProductRequest::createFrom($request);
             $form->setContainer(app())->setRedirector(app('redirect'));
@@ -175,7 +205,9 @@ class CatalogController extends Controller
             }
             $form->validateResolved();
 
-            $product = $service->create($form->validated(), $request->user());
+            $payload = $form->validated();
+            $payload['store_id'] = $targetStoreId;
+            $product = $service->create($payload, $request->user());
             if ($stock !== null) {
                 $context = new StoreContext;
                 $context->useStore($stores->authorize($request->user(), (int) $stock['store_id']));
@@ -211,17 +243,20 @@ class CatalogController extends Controller
         return response()->json(['data' => (new CatalogProductResource($this->products()->findOrFail($result['product_id'])))->resolve($request), 'meta' => ['replay' => $result['replay']]], $result['replay'] ? 200 : 201);
     }
 
-    public function update(ProductRequest $request, ProductService $service)
+    public function update(ProductRequest $request, ProductService $service, StoreAuthorizationService $stores)
     {
+        $existing = Product::findOrFail((int) $request->route('product'));
+        $this->authorizeStoreProduct($existing, $request, $stores);
         $product = $service->update((int) $request->route('product'), $request->validated(), $request->user());
 
         return response()->json(['data' => (new CatalogProductResource($this->products()->findOrFail($product->id)))->resolve($request)]);
     }
 
-    public function destroy(Request $request)
+    public function destroy(Request $request, StoreAuthorizationService $stores)
     {
         $data = $request->validate(['confirm_with_sales' => ['sometimes', 'boolean']]);
         $product = Product::findOrFail((int) $request->route('product'));
+        $this->authorizeStoreProduct($product, $request, $stores);
         $variantIds = $product->variants()->pluck('id');
         $orderItemsCount = $variantIds->isEmpty() ? 0 : DB::table('order_items')->whereIn('variant_id', $variantIds)->count();
         $invoiceItemsCount = $variantIds->isEmpty() ? 0 : DB::table('invoice_items')->whereIn('variant_id', $variantIds)->count();
@@ -255,15 +290,19 @@ class CatalogController extends Controller
         ]);
     }
 
-    public function addVariant(VariantRequest $request, ProductService $service)
+    public function addVariant(VariantRequest $request, ProductService $service, StoreAuthorizationService $stores)
     {
+        $existing = Product::findOrFail((int) $request->route('product'));
+        $this->authorizeStoreProduct($existing, $request, $stores);
         $result = $service->addVariant((int) $request->route('product'), $request->validated(), $request->user());
 
         return response()->json(['data' => (new CatalogVariantResource($result['variant']))->resolve($request), 'meta' => ['product_version' => $result['product_version']]], 201);
     }
 
-    public function updateVariant(VariantRequest $request, ProductService $service)
+    public function updateVariant(VariantRequest $request, ProductService $service, StoreAuthorizationService $stores)
     {
+        $existing = Product::findOrFail((int) $request->route('product'));
+        $this->authorizeStoreProduct($existing, $request, $stores);
         $result = $service->updateVariant((int) $request->route('product'), (int) $request->route('variant'), $request->validated(), $request->user());
 
         return response()->json(['data' => (new CatalogVariantResource($result['variant']))->resolve($request), 'meta' => ['product_version' => $result['product_version']]]);

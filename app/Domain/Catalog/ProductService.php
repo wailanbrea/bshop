@@ -38,6 +38,13 @@ final class ProductService
             return DB::transaction(function () use ($data, $actor) {
                 $this->authorize($actor);
                 $this->references($data);
+                if (empty($data['store_id'])) {
+                    $defaultStoreId = DB::table('store_user')->where('user_id', $actor->id)->orderBy('store_id')->value('store_id')
+                        ?? DB::table('stores')->orderBy('id')->value('id');
+                    if ($defaultStoreId !== null) {
+                        $data['store_id'] = (int) $defaultStoreId;
+                    }
+                }
                 $product = Product::create($data);
                 foreach ($data['variants'] as $variant) {
                     $this->insertVariant($product, $variant, $actor);

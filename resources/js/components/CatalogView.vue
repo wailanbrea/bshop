@@ -233,6 +233,12 @@ async function refreshCatalog() { notice.value = ''; await Promise.all([loadOpti
 async function importChanged() { await Promise.all([loadProducts(1), ...(selected.value ? [detail(selected.value.id)] : [])]); }
 watch(query, () => { clearTimeout(searchTimer); searchTimer = setTimeout(() => loadProducts(), 300); });
 watch([category, brand, status, type], () => loadProducts());
+watch(() => props.store?.id, (newId, oldId) => {
+    if (newId && oldId && newId !== oldId) {
+        selected.value = null;
+        loadProducts(1);
+    }
+});
 watch(() => props.store?.id, () => { loadProducts(page.value); if (selected.value) detail(selected.value.id, variants.value.current_page, true); });
 onMounted(() => { loadOptions(); loadProducts(); });
 onUnmounted(() => { ++request; ++detailRequest; controller?.abort(); clearTimeout(searchTimer); });

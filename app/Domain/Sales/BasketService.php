@@ -32,7 +32,7 @@ final class BasketService
             $store = Store::whereKey($context->store()->id)->lockForUpdate()->firstOrFail();
             $warehouse = Warehouse::where('store_id', $store->id)->lockForUpdate()->findOrFail($data['warehouse_id']);
             abort_unless($store->is_active && $warehouse->is_active, 409, 'Sucursal o almacén inactivos.');
-            $customer = Customer::where('status', 'active')->sharedLock()->findOrFail($data['customer_id']);
+            $customer = Customer::where('store_id', $store->id)->where('status', 'active')->sharedLock()->findOrFail($data['customer_id']);
             $order = SalesOrder::create(['store_id' => $store->id, 'warehouse_id' => $warehouse->id, 'customer_id' => $customer->id, 'customer_snapshot' => $customer->only(['full_name', 'phone', 'email', 'address']), 'status' => 'draft', 'order_kind' => 'reservation', 'channel' => 'manual', 'currency' => BusinessProfile::current()->default_currency, 'subtotal' => '0.0000', 'discount_total' => '0.0000', 'tax_total' => '0.0000', 'shipping_total' => '0.0000', 'grand_total' => '0.0000', 'tax_rate_snapshot' => DB::table('business_settings')->where('id', 1)->value('sales_tax_rate')]);
             $this->sales->assignNumber($order);
             $this->audit->record('basket.created', $order, actor: $actor);

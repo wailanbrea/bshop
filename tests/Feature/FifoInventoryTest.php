@@ -96,7 +96,7 @@ class FifoInventoryTest extends TestCase
         $this->assertSame('3.0000', $lots[1]['remaining_quantity']);
 
         // Sell 3 pairs at $50.00 => total $150.00; FIFO COGS = 2*20 + 1*25 = $65.00; profit = $85.00
-        $customer = Customer::create(['full_name' => 'Cliente FIFO', 'phone' => '8095550101', 'status' => 'active']);
+        $customer = Customer::create(['store_id' => $this->store, 'full_name' => 'Cliente FIFO', 'phone' => '8095550101', 'status' => 'active']);
         $quote = $this->postJson("/api/v1/business/stores/{$this->store}/sales/quote", [
             'warehouse_id' => $this->warehouse,
             'lines' => [['variant_id' => $this->variant, 'quantity' => '3']],

@@ -13,9 +13,9 @@ use Illuminate\Support\Facades\DB;
 
 class CustomerController extends Controller
 {
-    public function show(Request $request)
+    public function show(Request $request, StoreContext $context)
     {
-        return response()->json(['data' => Customer::findOrFail($request->route('customer'))]);
+        return response()->json(['data' => Customer::where('store_id', $context->store()->id)->findOrFail($request->route('customer'))]);
     }
 
     public function status(Request $request, StoreContext $context, IdempotentAction $once, AuditTrailService $audit)
@@ -27,8 +27,8 @@ class CustomerController extends Controller
         $result = $once->run('customers.status', $key, [$request->user()->id, $context->store()->id, $id], $data, function () use ($request, $context) {
             abort_unless(User::whereKey($request->user()->id)->sharedLock()->firstOrFail()->permits('customers.manage'), 403);
             abort_unless(DB::table('store_user')->where('user_id', $request->user()->id)->where('store_id', $context->store()->id)->sharedLock()->first(), 404);
-        }, function () use ($id, $data, $request, $audit) {
-            $customer = Customer::whereKey($id)->lockForUpdate()->firstOrFail();
+        }, function () use ($id, $data, $request, $audit, $context) {
+            $customer = Customer::where('store_id', $context->store()->id)->whereKey($id)->lockForUpdate()->firstOrFail();
             abort_if($customer->lock_version !== (int) $data['version'], 409, 'El cliente cambió. Actualiza su ficha.');
             if ($customer->status !== $data['status']) {
                 $before = $customer->only(['status', 'lock_version']);
@@ -51,8 +51,8 @@ class CustomerController extends Controller
         $result = $once->run('customers.update', $data['request_key'], [$request->user()->id, $context->store()->id, $id], $data, function () use ($request, $context) {
             abort_unless(User::whereKey($request->user()->id)->sharedLock()->firstOrFail()->permits('customers.manage'), 403);
             abort_unless(DB::table('store_user')->where('user_id', $request->user()->id)->where('store_id', $context->store()->id)->sharedLock()->first(), 404);
-        }, function () use ($id, $data, $request, $audit) {
-            $customer = Customer::whereKey($id)->lockForUpdate()->firstOrFail();
+        }, function () use ($id, $data, $request, $audit, $context) {
+            $customer = Customer::where('store_id', $context->store()->id)->whereKey($id)->lockForUpdate()->firstOrFail();
             abort_if($customer->lock_version !== (int) $data['version'], 409, 'El cliente cambió. Actualiza su ficha.');
             $before = $customer->only(['full_name', 'phone', 'email', 'address', 'notes']);
             $customer->fill(collect($data)->except(['request_key', 'version'])->all());
@@ -73,13 +73,13 @@ class CustomerController extends Controller
         $result = json_decode($record->response_data, true, flags: JSON_THROW_ON_ERROR);
         abort_unless(($result['_identity'][0] ?? null) === $request->user()->id && ($result['_identity'][1] ?? null) === $context->store()->id, 404);
 
-        return response()->json(['data' => ['customer' => Customer::findOrFail($result['customer']['id']), 'replay' => true]]);
+        return response()->json(['data' => ['customer' => Customer::where('store_id', $context->store()->id)->findOrFail($result['customer']['id']), 'replay' => true]]);
     }
 
-    public function index(Request $request)
+    public function index(Request $request, StoreContext $context)
     {
         $data = $request->validate(['q' => ['nullable', 'string', 'max:120'], 'page' => ['nullable', 'integer', 'min:1'], 'status' => ['nullable', 'in:active,archived,all']]);
-        $query = Customer::query();
+        $query = Customer::query()->where('store_id', $context->store()->id);
         if (($data['status'] ?? 'active') !== 'all') {
             $query->where('status', $data['status'] ?? 'active');
         }
@@ -101,8 +101,8 @@ class CustomerController extends Controller
             function () use ($request, $context) {
                 abort_unless(User::whereKey($request->user()->id)->sharedLock()->firstOrFail()->permits('customers.manage'), 403);
                 abort_unless(DB::table('store_user')->where('user_id', $request->user()->id)->where('store_id', $context->store()->id)->sharedLock()->first(), 404);
-            }, function () use ($data, $audit, $request) {
-                $customer = Customer::create($data);
+            }, function () use ($data, $audit, $request, $context) {
+                $customer = Customer::create([...$data, 'store_id' => $context->store()->id]);
                 $audit->record('customer.created', $customer, actor: $request->user());
 
                 return ['customer' => $customer->toArray()];

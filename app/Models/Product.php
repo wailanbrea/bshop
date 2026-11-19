@@ -12,13 +12,18 @@ class Product extends Model
 {
     use HasFactory, SoftDeletes;
 
-    protected $fillable = ['category_id', 'brand_id', 'name', 'description', 'product_type', 'unit_code', 'track_stock', 'status'];
+    protected $fillable = ['store_id', 'category_id', 'brand_id', 'name', 'description', 'product_type', 'unit_code', 'track_stock', 'status'];
 
     protected $attributes = ['product_type' => 'physical', 'unit_code' => 'unit', 'track_stock' => true, 'status' => 'active', 'lock_version' => 0];
 
     protected function casts(): array
     {
-        return ['track_stock' => 'boolean', 'lock_version' => 'integer', 'min_sale_price' => 'decimal:4', 'max_sale_price' => 'decimal:4'];
+        return ['store_id' => 'integer', 'track_stock' => 'boolean', 'lock_version' => 'integer', 'min_sale_price' => 'decimal:4', 'max_sale_price' => 'decimal:4'];
+    }
+
+    public function store(): BelongsTo
+    {
+        return $this->belongsTo(Store::class);
     }
 
     public function variants(): HasMany

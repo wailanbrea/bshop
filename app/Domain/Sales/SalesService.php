@@ -66,7 +66,11 @@ final class SalesService
         $this->authorize($context, $actor);
         $data = $this->validate($input);
         $warehouse = Warehouse::where('store_id', $context->store()->id)->where('is_active', true)->findOrFail($data['warehouse_id']);
-        $variants = ProductVariant::with(['product', 'attributeValues.attribute'])->whereIn('id', array_column($data['lines'], 'variant_id'))->get()->keyBy('id');
+        $variants = ProductVariant::with(['product', 'attributeValues.attribute'])
+            ->whereHas('product', fn ($q) => $q->where('store_id', $context->store()->id))
+            ->whereIn('id', array_column($data['lines'], 'variant_id'))
+            ->get()
+            ->keyBy('id');
 
         return $this->price($data, $warehouse, $variants);
     }
@@ -108,6 +112,9 @@ final class SalesService
             $variant->setRelation('product', $products[$variant->product_id]);
         }
         $store = Store::whereKey($context->store()->id)->lockForUpdate()->firstOrFail();
+        foreach ($products as $product) {
+            abort_if($product->store_id !== null && (int) $product->store_id !== (int) $store->id, 404);
+        }
         $warehouse = Warehouse::where('store_id', $store->id)->lockForUpdate()->findOrFail($warehouseId);
         if ($requireActive) {
             abort_if(! $store->is_active || ! $warehouse->is_active, 409, 'La sucursal o el almacén están inactivos.');
@@ -130,7 +137,7 @@ final class SalesService
 
         return $this->idempotency->run('sales.create', $key, [$actor->id, $context->store()->id], $data, fn () => $this->authorize($context, $actor), function () use ($context, $actor, $data, $key) {
             [$warehouse, $variants, $balances, $products] = $this->lockStock($context, array_column($data['lines'], 'variant_id'), $data['warehouse_id']);
-            $customer = Customer::where('status', 'active')->sharedLock()->findOrFail($data['customer_id']);
+            $customer = Customer::where('store_id', $context->store()->id)->where('status', 'active')->sharedLock()->findOrFail($data['customer_id']);
             $quote = $this->price($data, $warehouse, $variants);
             abort_unless(hash_equals($quote['quote_hash'], $data['quote_hash']), 409, 'Los precios cambiaron. Revisa el total actualizado antes de confirmar.');
             if (bccomp($data['initial_payment'], $quote['grand_total'], 4) > 0) {

@@ -17,16 +17,25 @@ class BusinessTeamController extends Controller
     public function index(Request $request, StoreAuthorizationService $access)
     {
         $stores = $access->accessible($request->user())->orderBy('name')->get();
-        $all = DB::table('store_user')->get()->groupBy('user_id');
+        $storeIds = $stores->pluck('id')->map(fn ($id) => (int) $id)->all();
+        $visibleUserIds = empty($storeIds)
+            ? [$request->user()->id]
+            : DB::table('store_user')->whereIn('store_id', $storeIds)->distinct()->pluck('user_id')->push($request->user()->id)->unique()->all();
+        $all = DB::table('store_user')->whereIn('user_id', $visibleUserIds)->get()->groupBy('user_id');
+        $visibleInvitationIds = empty($storeIds)
+            ? []
+            : DB::table('invitation_store_access')->whereIn('store_id', $storeIds)->distinct()->pluck('invitation_id')->all();
 
         return response()->json(['data' => [
-            'members' => User::with('roles')->orderBy('id')->get()->map(function ($user) use ($stores, $all) {
-                $ids = ($all[$user->id] ?? collect())->pluck('store_id')->all();
+            'members' => User::with('roles')->whereIn('id', $visibleUserIds)->orderBy('id')->get()->map(function ($user) use ($storeIds, $all) {
+                $ids = ($all[$user->id] ?? collect())->pluck('store_id')->map(fn ($id) => (int) $id)->all();
 
-                return ['id' => $user->id, 'user_id' => $user->id, 'name' => $user->name, 'email' => $user->email, 'status' => $user->is_active ? 'active' : 'suspended', 'user_active' => $user->is_active, 'role_ids' => $user->roles->pluck('id'), 'role_labels' => $user->roles->pluck('label'), 'store_ids' => array_values(array_intersect($ids, $stores->pluck('id')->all())), 'can_manage' => array_diff($ids, $stores->pluck('id')->all()) === []];
+                return ['id' => $user->id, 'user_id' => $user->id, 'name' => $user->name, 'email' => $user->email, 'status' => $user->is_active ? 'active' : 'suspended', 'user_active' => $user->is_active, 'role_ids' => $user->roles->pluck('id'), 'role_labels' => $user->roles->pluck('label'), 'store_ids' => array_values(array_intersect($ids, $storeIds)), 'can_manage' => array_diff($ids, $storeIds) === []];
             }),
             'roles' => Role::all(['id', 'code', 'label']), 'stores' => $stores,
-            'invitations' => TeamInvitation::where('status', 'pending')->where('expires_at', '>', now())->orderByDesc('id')->get(['id', 'email', 'role_id', 'expires_at', 'status']),
+            'invitations' => empty($visibleInvitationIds)
+                ? []
+                : TeamInvitation::whereIn('id', $visibleInvitationIds)->where('status', 'pending')->where('expires_at', '>', now())->orderByDesc('id')->get(['id', 'email', 'role_id', 'expires_at', 'status']),
         ]]);
     }
 

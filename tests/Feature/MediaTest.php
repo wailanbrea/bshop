@@ -261,6 +261,7 @@ class MediaTest extends TestCase
         $this->upload($key)->assertCreated();
         $seller = User::factory()->create();
         $seller->roles()->attach(Role::where('code', 'seller')->value('id'));
+        \Illuminate\Support\Facades\DB::table('store_user')->insert(['user_id' => $seller->id, 'store_id' => \Illuminate\Support\Facades\DB::table('stores')->orderBy('id')->value('id')]);
         Auth::forgetGuards();
         $this->app['session']->flush();
         $this->actingAs($seller);

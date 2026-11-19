@@ -34,7 +34,7 @@ class CatalogProductResource extends JsonResource
             }
         }
 
-        return ['id' => $this->id, 'name' => $this->name, 'description' => $this->description, 'product_type' => $this->product_type, 'unit_code' => $this->unit_code, 'track_stock' => $this->track_stock, 'status' => $this->status, 'version' => $this->lock_version,
+        return ['id' => $this->id, 'store_id' => $this->store_id, 'name' => $this->name, 'description' => $this->description, 'product_type' => $this->product_type, 'unit_code' => $this->unit_code, 'track_stock' => $this->track_stock, 'status' => $this->status, 'version' => $this->lock_version,
             'category' => $this->category ? ['id' => $this->category->id, 'name' => $this->category->name] : null,
             'brand' => $this->brand ? ['id' => $this->brand->id, 'name' => $this->brand->name] : null,
             'primary_sku' => $this->primary_sku, 'variants_count' => $this->variants_count, 'active_variants_count' => $this->active_variants_count,

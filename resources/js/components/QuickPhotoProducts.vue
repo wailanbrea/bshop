@@ -434,6 +434,7 @@ async function persistItem(item: QuickItem, indexLabel: string): Promise<number>
             throw new Error('Selecciona una sucursal y un almacén activos para registrar la cantidad.');
         }
         const body: Record<string, unknown> = {
+            store_id: props.store?.id || undefined,
             name: item.name.trim(),
             description: item.description.trim() || null,
             category_id: null,
@@ -529,6 +530,7 @@ async function submitSharedBatch() {
                 throw new Error('Selecciona una sucursal y un almacén activos para registrar la cantidad.');
             }
             const body: Record<string, unknown> = {
+                store_id: props.store?.id || undefined,
                 name: sharedName,
                 description: batchSharedDescription.value.trim() || null,
                 category_id: null,

@@ -41,7 +41,7 @@ class InventoryController extends Controller
         $data = $request->validate(['q' => ['nullable', 'string', 'max:120'], 'page' => ['nullable', 'integer', 'min:1'], 'filter' => ['nullable', 'in:all,available,low,empty']]);
         $query = ProductVariant::withTrashed()->with(['product' => fn ($q) => $q->withTrashed()->with('images.asset.renditions'), 'attributeValues.attribute'])
             ->leftJoin('stock_balances as stock', fn ($join) => $join->on('stock.variant_id', '=', 'product_variants.id')->where('stock.warehouse_id', $warehouse->id))
-            ->where(fn ($q) => $q->whereHas('product', fn ($p) => $p->where('status', 'active')->where('product_type', 'physical')->where('track_stock', true))->orWhereNotNull('stock.variant_id'))
+            ->where(fn ($q) => $q->whereHas('product', fn ($p) => $p->where('store_id', $context->store()->id)->where('status', 'active')->where('product_type', 'physical')->where('track_stock', true))->orWhereNotNull('stock.variant_id'))
             ->select('product_variants.*', 'stock.on_hand', 'stock.reserved', 'stock.version as stock_version');
         if (! empty($data['q'])) {
             $search = '%'.str_replace(['!', '%', '_'], ['!!', '!%', '!_'], trim($data['q'])).'%';
@@ -154,7 +154,7 @@ class InventoryController extends Controller
         $data = $request->validate(['q' => ['nullable', 'string', 'max:120'], 'filter' => ['nullable', 'in:all,available,low,empty']]);
         $query = ProductVariant::withTrashed()->with(['product' => fn ($q) => $q->withTrashed(), 'attributeValues.attribute'])
             ->leftJoin('stock_balances as stock', fn ($join) => $join->on('stock.variant_id', '=', 'product_variants.id')->where('stock.warehouse_id', $warehouse->id))
-            ->where(fn ($q) => $q->whereHas('product', fn ($p) => $p->where('status', 'active')->where('product_type', 'physical')->where('track_stock', true))->orWhereNotNull('stock.variant_id'))
+            ->where(fn ($q) => $q->whereHas('product', fn ($p) => $p->where('store_id', $context->store()->id)->where('status', 'active')->where('product_type', 'physical')->where('track_stock', true))->orWhereNotNull('stock.variant_id'))
             ->select('product_variants.*', 'stock.on_hand', 'stock.reserved');
         if (! empty($data['q'])) {
             $search = '%'.str_replace(['!', '%', '_'], ['!!', '!%', '!_'], trim($data['q'])).'%';

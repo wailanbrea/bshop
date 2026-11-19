@@ -54,13 +54,13 @@ final class OrderRequestLinks
         $result = $this->once->run('order-request.issue', $key, [$actor->id, $store], $data, fn () => $this->sales->authorize($context, $actor), function () use ($actor, $data, $token, $store, $targetOrderId) {
             Store::whereKey($store)->where('is_active', true)->lockForUpdate()->firstOrFail();
             Warehouse::where('store_id', $store)->where('is_active', true)->findOrFail($data['warehouse_id']);
-            Customer::where('status', 'active')->sharedLock()->findOrFail($data['customer_id']);
+            Customer::where('store_id', $store)->where('status', 'active')->sharedLock()->findOrFail($data['customer_id']);
             $targetOrder = null;
             if ($targetOrderId !== null) {
                 $targetOrder = SalesOrder::where('store_id', $store)->where('customer_id', $data['customer_id'])->lockForUpdate()->findOrFail($targetOrderId);
                 abort_if($targetOrder->order_kind !== 'reservation' || $targetOrder->closed_at || ! in_array($targetOrder->status, ['draft', 'reserved'], true) || OrderInvoice::query($targetOrder->id)->exists(), 409, 'El apartado seleccionado ya no admite agregar artículos.');
             }
-            $valid = ProductVariant::whereIn('id', $data['variant_ids'])->where('is_active', true)->whereHas('product', fn ($q) => $q->where('status', 'active'))->count();
+            $valid = ProductVariant::whereIn('id', $data['variant_ids'])->where('is_active', true)->whereHas('product', fn ($q) => $q->where('store_id', $store)->where('status', 'active'))->count();
             abort_unless($valid === count($data['variant_ids']), 409, 'Selecciona variantes activas del catálogo.');
             // Read the current committed links after acquiring the store lock.
             abort_if(DB::table('share_links')->where('store_id', $store)->where('customer_id', $data['customer_id'])->where('status', 'active')->where('expires_at', '>', now())->lockForUpdate()->get(['id'])->count() >= 5, 409, 'Revoca un enlace activo de este cliente antes de generar otro.');

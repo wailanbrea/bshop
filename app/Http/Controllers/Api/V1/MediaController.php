@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Domain\Business\StoreAuthorizationService;
 use App\Domain\Media\GalleryService;
 use App\Domain\Media\MediaUploadService;
 use App\Http\Controllers\Controller;
@@ -13,9 +14,16 @@ use Illuminate\Http\Request;
 
 class MediaController extends Controller
 {
-    public function gallery(Request $request)
+    private function authorizeProductStore(Product $product, Request $request, StoreAuthorizationService $stores): void
+    {
+        $accessibleIds = $stores->accessibleIds($request->user());
+        abort_unless($product->store_id !== null && in_array((int) $product->store_id, $accessibleIds, true), 404);
+    }
+
+    public function gallery(Request $request, StoreAuthorizationService $stores)
     {
         $product = Product::with(['images.asset.renditions', 'images.variant.attributeValues.attribute'])->findOrFail($request->route('product'));
+        $this->authorizeProductStore($product, $request, $stores);
         abort_if($product->status !== 'active' && ! $request->user()->permits('catalog.manage'), 404);
         $result = ['images' => ProductImageResource::collection($product->images)->resolve($request), 'version' => $product->lock_version];
         if ($request->user()->permits('catalog.manage')) {
@@ -27,23 +35,29 @@ class MediaController extends Controller
         return response()->json(['data' => $result]);
     }
 
-    public function upload(Request $request, MediaUploadService $service)
+    public function upload(Request $request, MediaUploadService $service, StoreAuthorizationService $stores)
     {
+        $product = Product::findOrFail($request->route('product'));
+        $this->authorizeProductStore($product, $request, $stores);
         $data = $request->validate(['request_key' => ['required', 'uuid'], 'file' => ['required', 'file', 'max:10240'], 'variant_id' => ['nullable', 'integer', 'min:1'], 'alt_text' => ['nullable', 'string', 'max:255']]);
         $result = $service->upload((int) $request->route('product'), $request->file('file'), $data, $request->user());
 
         return response()->json(['data' => ['request_key' => $result['session']->request_key, 'status' => $result['session']->status, 'replay' => $result['replay']]], $result['replay'] ? 200 : 201);
     }
 
-    public function status(Request $request)
+    public function status(Request $request, StoreAuthorizationService $stores)
     {
+        $product = Product::findOrFail($request->route('product'));
+        $this->authorizeProductStore($product, $request, $stores);
         $session = MediaUploadSession::with('asset')->where('product_id', $request->route('product'))->where('request_key', $request->route('key'))->where('created_by_user_id', $request->user()->id)->firstOrFail();
 
         return response()->json(['data' => ['request_key' => $session->request_key, 'status' => $session->status, 'retryable' => $session->status === 'failed' && $session->reserved_bytes === 0 && ! $session->asset->cleanup_pending, 'error_code' => $session->asset->error_code]]);
     }
 
-    public function update(Request $request, GalleryService $service)
+    public function update(Request $request, GalleryService $service, StoreAuthorizationService $stores)
     {
+        $product = Product::findOrFail($request->route('product'));
+        $this->authorizeProductStore($product, $request, $stores);
         $data = $request->validate(['version' => ['required', 'integer', 'min:0'], 'primary_id' => ['present', 'nullable', 'integer'], 'images' => ['present', 'array', 'list', 'max:100'], 'images.*.id' => ['required', 'integer', 'distinct'], 'images.*.variant_id' => ['nullable', 'integer', 'min:1'], 'images.*.alt_text' => ['nullable', 'string', 'max:255']]);
         $data['version'] = (int) $data['version'];
         $data['primary_id'] = isset($data['primary_id']) ? (int) $data['primary_id'] : null;
@@ -53,14 +67,16 @@ class MediaController extends Controller
         unset($image);
         $service->update((int) $request->route('product'), $data, $request->user());
 
-        return $this->gallery($request);
+        return $this->gallery($request, $stores);
     }
 
-    public function remove(Request $request, GalleryService $service)
+    public function remove(Request $request, GalleryService $service, StoreAuthorizationService $stores)
     {
+        $product = Product::findOrFail($request->route('product'));
+        $this->authorizeProductStore($product, $request, $stores);
         $data = $request->validate(['version' => ['required', 'integer', 'min:0']]);
         $service->remove((int) $request->route('product'), (int) $request->route('image'), $data['version'], $request->user());
 
-        return $this->gallery($request);
+        return $this->gallery($request, $stores);
     }
 }

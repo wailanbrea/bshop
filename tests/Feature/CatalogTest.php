@@ -280,6 +280,7 @@ class CatalogTest extends TestCase
         $id = $this->create();
         $seller = User::factory()->create();
         $seller->roles()->attach(Role::where('code', 'seller')->value('id'));
+        DB::table('store_user')->insert(['user_id' => $seller->id, 'store_id' => Store::firstOrFail()->id]);
         $this->actingAs($seller)->getJson("/api/v1/business/products/$id")->assertOk()->assertJsonMissingPath('data.variants.data.0.cost_price');
         $this->getJson('/api/v1/business/products')->assertOk()->assertJsonMissingPath('data.0.cost_price');
         $this->postJson('/api/v1/business/products', $this->payload('ATTACK'))->assertForbidden();

@@ -50,7 +50,7 @@ class SalesController extends Controller
     {
         $data = $request->validate(['warehouse_id' => ['required', 'integer'], 'q' => ['nullable', 'string', 'max:120'], 'category_id' => ['nullable', 'integer'], 'page' => ['nullable', 'integer', 'min:1'], 'sort' => ['nullable', 'in:newest,name']]);
         $warehouse = Warehouse::where('store_id', $context->store()->id)->where('is_active', true)->findOrFail($data['warehouse_id']);
-        $query = Product::with(['category', 'images.asset.renditions', 'variants' => fn ($q) => $q->where('is_active', true)->with('attributeValues.attribute')->orderBy('id')])->where('status', 'active')->whereHas('variants', fn ($q) => $q->where('is_active', true));
+        $query = Product::with(['category', 'images.asset.renditions', 'variants' => fn ($q) => $q->where('is_active', true)->with('attributeValues.attribute')->orderBy('id')])->where('store_id', $context->store()->id)->where('status', 'active')->whereHas('variants', fn ($q) => $q->where('is_active', true));
         if (! empty($data['category_id'])) {
             $query->where('category_id', $data['category_id']);
         }
@@ -125,7 +125,7 @@ class SalesController extends Controller
         if (DB::transactionLevel() === 0) {
             return DB::transaction(fn () => $this->summary($request, $context, $service));
         }
-        $customer = Customer::findOrFail($request->route('customer'));
+        $customer = Customer::where('store_id', $context->store()->id)->findOrFail($request->route('customer'));
         $orders = SalesOrder::where('store_id', $context->store()->id)->where('customer_id', $customer->id)->where('status', '!=', 'cancelled')->orderByDesc('id')->get();
         $due = '0.0000';
         $positions = [];

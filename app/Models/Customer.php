@@ -10,12 +10,12 @@ class Customer extends Model
 {
     use HasFactory, SoftDeletes;
 
-    protected $fillable = ['full_name', 'email', 'phone', 'address', 'notes', 'status'];
+    protected $fillable = ['store_id', 'full_name', 'email', 'phone', 'address', 'notes', 'status'];
 
     protected $attributes = ['status' => 'active', 'lock_version' => 0];
 
     protected function casts(): array
     {
-        return ['lock_version' => 'integer'];
+        return ['store_id' => 'integer', 'lock_version' => 'integer'];
     }
 }
