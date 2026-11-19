@@ -16,18 +16,22 @@ use Illuminate\Validation\ValidationException;
 
 final class InventoryService
 {
-    public function __construct(private StockLedger $ledger) {}
+    public function __construct(private StockLedger $ledger, private FifoCostService $fifo) {}
 
     public function move(StoreContext $context, array $input, User $actor): array
     {
-        abort_unless($actor->fresh()?->permits('inventory.manage'), 403);
+        $freshActor = $actor->fresh();
+        abort_unless($freshActor?->permits('inventory.manage'), 403);
+        $canSetCost = (bool) $freshActor->permits('catalog.costs');
         $data = Validator::make($input, [
             'request_key' => ['required', 'uuid'], 'warehouse_id' => ['required', 'integer', 'min:1'], 'variant_id' => ['required', 'integer', 'min:1'],
             'operation' => ['required', Rule::in(['receipt', 'issue', 'count', 'transfer'])], 'quantity' => ['required', new DecimalAmount],
             'version' => ['required', 'integer', 'min:0'], 'note' => ['required', 'string', 'max:255'],
             'destination_warehouse_id' => ['required_if:operation,transfer', 'prohibited_unless:operation,transfer', 'integer', 'min:1', 'different:warehouse_id'],
+            'unit_cost' => $canSetCost ? ['nullable', new DecimalAmount] : ['missing'],
         ])->validate();
         $data['quantity'] = DecimalAmount::normalize($data['quantity']);
+        $unitCost = isset($data['unit_cost']) && $data['unit_cost'] !== '' ? DecimalAmount::normalize($data['unit_cost']) : null;
         if ($data['operation'] !== 'count' && bccomp($data['quantity'], '0', 4) <= 0) {
             throw ValidationException::withMessages(['quantity' => 'La cantidad debe ser mayor que cero.']);
         }
@@ -41,9 +45,9 @@ final class InventoryService
             throw ValidationException::withMessages(['note' => 'Indica el motivo del movimiento.']);
         }
         $storeId = $context->store()->id;
-        $hash = hash('sha256', json_encode([$actor->id, $storeId, $data['warehouse_id'], $data['variant_id'], $data['operation'], $data['quantity'], $data['version'], $data['note'], $data['destination_warehouse_id'] ?? null], JSON_THROW_ON_ERROR));
+        $hash = hash('sha256', json_encode([$actor->id, $storeId, $data['warehouse_id'], $data['variant_id'], $data['operation'], $data['quantity'], $data['version'], $data['note'], $data['destination_warehouse_id'] ?? null, $unitCost], JSON_THROW_ON_ERROR));
 
-        return DB::transaction(function () use ($data, $actor, $storeId, $hash) {
+        return DB::transaction(function () use ($data, $actor, $storeId, $hash, $unitCost) {
             // Claim and response commit together: a crash cannot leave a committed half-operation.
             DB::table('idempotency_requests')->insertOrIgnore(['operation' => 'inventory.manual', 'request_key' => $data['request_key'], 'request_hash' => $hash, 'status' => 'processing', 'created_at' => now()]);
             $request = DB::table('idempotency_requests')->where('operation', 'inventory.manual')->where('request_key', $data['request_key'])->lockForUpdate()->first();
@@ -93,11 +97,19 @@ final class InventoryService
             if (bccomp($delta, '0', 4) === 0) {
                 throw ValidationException::withMessages(['quantity' => 'El conteo coincide con el saldo; no se generó movimiento.']);
             }
-            $movements = [$this->ledger->record($warehouses[$source->id], $variant->id, $balance, $delta, '0.0000', $data['operation'] === 'transfer' ? 'transfer_out' : $data['operation'], $data['request_key'].':out', $data['note'], $actor)];
-            if ($data['operation'] === 'transfer') {
+            $isTransfer = $data['operation'] === 'transfer';
+            $movements = [$this->ledger->record($warehouses[$source->id], $variant->id, $balance, $delta, '0.0000', $isTransfer ? 'transfer_out' : $data['operation'], $data['request_key'].':out', $data['note'], $actor, null, null, $unitCost, null, $isTransfer)];
+            if ($isTransfer) {
                 $target = $warehouses[$data['destination_warehouse_id']];
                 $targetBalance = $balances[$target->id];
-                $movements[] = $this->ledger->record($target, $variant->id, $targetBalance, $data['quantity'], '0.0000', 'transfer_in', $data['request_key'].':in', $data['note'], $actor);
+                $movements[] = $this->ledger->record($target, $variant->id, $targetBalance, $data['quantity'], '0.0000', 'transfer_in', $data['request_key'].':in', $data['note'], $actor, null, null, null, null, true);
+                if ($this->fifo->available()) {
+                    $this->fifo->transferLots($source->id, $target->id, $variant->id, $movements[0]['id'], $movements[1]['id'], $data['quantity'], $data['note']);
+                }
+            } elseif ($data['operation'] === 'receipt' && $unitCost !== null) {
+                // Keep variant's reference purchase cost aligned with the latest received lot (never alters past lots or past profits).
+                $variant->cost_price = $unitCost;
+                $variant->save();
             }
             $product->increment('lock_version');
             $result = ['request_key' => $data['request_key'], 'source_store_id' => $storeId, 'performed_by_user_id' => $actor->id, 'operation' => $data['operation'], 'movements' => $movements];

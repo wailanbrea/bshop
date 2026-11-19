@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Domain\Business\StoreAuthorizationService;
 use App\Domain\Business\StoreContext;
+use App\Domain\Inventory\FifoCostService;
 use App\Domain\Inventory\InventoryReconciliation;
 use App\Domain\Inventory\InventoryService;
 use App\Domain\Media\VariantPhoto;
@@ -56,6 +57,7 @@ class InventoryController extends Controller
             $query->whereRaw('COALESCE(stock.on_hand, 0) = COALESCE(stock.reserved, 0)');
         }
         $canSeeCosts = (bool) $request->user()?->permits('catalog.costs');
+        $fifoValuation = app(FifoCostService::class)->warehouseVariantValuation($warehouse->id);
         $currency = BusinessProfile::current()->default_currency;
         $invested = '0.0000';
         $saleValue = '0.0000';
@@ -78,24 +80,72 @@ class InventoryController extends Controller
             }
             $unitsOnHand = bcadd($unitsOnHand, $oh, 4);
             $unitsAvailable = bcadd($unitsAvailable, $avail, 4);
-            if ($item->cost_price !== null) {
+            $lotVal = $fifoValuation[(int) $item->id] ?? null;
+            if ($lotVal !== null) {
+                $invested = bcadd($invested, $lotVal['invested_total'], 4);
+            } elseif ($item->cost_price !== null) {
                 $invested = bcadd($invested, bcmul($oh, bcadd((string) $item->cost_price, '0', 4), 4), 4);
             }
             $saleValue = bcadd($saleValue, bcmul($oh, bcadd((string) ($item->sale_price ?? '0'), '0', 4), 4), 4);
         }
         $page = $query->orderBy('product_variants.sku')->paginate(24);
         $photoVariants = ProductVariant::with('attributeValues.attribute')->whereIn('id', $page->getCollection()->flatMap(fn ($v) => $v->product->images->pluck('variant_id'))->filter()->unique())->get()->keyBy('id');
-        $rows = $page->getCollection()->map(function ($variant) use ($warehouse, $photoVariants, $canSeeCosts) {
+        $rows = $page->getCollection()->map(function ($variant) use ($warehouse, $photoVariants, $canSeeCosts, $fifoValuation) {
             $onHand = bcadd((string) ($variant->on_hand ?? '0'), '0', 4);
             $reserved = bcadd((string) ($variant->reserved ?? '0'), '0', 4);
             $costPrice = $canSeeCosts && $variant->cost_price !== null ? bcadd((string) $variant->cost_price, '0', 4) : null;
             $salePrice = bcadd((string) ($variant->sale_price ?? '0'), '0', 4);
             $positiveOnHand = bccomp($onHand, '0', 4) > 0 ? $onHand : '0.0000';
+            $lotVal = $fifoValuation[(int) $variant->id] ?? null;
+            $investedTotal = null;
+            if ($canSeeCosts) {
+                if ($lotVal !== null) {
+                    $investedTotal = $lotVal['invested_total'];
+                } elseif ($costPrice !== null) {
+                    $investedTotal = bcmul($positiveOnHand, $costPrice, 4);
+                }
+            }
 
-            return ['variant_id' => $variant->id, 'warehouse_id' => $warehouse->id, 'sku' => $variant->sku, 'barcode' => $variant->barcode, 'product_name' => $variant->product->name, 'product_id' => $variant->product_id, 'unit_code' => $variant->product->unit_code, 'image_url' => app(VariantPhoto::class)->url($variant->product, $variant, 'thumb', $photoVariants), 'active' => ! $variant->trashed() && ! $variant->product->trashed() && $variant->is_active && $variant->product->status === 'active', 'attributes' => $variant->attributeValues->map(fn ($v) => ['name' => $v->attribute->name, 'value' => $v->value])->all(), 'on_hand' => $onHand, 'reserved' => $reserved, 'available' => bcsub($onHand, $reserved, 4), 'unit_cost' => $costPrice, 'sale_price' => $salePrice, 'invested_total' => $costPrice !== null ? bcmul($positiveOnHand, $costPrice, 4) : null, 'sale_total' => bcmul($positiveOnHand, $salePrice, 4), 'version' => (int) ($variant->stock_version ?? 0), 'variant_version' => (int) ($variant->lock_version ?? 0)];
+            return ['variant_id' => $variant->id, 'warehouse_id' => $warehouse->id, 'sku' => $variant->sku, 'barcode' => $variant->barcode, 'product_name' => $variant->product->name, 'product_id' => $variant->product_id, 'unit_code' => $variant->product->unit_code, 'image_url' => app(VariantPhoto::class)->url($variant->product, $variant, 'thumb', $photoVariants), 'active' => ! $variant->trashed() && ! $variant->product->trashed() && $variant->is_active && $variant->product->status === 'active', 'attributes' => $variant->attributeValues->map(fn ($v) => ['name' => $v->attribute->name, 'value' => $v->value])->all(), 'on_hand' => $onHand, 'reserved' => $reserved, 'available' => bcsub($onHand, $reserved, 4), 'unit_cost' => $costPrice, 'sale_price' => $salePrice, 'invested_total' => $investedTotal, 'sale_total' => bcmul($positiveOnHand, $salePrice, 4), 'lots_count' => $canSeeCosts ? ($lotVal['lots_count'] ?? 0) : 0, 'version' => (int) ($variant->stock_version ?? 0), 'variant_version' => (int) ($variant->lock_version ?? 0)];
         });
 
         return response()->json(['data' => $rows, 'meta' => ['current_page' => $page->currentPage(), 'last_page' => $page->lastPage(), 'total' => $page->total(), 'valuation' => ['currency' => $currency, 'invested_cost' => $canSeeCosts ? $invested : null, 'sale_value' => $saleValue, 'estimated_profit' => $canSeeCosts ? bcsub($saleValue, $invested, 4) : null, 'units_on_hand' => $unitsOnHand, 'units_available' => $unitsAvailable, 'low_stock_count' => $lowStockCount, 'out_of_stock_count' => $outOfStockCount]]]);
+    }
+
+    public function lots(Request $request, StoreContext $context, FifoCostService $fifo)
+    {
+        abort_unless($request->user()?->permits('catalog.costs'), 403);
+        $warehouse = $this->warehouse($request, $context);
+        $variantId = (int) $request->route('variant');
+        if (! $fifo->available()) {
+            return response()->json(['data' => []]);
+        }
+
+        $lots = DB::table('inventory_cost_lots')
+            ->where('warehouse_id', $warehouse->id)
+            ->where('variant_id', $variantId)
+            ->where('remaining_quantity', '>', 0)
+            ->orderBy('received_at')
+            ->orderBy('id')
+            ->get()
+            ->map(function ($lot) {
+                $rem = bcadd((string) $lot->remaining_quantity, '0', 4);
+                $init = bcadd((string) $lot->initial_quantity, '0', 4);
+                $cost = $lot->unit_cost !== null ? bcadd((string) $lot->unit_cost, '0', 4) : null;
+
+                return [
+                    'id' => (int) $lot->id,
+                    'unit_cost' => $cost,
+                    'initial_quantity' => $init,
+                    'remaining_quantity' => $rem,
+                    'invested_total' => $cost !== null ? bcmul($rem, $cost, 4) : null,
+                    'received_at' => $lot->received_at,
+                    'note' => $lot->note,
+                ];
+            })
+            ->values();
+
+        return response()->json(['data' => $lots]);
     }
 
     public function export(Request $request, StoreContext $context)

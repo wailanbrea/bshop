@@ -72,6 +72,7 @@ async function save() {
         const savedVariantId: number | undefined = props.variant?.id ?? resp.data?.data?.id;
 
         const cleanQty = decimalInput(stockQty.value.trim());
+        const cleanCost = props.costs && form.value.cost_price.trim() ? decimalInput(form.value.cost_price.trim()) : '';
         if (canAdjustStock.value && props.store && activeWarehouse.value && savedVariantId && cleanQty !== '') {
             if (props.variant && stockRow.value) {
                 const currentNum = Number(stockRow.value.on_hand);
@@ -85,6 +86,7 @@ async function save() {
                         operation: 'count',
                         quantity: cleanQty,
                         note: 'Ajuste rápido de cantidad desde catálogo',
+                        ...(nextNum > currentNum && cleanCost !== '' ? { unit_cost: cleanCost } : {}),
                     });
                 }
             } else if (!props.variant) {
@@ -98,6 +100,7 @@ async function save() {
                         operation: 'receipt',
                         quantity: cleanQty,
                         note: 'Existencia inicial de nueva variante',
+                        ...(cleanCost !== '' ? { unit_cost: cleanCost } : {}),
                     });
                 }
             }

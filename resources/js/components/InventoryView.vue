@@ -4,7 +4,7 @@ import { computed, onUnmounted, ref, watch } from 'vue';
 import { api, errorMessage } from '../api';
 import { amount as money, decimalInput } from '../catalog';
 import type { Store, Warehouse } from '../types';
-import { movementNames, quantity, type InventoryValuation, type Movement, type StockRow } from '../inventory';
+import { movementNames, quantity, type CostLot, type InventoryValuation, type Movement, type StockRow } from '../inventory';
 import AppDialog from './AppDialog.vue';
 import InventoryReview from './InventoryReview.vue';
 
@@ -15,7 +15,8 @@ const canEditCosts = computed(() => props.permissions.includes('catalog.costs'))
 const warehouseId = ref<number | ''>(''); const query = ref(''); const filter = ref('all');
 const rows = ref<StockRow[]>([]); const valuation = ref<InventoryValuation | null>(null); const loading = ref(false); const page = ref(1); const lastPage = ref(1); const total = ref(0); const error = ref(''); const notice = ref('');
 const history = ref<Movement[]>([]); const historyOpen = ref(false); const historyVariant = ref<StockRow | null>(null); const historyLoading = ref(false); const historyPage = ref(1); const historyLastPage = ref(1);
-const selected = ref<StockRow | null>(null); const open = ref(false); const opener = ref<HTMLElement | null>(null); const operation = ref('receipt'); const amount = ref(''); const note = ref(''); const destination = ref<number | ''>('');
+const selected = ref<StockRow | null>(null); const open = ref(false); const opener = ref<HTMLElement | null>(null); const operation = ref('receipt'); const amount = ref(''); const unitCost = ref(''); const note = ref(''); const destination = ref<number | ''>('');
+const lotsOpen = ref(false); const lotsTarget = ref<StockRow | null>(null); const lotsList = ref<CostLot[]>([]); const lotsLoading = ref(false); const lotsError = ref('');
 const destinations = ref<{ id: number; name: string; store_name: string }[]>([]); const busy = ref(false); const formError = ref(''); const pending = ref<Record<string, unknown> | null>(null);
 const priceOpen = ref(false); const priceTarget = ref<StockRow | null>(null); const editCostPrice = ref(''); const editSalePrice = ref(''); const priceBusy = ref(false); const priceError = ref('');
 const exporting = ref(false);
@@ -101,8 +102,25 @@ async function submitPriceUpdate() {
         priceBusy.value = false;
     }
 }
+async function viewLots(row: StockRow, event: Event) {
+    if (!warehouseId.value || !canEditCosts.value) return;
+    lotsTarget.value = { ...row };
+    opener.value = event.currentTarget as HTMLElement;
+    lotsList.value = [];
+    lotsError.value = '';
+    lotsOpen.value = true;
+    lotsLoading.value = true;
+    try {
+        const res = await api.get(`${root.value}/warehouses/${warehouseId.value}/variants/${row.variant_id}/lots`);
+        lotsList.value = res.data?.data || [];
+    } catch (e) {
+        lotsError.value = errorMessage(e);
+    } finally {
+        lotsLoading.value = false;
+    }
+}
 async function edit(row: StockRow, event: Event) {
-    selected.value = { ...row }; opener.value = event.currentTarget as HTMLElement; operation.value = 'receipt'; amount.value = ''; note.value = ''; destination.value = ''; formError.value = ''; pending.value = null; open.value = true;
+    selected.value = { ...row }; opener.value = event.currentTarget as HTMLElement; operation.value = 'receipt'; amount.value = ''; unitCost.value = canEditCosts.value && row.unit_cost ? quantity(row.unit_cost) : ''; note.value = ''; destination.value = ''; formError.value = ''; pending.value = null; open.value = true;
     try { destinations.value = (await api.get(`${root.value}/inventory/destinations`)).data.data; }
     catch (e) { formError.value = errorMessage(e); }
 }
@@ -117,7 +135,8 @@ async function refreshBalance() {
 }
 async function submit() {
     if (!selected.value || busy.value) return; busy.value = true; formError.value = '';
-    pending.value ??= { request_key: crypto.randomUUID(), warehouse_id: warehouseId.value, variant_id: selected.value.variant_id, version: selected.value.version, operation: operation.value, quantity: amount.value.trim(), note: note.value.trim(), ...(operation.value === 'transfer' ? { destination_warehouse_id: destination.value } : {}) };
+    const cleanLotCost = canEditCosts.value && (operation.value === 'receipt' || operation.value === 'count') ? decimalInput(unitCost.value.trim()) : '';
+    pending.value ??= { request_key: crypto.randomUUID(), warehouse_id: warehouseId.value, variant_id: selected.value.variant_id, version: selected.value.version, operation: operation.value, quantity: amount.value.trim(), note: note.value.trim(), ...(operation.value === 'transfer' ? { destination_warehouse_id: destination.value } : {}), ...(cleanLotCost !== '' ? { unit_cost: cleanLotCost } : {}) };
     try {
         await api.post(`${root.value}/inventory/movements`, pending.value, { timeout: 30000 });
         pending.value = null; notice.value = 'Movimiento registrado. Saldos y kardex actualizados.'; await load(page.value); if (historyOpen.value) await loadHistory(); open.value = false;
@@ -249,6 +268,7 @@ onUnmounted(() => { ++sequence; ++historySequence; controller?.abort(); clearTim
                     </div>
 
                     <div class="actions inv-row-actions">
+                        <button v-if="canEditCosts && (row.lots_count || 0) > 0" type="button" class="button secondary inv-btn-sm" :aria-label="`Lotes de ${row.sku}`" @click="viewLots(row, $event)">Lotes{{ (row.lots_count || 0) > 1 ? ` (${row.lots_count})` : '' }}</button>
                         <button type="button" class="button secondary inv-btn-sm" :aria-label="`Movimientos de ${row.sku}`" @click="viewHistory(row)">Kardex</button>
                         <button v-if="canEditPrices" type="button" class="button secondary inv-btn-sm" :disabled="!row.active || loading" :aria-label="`Precios de ${row.sku}`" @click="openPriceEditor(row, $event)">Precios</button>
                         <button v-if="manage" type="button" class="button primary inv-btn-sm" :disabled="!row.active || !warehouse?.is_active || !store?.is_active || loading" :aria-label="`Ajustar ${row.sku}`" @click="edit(row, $event)">Ajustar</button>
@@ -274,6 +294,7 @@ onUnmounted(() => { ++sequence; ++historySequence; controller?.abort(); clearTim
             <fieldset class="form-fields" :disabled="busy || !!pending">
                 <div><label for="inventory-operation">Tipo de movimiento</label><select id="inventory-operation" v-model="operation"><option value="receipt">Entrada</option><option value="issue">Salida</option><option value="count">Conteo físico</option><option value="transfer">Transferencia</option></select></div>
                 <label>{{ operation === 'count' ? 'Cantidad física contada' : 'Cantidad' }}<input :value="amount" inputmode="decimal" autocomplete="off" required maxlength="20" @input="amount = ($event.target as HTMLInputElement).value.replace(',', '.')"></label>
+                <label v-if="canEditCosts && (operation === 'receipt' || operation === 'count')">Costo unitario de este lote (opcional)<input :value="unitCost" inputmode="decimal" autocomplete="off" maxlength="20" placeholder="Ej. 25.00 — conserva el costo real FIFO" @input="unitCost = ($event.target as HTMLInputElement).value.replace(',', '.')"></label>
                 <p v-if="operation === 'count'" class="muted">Se registra la diferencia con el saldo mostrado. El conteo no puede ser menor que las unidades reservadas.</p>
                 <label v-if="operation === 'transfer'">Almacén de destino<select v-model="destination" required aria-label="Almacén de destino"><option value="">Selecciona destino</option><option v-for="item in destinations.filter(w => w.id !== warehouseId)" :key="item.id" :value="item.id">{{ item.store_name }} · {{ item.name }}</option></select></label>
                 <label>Motivo<input v-model="note" required maxlength="255" placeholder="Compra, merma, corrección de conteo…"></label>
@@ -291,6 +312,29 @@ onUnmounted(() => { ++sequence; ++historySequence; controller?.abort(); clearTim
             </fieldset>
         </form>
         <template #footer><button type="button" class="button secondary" :disabled="priceBusy" @click="priceOpen = false">Cancelar</button><button type="submit" form="inventory-price-form" class="button primary" :disabled="priceBusy">{{ priceBusy ? 'Guardando…' : 'Guardar precios' }}</button></template>
+    </AppDialog>
+    <AppDialog :open="lotsOpen" title="Lotes FIFO activos" :busy="lotsLoading" :return-focus="opener" @close="lotsOpen = false">
+        <p v-if="lotsError" class="notice error" role="alert">{{ lotsError }}</p>
+        <div v-if="lotsTarget" class="notice">
+            <strong>{{ lotsTarget.product_name }} · {{ lotsTarget.sku }}</strong>
+            <p class="muted">{{ lotsTarget.attributes.map(a => `${a.name}: ${a.value}`).join(' · ') || 'Variante general' }} · Orden de salida: primero en entrar, primero en salir (FIFO).</p>
+        </div>
+        <p v-if="lotsLoading" role="status">Cargando lotes…</p>
+        <div v-else-if="lotsList.length" class="lots-list">
+            <article v-for="(lot, idx) in lotsList" :key="lot.id" class="lot-card">
+                <div class="lot-head">
+                    <strong>Lote #{{ idx + 1 }}</strong>
+                    <span class="badge">{{ quantity(lot.remaining_quantity) }} / {{ quantity(lot.initial_quantity) }} disp.</span>
+                </div>
+                <div class="lot-meta">
+                    <span>Costo unitario: <strong>{{ lot.unit_cost !== null && valuation ? money(lot.unit_cost, valuation.currency) : 'Sin costo' }}</strong></span>
+                    <span v-if="lot.invested_total !== null && valuation">Invertido: <strong>{{ money(lot.invested_total, valuation.currency) }}</strong></span>
+                </div>
+                <small class="muted">{{ new Date(lot.received_at).toLocaleString('es') }}<template v-if="lot.note"> · {{ lot.note }}</template></small>
+            </article>
+        </div>
+        <p v-else class="empty">No hay lotes con existencias activas para esta variante.</p>
+        <template #footer><button type="button" class="button secondary" @click="lotsOpen = false">Cerrar</button></template>
     </AppDialog>
 </template>
 
@@ -387,6 +431,11 @@ onUnmounted(() => { ++sequence; ++historySequence; controller?.abort(); clearTim
 .kardex-record { display: grid; gap: 8px; padding: 14px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; font-size: 14px; }
 .kardex-record .badge { justify-self: start; }
 .kardex-record small { color: var(--muted); }
+.lots-list { display: grid; gap: 10px; }
+.lot-card { display: grid; gap: 6px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: #faf8fe; }
+.lot-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.lot-meta { display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: 0.88rem; }
+.lot-meta span, .lot-meta strong { white-space: nowrap; }
 
 @media (min-width: 1280px) { .inventory-layout.with-history { grid-template-columns: minmax(0, 1.6fr) minmax(300px, 1fr); align-items: start; } }
 @media (max-width: 980px) {

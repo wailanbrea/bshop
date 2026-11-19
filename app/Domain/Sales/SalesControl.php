@@ -111,6 +111,27 @@ final class SalesControl
                     $returnedByOrderItem[$oid] = bcadd($returnedByOrderItem[$oid] ?? '0.0000', bcadd((string) $retRow->quantity, '0', 4), 4);
                 }
 
+                $fifoByOrderItem = [];
+                if (\Illuminate\Support\Facades\Schema::hasTable('inventory_lot_allocations')) {
+                    $allocRows = DB::table('inventory_lot_allocations as ila')
+                        ->join('order_items as oi', 'oi.id', '=', 'ila.order_item_id')
+                        ->whereIn('oi.order_id', array_keys($activeOrders))
+                        ->select('ila.order_item_id', 'ila.quantity', 'ila.total_cost', 'ila.unit_cost')
+                        ->cursor();
+                    foreach ($allocRows as $a) {
+                        $oid = (int) $a->order_item_id;
+                        if (! isset($fifoByOrderItem[$oid])) {
+                            $fifoByOrderItem[$oid] = ['qty' => '0.0000', 'cost' => '0.0000', 'has_unpriced' => false];
+                        }
+                        $fifoByOrderItem[$oid]['qty'] = bcadd($fifoByOrderItem[$oid]['qty'], bcadd((string) $a->quantity, '0', 4), 4);
+                        if ($a->unit_cost === null || $a->total_cost === null) {
+                            $fifoByOrderItem[$oid]['has_unpriced'] = true;
+                        } else {
+                            $fifoByOrderItem[$oid]['cost'] = bcadd($fifoByOrderItem[$oid]['cost'], bcadd((string) $a->total_cost, '0', 4), 4);
+                        }
+                    }
+                }
+
                 $itemRows = DB::table('order_items as oi')
                     ->join('product_variants as pv', 'pv.id', '=', 'oi.variant_id')
                     ->whereIn('oi.order_id', array_keys($activeOrders))
@@ -126,6 +147,18 @@ final class SalesControl
                     $retQty = $returnedByOrderItem[(int) $itemRow->id] ?? '0.0000';
                     $netQty = bcsub($qty, $retQty, 4);
                     if (bccomp($netQty, '0', 4) <= 0) {
+                        continue;
+                    }
+                    $fifo = $fifoByOrderItem[(int) $itemRow->id] ?? null;
+                    if ($fifo !== null && bccomp($fifo['qty'], '0', 4) > 0) {
+                        if ($fifo['has_unpriced']) {
+                            $summary[$curr]['without_cost_items'] = ($summary[$curr]['without_cost_items'] ?? 0) + 1;
+                        }
+                        $lineCost = bccomp($retQty, '0', 4) > 0
+                            ? bcmul(bcdiv($fifo['cost'], $fifo['qty'], 8), $netQty, 4)
+                            : $fifo['cost'];
+                        $summary[$curr]['cost_of_goods'] = bcadd($summary[$curr]['cost_of_goods'], $lineCost, 4);
+
                         continue;
                     }
                     if ($itemRow->cost_price === null) {
@@ -190,8 +223,34 @@ final class SalesControl
             ->where('p.status', 'active')
             ->where('p.product_type', 'physical')
             ->where('p.track_stock', true)
-            ->select('sb.on_hand', 'sb.reserved', 'pv.cost_price', 'pv.sale_price')
+            ->select('sb.warehouse_id', 'sb.variant_id', 'sb.on_hand', 'sb.reserved', 'pv.cost_price', 'pv.sale_price')
             ->cursor();
+
+        $fifoLotsByKey = [];
+        if (\Illuminate\Support\Facades\Schema::hasTable('inventory_cost_lots')) {
+            $lotRows = DB::table('inventory_cost_lots as icl')
+                ->join('warehouses as w', 'w.id', '=', 'icl.warehouse_id')
+                ->where('w.store_id', $store)
+                ->where('w.is_active', true)
+                ->where('icl.remaining_quantity', '>', 0)
+                ->select('icl.warehouse_id', 'icl.variant_id', 'icl.remaining_quantity', 'icl.unit_cost')
+                ->cursor();
+            foreach ($lotRows as $lot) {
+                $k = $lot->warehouse_id.':'.$lot->variant_id;
+                if (! isset($fifoLotsByKey[$k])) {
+                    $fifoLotsByKey[$k] = ['invested' => '0.0000', 'unpriced' => false];
+                }
+                if ($lot->unit_cost === null) {
+                    $fifoLotsByKey[$k]['unpriced'] = true;
+                } else {
+                    $fifoLotsByKey[$k]['invested'] = bcadd(
+                        $fifoLotsByKey[$k]['invested'],
+                        bcmul(bcadd((string) $lot->remaining_quantity, '0', 4), bcadd((string) $lot->unit_cost, '0', 4), 4),
+                        4,
+                    );
+                }
+            }
+        }
 
         foreach ($stockRows as $row) {
             $onHand = bcadd((string) ($row->on_hand ?? '0'), '0', 4);
@@ -205,7 +264,13 @@ final class SalesControl
             }
             $onHandTotal = bcadd($onHandTotal, $onHand, 4);
             $availableTotal = bcadd($availableTotal, $available, 4);
-            if ($row->cost_price === null) {
+            $lotInfo = $fifoLotsByKey[$row->warehouse_id.':'.$row->variant_id] ?? null;
+            if ($lotInfo !== null) {
+                if ($lotInfo['unpriced']) {
+                    $withoutCost++;
+                }
+                $invested = bcadd($invested, $lotInfo['invested'], 4);
+            } elseif ($row->cost_price === null) {
                 $withoutCost++;
             } else {
                 $costUnit = bcadd((string) $row->cost_price, '0', 4);

@@ -192,7 +192,7 @@ final class SalesService
                 if ($data['mode'] === 'reservation') {
                     $reservationId = DB::table('stock_reservations')->insertGetId(['order_item_id' => $item->id, 'store_id' => $order->store_id, 'warehouse_id' => $warehouse->id, 'variant_id' => $line['variant_id'], 'quantity' => $line['quantity'], 'fulfilled_quantity' => '0.0000', 'released_quantity' => '0.0000', 'status' => 'active', 'expires_at' => $deadline, 'created_at' => now(), 'updated_at' => now()]);
                 }
-                $this->ledger->record($warehouse, $line['variant_id'], $balance, $data['mode'] === 'sale' ? bcsub('0', $line['quantity'], 4) : '0.0000', $data['mode'] === 'reservation' ? $line['quantity'] : '0.0000', $data['mode'] === 'sale' ? 'sale' : 'reserve', 'sale:'.$key.':'.$item->id, 'Pedido #'.$order->id, $actor, $reservationId);
+                $this->ledger->record($warehouse, $line['variant_id'], $balance, $data['mode'] === 'sale' ? bcsub('0', $line['quantity'], 4) : '0.0000', $data['mode'] === 'reservation' ? $line['quantity'] : '0.0000', $data['mode'] === 'sale' ? 'sale' : 'reserve', 'sale:'.$key.':'.$item->id, 'Pedido #'.$order->id, $actor, $reservationId, null, null, $item->id);
             }
             foreach ($products as $product) {
                 $product->increment('lock_version');
@@ -405,7 +405,7 @@ final class SalesService
                 throw ValidationException::withMessages(['quantity' => 'La entrega debe ser positiva y no superar lo reservado pendiente.']);
             }
             $negative = bcsub('0', $deliver, 4);
-            $this->ledger->record($warehouse, $reservation->variant_id, $balances[$reservation->variant_id], $negative, $negative, 'fulfill', 'deliver:'.$key.':'.$reservation->id, 'Entrega de pedido #'.$order->id, $actor, $reservation->id);
+            $this->ledger->record($warehouse, $reservation->variant_id, $balances[$reservation->variant_id], $negative, $negative, 'fulfill', 'deliver:'.$key.':'.$reservation->id, 'Entrega de pedido #'.$order->id, $actor, $reservation->id, null, null, (int) $reservation->order_item_id);
             $fulfilled = bcadd((string) $reservation->fulfilled_quantity, $deliver, 4);
             DB::table('stock_reservations')->where('id', $reservation->id)->update(['fulfilled_quantity' => $fulfilled, 'status' => bccomp($deliver, $remaining, 4) === 0 ? 'fulfilled' : 'active', 'updated_at' => now()]);
         }

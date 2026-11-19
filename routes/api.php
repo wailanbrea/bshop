@@ -188,6 +188,7 @@ Route::middleware(['auth:sanctum', 'active', 'auth.session'])->group(function ()
                 Route::get('warehouses/{warehouse}/stock', [InventoryController::class, 'index'])->whereNumber('warehouse');
                 Route::get('warehouses/{warehouse}/stock/export', [InventoryController::class, 'export'])->whereNumber('warehouse')->middleware('throttle:20,1');
                 Route::get('warehouses/{warehouse}/kardex', [InventoryController::class, 'kardex'])->whereNumber('warehouse');
+                Route::get('warehouses/{warehouse}/variants/{variant}/lots', [InventoryController::class, 'lots'])->whereNumber(['warehouse', 'variant'])->middleware('can:catalog.costs');
             });
             Route::middleware('can:inventory.manage')->group(function () {
                 Route::get('inventory/destinations', [InventoryController::class, 'destinations']);

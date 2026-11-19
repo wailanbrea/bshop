@@ -155,7 +155,8 @@ final class SalesReturnReceipts
                 $itemId = DB::table('sales_return_items')->insertGetId(['sales_return_id' => $return, 'invoice_id' => $invoice->id, 'invoice_item_id' => $line['invoice_item_id'], 'quantity' => $line['quantity'], 'refund_amount' => '0.0000', 'restock' => $line['restock'], 'store_id' => $order->store_id, 'variant_id' => $line['variant_id'], 'created_at' => now()]);
                 if ($line['restock']) {
                     $balance = $balances[$line['variant_id']];
-                    $movement = $this->ledger->record($warehouse, $line['variant_id'], $balance, $line['quantity'], '0.0000', 'customer_return', 'return-receipt:'.$itemId, 'Recepción de devolución #'.$return.' · Pedido #'.$id, $actor, null, $itemId);
+                    $orderItemId = DB::table('invoice_items')->where('id', $line['invoice_item_id'])->value('order_item_id');
+                    $movement = $this->ledger->record($warehouse, $line['variant_id'], $balance, $line['quantity'], '0.0000', 'customer_return', 'return-receipt:'.$itemId, 'Recepción de devolución #'.$return.' · Pedido #'.$id, $actor, null, $itemId, null, $orderItemId ? (int) $orderItemId : null);
                     $balance->on_hand = $movement['on_hand_after'];
                     $balance->reserved = $movement['reserved_after'];
                     $balance->version = $movement['balance_version'];
