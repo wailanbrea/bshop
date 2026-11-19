@@ -19,7 +19,14 @@ const selected = ref<StockRow | null>(null); const open = ref(false); const open
 const destinations = ref<{ id: number; name: string; store_name: string }[]>([]); const busy = ref(false); const formError = ref(''); const pending = ref<Record<string, unknown> | null>(null);
 const priceOpen = ref(false); const priceTarget = ref<StockRow | null>(null); const editCostPrice = ref(''); const editSalePrice = ref(''); const priceBusy = ref(false); const priceError = ref('');
 const exporting = ref(false);
+const viewMode = ref<'list' | 'cards'>('list');
 const failedImages = ref<Set<number>>(new Set());
+function stockTone(available: string): 'out' | 'low' | 'ok' {
+    const n = Number(available);
+    if (!Number.isFinite(n) || n <= 0) return 'out';
+    if (n <= 2) return 'low';
+    return 'ok';
+}
 function imageFailed(id: number) { failedImages.value = new Set([...failedImages.value, id]); }
 async function exportInventoryCsv() {
     if (!props.store || !warehouseId.value || exporting.value) return;
@@ -127,49 +134,127 @@ onUnmounted(() => { ++sequence; ++historySequence; controller?.abort(); clearTim
 </script>
 
 <template>
-    <p v-if="error" class="notice error" role="alert">{{ error }}</p><p v-if="notice" class="notice success" role="status">{{ notice }}</p>
-    <section class="panel inventory-filters" aria-label="Filtros de inventario">
-        <label>Almacén<select v-model="warehouseId"><option v-for="item in warehouses" :key="item.id" :value="item.id">{{ item.name }}{{ item.is_active ? '' : ' · Inactivo' }}</option><option v-if="!warehouses.length" value="">Sin almacenes</option></select></label>
-        <label>Buscar existencias<input v-model="query" type="search" maxlength="120" placeholder="Producto, SKU, color o talla" autocomplete="off"></label>
-        <label>Disponibilidad<select v-model="filter"><option value="all">Todas</option><option value="available">Con disponible</option><option value="low">Por reponer (≤ 2)</option><option value="empty">Sin disponible</option></select></label>
-        <button type="button" class="button secondary" :disabled="loading || !warehouseId" @click="load(page); historyOpen && loadHistory()">Actualizar inventario</button>
-    </section>
-    <div class="panel-heading inventory-heading"><div><h2>{{ warehouse?.name || 'Selecciona un almacén' }}</h2><p class="muted">{{ store?.name }} · {{ total }} variantes · Físico − reservado = disponible</p></div><div class="actions"><InventoryReview :store="store" :warehouse="warehouse" /><button type="button" class="button secondary" :disabled="!warehouseId || exporting" @click="exportInventoryCsv">Exportar inventario CSV</button><button type="button" class="button secondary" :disabled="!warehouseId" @click="viewHistory(null)">Ver kardex completo</button></div></div>
+    <p v-if="error" class="notice error" role="alert">{{ error }}</p>
+    <p v-if="notice" class="notice success" role="status">{{ notice }}</p>
+
+    <div class="inv-top-bar">
+        <div>
+            <h2>{{ warehouse?.name || 'Selecciona un almacén' }}</h2>
+            <p class="muted">{{ store?.name }} · {{ total }} {{ total === 1 ? 'variante' : 'variantes' }}</p>
+        </div>
+        <div class="inv-top-actions">
+            <InventoryReview :store="store" :warehouse="warehouse" />
+            <button type="button" class="button secondary inv-btn-sm" :disabled="!warehouseId || exporting" @click="exportInventoryCsv">Exportar CSV</button>
+            <button type="button" class="button secondary inv-btn-sm" :disabled="!warehouseId" @click="viewHistory(null)">Kardex</button>
+            <button type="button" class="button primary inv-btn-sm" :disabled="loading || !warehouseId" @click="load(page); historyOpen && loadHistory()">Actualizar</button>
+        </div>
+    </div>
+
     <section v-if="valuation" class="inventory-valuation-grid" aria-label="Valor del inventario">
         <article v-if="valuation.invested_cost !== null" class="valuation-card highlight">
             <span>Capital invertido (costo)</span>
             <strong>{{ money(valuation.invested_cost, valuation.currency) }}</strong>
-            <small>Físico × precio de compra</small>
+            <small>Costo en almacén</small>
         </article>
         <article class="valuation-card">
             <span>Valor a precio de venta</span>
             <strong>{{ money(valuation.sale_value, valuation.currency) }}</strong>
-            <small>Físico × precio de venta</small>
+            <small>A precio actual</small>
         </article>
         <article v-if="valuation.estimated_profit !== null" class="valuation-card">
             <span>Ganancia estimada</span>
             <strong>{{ money(valuation.estimated_profit, valuation.currency) }}</strong>
-            <small>Venta − capital invertido</small>
+            <small>Venta − costo</small>
         </article>
         <article class="valuation-card">
             <span>Unidades físicas</span>
             <strong>{{ quantity(valuation.units_on_hand) }}</strong>
             <small>Disponibles: {{ quantity(valuation.units_available) }}</small>
         </article>
-        <article v-if="(valuation.low_stock_count || 0) > 0 || (valuation.out_of_stock_count || 0) > 0" class="valuation-card alert-card">
+        <button
+            v-if="(valuation.low_stock_count || 0) > 0 || (valuation.out_of_stock_count || 0) > 0"
+            type="button"
+            class="valuation-card alert-card valuation-card-btn"
+            @click="filter = (valuation.low_stock_count || 0) > 0 ? 'low' : 'empty'"
+        >
             <span>Alertas de reposición</span>
             <strong>{{ (valuation.low_stock_count || 0) + (valuation.out_of_stock_count || 0) }}</strong>
             <small>{{ valuation.low_stock_count || 0 }} por agotarse (≤ 2) · {{ valuation.out_of_stock_count || 0 }} agotadas</small>
-        </article>
+        </button>
     </section>
+
+    <section class="panel inv-toolbar" aria-label="Filtros de inventario">
+        <div class="inv-toolbar-row">
+            <label class="inv-wh-select">
+                <span class="sr-only">Almacén</span>
+                <select v-model="warehouseId" aria-label="Almacén">
+                    <option v-for="item in warehouses" :key="item.id" :value="item.id">{{ item.name }}{{ item.is_active ? '' : ' · Inactivo' }}</option>
+                    <option v-if="!warehouses.length" value="">Sin almacenes</option>
+                </select>
+            </label>
+            <label class="inv-search-box">
+                <span class="sr-only">Buscar existencias</span>
+                <input v-model="query" type="search" maxlength="120" placeholder="Buscar producto, color, talla o SKU…" autocomplete="off" aria-label="Buscar existencias">
+            </label>
+            <div class="inv-view-toggle" role="group" aria-label="Modo de vista">
+                <button type="button" :class="{ active: viewMode === 'list' }" :aria-pressed="viewMode === 'list'" @click="viewMode = 'list'">Lista compacta</button>
+                <button type="button" :class="{ active: viewMode === 'cards' }" :aria-pressed="viewMode === 'cards'" @click="viewMode = 'cards'">Tarjetas</button>
+            </div>
+        </div>
+        <div class="inv-chips" role="group" aria-label="Disponibilidad">
+            <button type="button" class="inv-chip" :class="{ active: filter === 'all' }" @click="filter = 'all'">Todos</button>
+            <button type="button" class="inv-chip" :class="{ active: filter === 'available' }" @click="filter = 'available'">Con stock</button>
+            <button type="button" class="inv-chip amber" :class="{ active: filter === 'low' }" @click="filter = 'low'">Por agotarse ≤ 2<template v-if="valuation?.low_stock_count"> ({{ valuation.low_stock_count }})</template></button>
+            <button type="button" class="inv-chip red" :class="{ active: filter === 'empty' }" @click="filter = 'empty'">Agotados<template v-if="valuation?.out_of_stock_count"> ({{ valuation.out_of_stock_count }})</template></button>
+        </div>
+    </section>
+
     <p v-if="loading" class="notice" role="status">Consultando existencias…</p>
     <div class="inventory-layout" :class="{ 'with-history': historyOpen }">
-        <section class="panel" aria-label="Existencias por variante" :aria-busy="loading">
-            <article v-for="row in rows" :key="row.variant_id" class="inventory-record">
-                <div class="inventory-identity"><div class="inventory-thumbnail"><img v-if="row.image_url && !failedImages.has(row.variant_id)" :src="row.image_url" :alt="`Foto de ${row.product_name}`" loading="lazy" @error="imageFailed(row.variant_id)"><span v-else role="img" aria-label="Sin fotografía">Sin foto</span></div><div><strong>{{ row.product_name }}</strong><p class="muted">{{ row.sku }} · {{ row.attributes.map(a => `${a.name}: ${a.value}`).join(' · ') || 'Variante general' }}</p><p v-if="row.sale_price || row.unit_cost" class="inventory-price-line"><span v-if="row.unit_cost && valuation">Costo: {{ money(row.unit_cost, valuation.currency) }}</span><span v-if="row.sale_price && valuation">Venta: {{ money(row.sale_price, valuation.currency) }}</span><strong v-if="row.invested_total && valuation">Invertido: {{ money(row.invested_total, valuation.currency) }}</strong></p><span v-if="!row.active" class="badge inactive">Inactivo</span></div></div>
-                <dl class="stock-metrics"><div><dt>Físico</dt><dd>{{ quantity(row.on_hand) }}</dd></div><div><dt>Reservado</dt><dd>{{ quantity(row.reserved) }}</dd></div><div><dt>Disponible</dt><dd :class="{ empty: row.available === '0.0000' }">{{ quantity(row.available) }}</dd></div></dl>
-                <div class="actions"><button type="button" class="button secondary" :aria-label="`Movimientos de ${row.sku}`" @click="viewHistory(row)">Movimientos</button><button v-if="canEditPrices" type="button" class="button secondary" :disabled="!row.active || loading" :aria-label="`Precios de ${row.sku}`" @click="openPriceEditor(row, $event)">Editar precios</button><button v-if="manage" type="button" class="button primary" :disabled="!row.active || !warehouse?.is_active || !store?.is_active || loading" :aria-label="`Ajustar ${row.sku}`" @click="edit(row, $event)">Ajustar inventario</button></div>
-            </article>
+        <section class="panel inv-list-panel" :class="`mode-${viewMode}`" aria-label="Existencias por variante" :aria-busy="loading">
+            <div v-if="viewMode === 'list' && rows.length" class="inv-table-head" aria-hidden="true">
+                <div>Producto / Variante</div>
+                <div>Precios e inversión</div>
+                <div>Disponibilidad</div>
+                <div style="text-align:right">Acciones</div>
+            </div>
+            <div class="inv-records" :class="`mode-${viewMode}`">
+                <article v-for="row in rows" :key="row.variant_id" class="inventory-record" :class="`mode-${viewMode}`">
+                    <div class="inventory-identity">
+                        <div class="inventory-thumbnail">
+                            <img v-if="row.image_url && !failedImages.has(row.variant_id)" :src="row.image_url" :alt="`Foto de ${row.product_name}`" loading="lazy" @error="imageFailed(row.variant_id)">
+                            <span v-else role="img" aria-label="Sin fotografía">Sin foto</span>
+                        </div>
+                        <div class="inv-ident-text">
+                            <strong class="inv-prod-name">{{ row.product_name }}</strong>
+                            <p class="inv-prod-meta">
+                                <span>{{ row.attributes.map(a => `${a.name}: ${a.value}`).join(' · ') || 'Variante general' }}</span>
+                                <span class="inv-sku">· {{ row.sku }}</span>
+                            </p>
+                            <span v-if="!row.active" class="badge inactive">Inactivo</span>
+                        </div>
+                    </div>
+
+                    <div class="inventory-price-line">
+                        <span v-if="row.sale_price && valuation" class="inv-sale">Venta: {{ money(row.sale_price, valuation.currency) }}</span>
+                        <span v-if="row.unit_cost && valuation" class="inv-cost">Costo: {{ money(row.unit_cost, valuation.currency) }}</span>
+                        <strong v-if="row.invested_total && valuation" class="inv-invested">Invertido: {{ money(row.invested_total, valuation.currency) }}</strong>
+                    </div>
+
+                    <div class="inv-stock-cell">
+                        <span class="inv-stock-pill" :class="stockTone(row.available)">
+                            <span class="sr-only">Disponible </span>{{ quantity(row.available) }} {{ stockTone(row.available) === 'out' ? 'agot.' : 'disp.' }}
+                        </span>
+                        <span class="inv-stock-sub">Físico {{ quantity(row.on_hand) }} · Reservado {{ quantity(row.reserved) }}</span>
+                    </div>
+
+                    <div class="actions inv-row-actions">
+                        <button type="button" class="button secondary inv-btn-sm" :aria-label="`Movimientos de ${row.sku}`" @click="viewHistory(row)">Kardex</button>
+                        <button v-if="canEditPrices" type="button" class="button secondary inv-btn-sm" :disabled="!row.active || loading" :aria-label="`Precios de ${row.sku}`" @click="openPriceEditor(row, $event)">Precios</button>
+                        <button v-if="manage" type="button" class="button primary inv-btn-sm" :disabled="!row.active || !warehouse?.is_active || !store?.is_active || loading" :aria-label="`Ajustar ${row.sku}`" @click="edit(row, $event)">Ajustar</button>
+                    </div>
+                </article>
+            </div>
             <p v-if="!rows.length && !loading" class="empty">No hay variantes con seguimiento de existencias para estos filtros.</p>
             <div v-if="lastPage > 1" class="catalog-pagination"><button type="button" class="button secondary" :disabled="page <= 1 || loading" @click="load(page - 1)">Anterior</button><span>{{ page }} / {{ lastPage }}</span><button type="button" class="button secondary" :disabled="page >= lastPage || loading" @click="load(page + 1)">Siguiente</button></div>
         </section>
@@ -210,36 +295,109 @@ onUnmounted(() => { ++sequence; ++historySequence; controller?.abort(); clearTim
 </template>
 
 <style scoped>
-.inventory-filters { display: grid; grid-template-columns: minmax(160px, 1fr) minmax(180px, 2fr) minmax(150px, 1fr) auto; gap: 16px; align-items: end; }
-.inventory-heading { margin-top: 24px; }
-.inventory-valuation-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-bottom: 18px; }
-.valuation-card { display: grid; gap: 4px; padding: 16px; border: 1px solid var(--line); border-radius: 14px; background: #fff; min-width: 0; }
+.inv-top-bar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 14px; }
+.inv-top-bar h2 { margin: 0; font-size: 1.35rem; }
+.inv-top-bar p { margin: 2px 0 0; font-size: 0.88rem; }
+.inv-top-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.inv-btn-sm { min-height: 38px; padding: 6px 12px; font-size: 0.84rem; white-space: nowrap; }
+
+.inventory-valuation-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(175px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.valuation-card { display: grid; gap: 2px; padding: 11px 14px; border: 1px solid var(--line); border-radius: 12px; background: #fff; min-width: 0; text-align: left; }
 .valuation-card.highlight { background: #f4effc; border-color: #d4c4f0; }
 .valuation-card.alert-card { background: #fff8f1; border-color: #f0cfb0; }
+.valuation-card-btn { cursor: pointer; font: inherit; color: inherit; }
+.valuation-card-btn:hover { border-color: #d49a5a; }
 .valuation-card span { font-size: 12px; font-weight: 600; color: var(--muted); }
-.valuation-card strong { font-size: 22px; font-weight: 800; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.valuation-card small { font-size: 12px; color: var(--muted); }
-.inventory-price-line { display: flex; flex-wrap: wrap; gap: 10px; margin: 4px 0 0; font-size: 13px; color: #4c3d63; }
-.inventory-price-line span, .inventory-price-line strong { white-space: nowrap; }
-.inventory-layout { display: grid; gap: 20px; }
-.inventory-record { display: grid; gap: 16px; padding: 20px 0; border-bottom: 1px solid var(--line); }
-.inventory-record:first-child { padding-top: 0; }
-.inventory-record:last-child { border-bottom: 0; }
-.inventory-record strong { font-size: 17px; }
-.inventory-identity { display: flex; align-items: center; gap: 14px; min-width: 0; overflow-wrap: anywhere; }
-.inventory-identity > div:last-child { min-width: 0; }
-.inventory-thumbnail { width: 72px; height: 72px; flex: 0 0 72px; display: grid; place-items: center; overflow: hidden; border-radius: 12px; background: #f0edf7; color: #625a72; font-size: 12px; text-align: center; }
+.valuation-card strong { font-size: 20px; font-weight: 800; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.valuation-card small { font-size: 11.5px; color: var(--muted); }
+
+.inv-toolbar { display: grid; gap: 10px; padding: 12px 14px; margin-bottom: 14px; }
+.inv-toolbar-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.inv-wh-select { min-width: 175px; flex: 0 1 220px; }
+.inv-search-box { flex: 1 1 220px; min-width: 0; }
+.inv-wh-select select, .inv-search-box input { width: 100%; min-width: 0; }
+.inv-view-toggle { display: inline-flex; background: #f3f0fa; padding: 3px; border-radius: 10px; gap: 3px; }
+.inv-view-toggle button { border: 0; background: transparent; padding: 7px 11px; border-radius: 8px; font-size: 0.82rem; font-weight: 600; color: var(--muted); cursor: pointer; white-space: nowrap; }
+.inv-view-toggle button.active { background: #fff; color: #6a46d8; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06); }
+
+.inv-chips { display: flex; flex-wrap: wrap; gap: 7px; }
+.inv-chip { border: 1px solid var(--line); background: #fff; color: inherit; padding: 6px 12px; border-radius: 999px; font-size: 0.82rem; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.inv-chip.amber { background: #fff6e5; border-color: #f2d49b; color: #a85c00; }
+.inv-chip.red { background: #ffefef; border-color: #f3c4c4; color: #b42318; }
+.inv-chip.active { background: #6a46d8; border-color: #6a46d8; color: #fff; }
+
+.inventory-layout { display: grid; gap: 16px; }
+.inv-list-panel.mode-list { padding: 0; overflow: hidden; }
+.inv-table-head {
+    display: grid;
+    grid-template-columns: minmax(220px, 2.1fr) minmax(170px, 1.3fr) minmax(145px, 1fr) auto;
+    gap: 12px;
+    padding: 10px 16px;
+    background: #faf8fe;
+    border-bottom: 1px solid var(--line);
+    font-size: 0.74rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+}
+.inv-records.mode-list { display: grid; }
+.inv-records.mode-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+
+.inventory-record.mode-list {
+    display: grid;
+    grid-template-columns: minmax(220px, 2.1fr) minmax(170px, 1.3fr) minmax(145px, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    border-bottom: 1px solid #f0ecf7;
+}
+.inventory-record.mode-list:last-child { border-bottom: 0; }
+.inventory-record.mode-cards {
+    display: grid;
+    gap: 10px;
+    padding: 14px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: #fff;
+}
+
+.inventory-identity { display: flex; align-items: center; gap: 11px; min-width: 0; overflow-wrap: anywhere; }
+.inv-ident-text { min-width: 0; }
+.inv-prod-name { display: block; font-size: 0.95rem; font-weight: 700; }
+.inv-prod-meta { margin: 2px 0 0; font-size: 0.8rem; color: var(--muted); }
+.inv-sku { opacity: 0.8; }
+.inventory-thumbnail { width: 48px; height: 48px; flex: 0 0 48px; display: grid; place-items: center; overflow: hidden; border-radius: 10px; background: #f0edf7; color: #625a72; font-size: 11px; text-align: center; }
 .inventory-thumbnail img { width: 100%; height: 100%; object-fit: contain; }
-.stock-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
-.stock-metrics > div { border: 1px solid var(--line); background: #f9f8fe; padding: 12px; border-radius: 12px; min-width: 0; }
-dt { color: var(--muted); font-size: 13px; }
-dd { margin: 4px 0 0; font-size: 21px; font-weight: 700; overflow-wrap: anywhere; }
-dd.empty { color: #85511b; padding: 0; text-align: left; }
-.inventory-record .actions { flex-wrap: wrap; }
-.kardex-record { display: grid; gap: 8px; padding: 16px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; font-size: 14px; }
+
+.inventory-price-line { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; font-size: 0.84rem; color: #4c3d63; }
+.inventory-price-line span, .inventory-price-line strong { white-space: nowrap; }
+.inv-sale { font-weight: 800; color: #1f1730; }
+.inv-cost { color: var(--muted); font-size: 0.8rem; }
+.inv-invested { color: #5336ad; font-size: 0.8rem; }
+
+.inv-stock-cell { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.inv-stock-pill { padding: 4px 10px; border-radius: 999px; font-weight: 800; font-size: 0.84rem; white-space: nowrap; }
+.inv-stock-pill.ok { background: #eaf9f0; color: #127345; }
+.inv-stock-pill.low { background: #fff6e5; color: #a85c00; }
+.inv-stock-pill.out { background: #ffefef; color: #b42318; }
+.inv-stock-sub { font-size: 0.76rem; color: var(--muted); white-space: nowrap; }
+
+.inv-row-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.kardex-record { display: grid; gap: 8px; padding: 14px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; font-size: 14px; }
 .kardex-record .badge { justify-self: start; }
 .kardex-record small { color: var(--muted); }
-@media (min-width: 1280px) { .inventory-layout.with-history { grid-template-columns: minmax(0, 1.5fr) minmax(300px, 1fr); align-items: start; } }
-@media (max-width: 1199px) { .inventory-filters { grid-template-columns: 1fr 1fr; } }
-@media (max-width: 600px) { .inventory-filters { grid-template-columns: 1fr; } .stock-metrics { gap: 6px; } .stock-metrics > div { padding: 8px; } dd { font-size: 18px; } }
+
+@media (min-width: 1280px) { .inventory-layout.with-history { grid-template-columns: minmax(0, 1.6fr) minmax(300px, 1fr); align-items: start; } }
+@media (max-width: 980px) {
+    .inv-table-head { display: none; }
+    .inventory-record.mode-list { grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 12px 14px; }
+    .inv-row-actions { justify-content: stretch; }
+    .inv-row-actions .button { flex: 1 1 auto; }
+}
+@media (max-width: 600px) {
+    .inventory-valuation-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .inv-wh-select, .inv-search-box, .inv-view-toggle { flex: 1 1 100%; width: 100%; }
+    .inv-view-toggle button { flex: 1; }
+}
 </style>
