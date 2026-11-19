@@ -457,7 +457,7 @@ onUnmounted(() => {
             </div>
             <button
                 type="button"
-                class="button primary"
+                class="button primary basket-add-client-btn"
                 :disabled="locked || !warehouse || !permissions.includes('sales.create')"
                 @click="
                     opener = $event.currentTarget as HTMLElement;
@@ -683,3 +683,39 @@ onUnmounted(() => {
         ></AppDialog
     >
 </template>
+
+<style scoped>
+.basket-add-client-btn {
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+@media (max-width: 640px) {
+    .basket-board-header {
+        align-items: center;
+        gap: 10px;
+    }
+    .basket-board-header .eyebrow,
+    .basket-board-header > div > p,
+    .basket-grid-controls > p {
+        display: none;
+    }
+    .basket-board-header h1 {
+        font-size: 1.35rem;
+        margin: 0;
+    }
+    .basket-filter-buttons {
+        display: flex;
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        gap: 6px;
+        padding-bottom: 2px;
+    }
+    .basket-filter-buttons .button {
+        flex: 0 0 auto;
+        min-height: 38px;
+        padding: 6px 12px;
+        font-size: 0.84rem;
+        white-space: nowrap;
+    }
+}
+</style>

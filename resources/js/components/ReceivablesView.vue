@@ -11,7 +11,7 @@ const props = defineProps<{ store?: Store; permissions: string[] }>();
 const emit = defineEmits<{ openOrder: [number] }>();
 const rows = ref<Row[]>([]); const summary = ref<Summary[]>([]);
 const query = ref(''); const type = ref('all'); const state = ref('all'); const minDays = ref('0');
-const loading = ref(false); const exporting = ref(false); const error = ref('');
+const loading = ref(false); const exporting = ref(false); const filtersOpen = ref(false); const error = ref('');
 const page = ref(1); const lastPage = ref(1); const total = ref(0);
 const root = computed(() => `/business/stores/${props.store?.id}/receivables`);
 const canPay = computed(() => props.permissions.includes('payments.record'));
@@ -49,10 +49,15 @@ onUnmounted(() => { ++sequence; controller?.abort(); clearTimeout(timer); });
         <div class="panel-heading"><div><h2>Saldos de {{ store?.name || 'la sucursal' }}</h2><p class="muted">Facturas y apartados con saldo pendiente.</p></div><div class="actions"><button type="button" class="button secondary" :disabled="loading || !store" @click="load(page)">Actualizar saldos</button><button type="button" class="button primary" :disabled="loading || exporting || !store || !!error || !rows.length" @click="exportCsv">{{ exporting ? 'Exportando…' : 'Exportar CSV' }}</button></div></div>
         <p v-if="error" class="notice error" role="alert">{{ error }}</p>
         <div class="cxc-filters panel">
-            <label>Buscar cliente o documento<input v-model="query" type="search" maxlength="120" placeholder="Nombre, teléfono, factura o apartado"></label>
-            <label>Documento<select v-model="type"><option value="all">Todos</option><option value="invoiced">Facturas</option><option value="unbilled">Apartados sin facturar</option></select></label>
-            <label>Abonos<select v-model="state"><option value="all">Todos los pendientes</option><option value="partial">Con abonos</option><option value="unpaid">Sin abonos</option></select></label>
-            <label>Antigüedad<select v-model="minDays"><option value="0">Cualquier antigüedad</option><option value="30">30 días o más</option><option value="60">60 días o más</option><option value="90">90 días o más</option></select></label>
+            <div class="cxc-search-row">
+                <label class="cxc-search-label">Buscar cliente o documento<input v-model="query" type="search" maxlength="120" placeholder="Nombre, teléfono, factura o apartado"></label>
+                <button type="button" class="button secondary cxc-filter-toggle" :aria-expanded="filtersOpen" @click="filtersOpen = !filtersOpen">Filtros {{ filtersOpen ? '▴' : '▾' }}</button>
+            </div>
+            <div class="cxc-adv-filters" :class="{ open: filtersOpen }">
+                <label>Documento<select v-model="type"><option value="all">Todos</option><option value="invoiced">Facturas</option><option value="unbilled">Apartados sin facturar</option></select></label>
+                <label>Abonos<select v-model="state"><option value="all">Todos los pendientes</option><option value="partial">Con abonos</option><option value="unpaid">Sin abonos</option></select></label>
+                <label>Antigüedad<select v-model="minDays"><option value="0">Cualquier antigüedad</option><option value="30">30 días o más</option><option value="60">60 días o más</option><option value="90">90 días o más</option></select></label>
+            </div>
         </div>
         <p class="muted cxc-note">Antigüedad desde la factura o la creación del apartado. No indica vencimiento. Los resúmenes corresponden a todos los resultados filtrados y se separan por moneda.</p>
         <p v-if="loading" role="status">Actualizando cuentas por cobrar…</p>
@@ -76,8 +81,14 @@ onUnmounted(() => { ++sequence; controller?.abort(); clearTimeout(timer); });
     </section>
 </template>
 <style scoped>
-.cxc-filters { display:grid; grid-template-columns:2fr repeat(3,minmax(0,1fr)); gap:14px; }
+.cxc-filters { display:grid; grid-template-columns:2fr 3fr; gap:14px; align-items:end; }
+.cxc-search-row { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px; align-items:end; }
+.cxc-search-label { min-width:0; }
+.cxc-adv-filters { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; }
 .cxc-filters label { min-width:0; }
+.cxc-filter-toggle { min-height:44px; white-space:nowrap; }
+@media(min-width:768px) { .cxc-filter-toggle { display:none; } }
+@media(max-width:767px) { .cxc-filters { grid-template-columns:1fr; } .cxc-adv-filters { grid-template-columns:1fr; } .cxc-adv-filters:not(.open) { display:none; } }
 .cxc-note { margin:14px 0; font-size:13px; }
 .cxc-summary { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; margin:18px 0; }
 .cxc-summary strong { display:block; font-size:clamp(20px,2.2vw,28px); white-space:nowrap; max-width:100%; overflow-x:auto; }
