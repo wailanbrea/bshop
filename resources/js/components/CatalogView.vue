@@ -5,6 +5,7 @@ import { api, errorMessage } from '../api';
 import type { Business, Store, Warehouse } from '../types';
 import type { CatalogOptions, CatalogProduct, CatalogVariant, ProductImage, VariantPage } from '../catalog';
 import { amount } from '../catalog';
+import { quantity as fmtQty } from '../inventory';
 import ProductEditor from './ProductEditor.vue';
 import VariantEditor from './VariantEditor.vue';
 import CatalogOptionsManager from './CatalogOptionsManager.vue';
@@ -90,7 +91,7 @@ async function loadProducts(target = 1) {
     const version = ++request; controller?.abort(); controller = new AbortController();
     loading.value = true; error.value = '';
     try {
-        const response = await api.get('/business/products', { signal: controller.signal, params: { page: target, q: query.value || undefined, category_id: category.value || undefined, brand_id: brand.value || undefined, status: status.value, product_type: type.value || undefined } });
+        const response = await api.get('/business/products', { signal: controller.signal, params: { page: target, q: query.value || undefined, category_id: category.value || undefined, brand_id: brand.value || undefined, status: status.value, product_type: type.value || undefined, store_id: props.store?.id || undefined } });
         if (version !== request) return;
         if (response.data.meta.current_page > response.data.meta.last_page) { await loadProducts(response.data.meta.last_page); return; }
         products.value = response.data.data; page.value = response.data.meta.current_page; lastPage.value = response.data.meta.last_page; total.value = response.data.meta.total;
@@ -100,7 +101,7 @@ async function loadProducts(target = 1) {
 async function detail(id: number, target = 1, quiet = false) {
     const version = ++detailRequest; if (!quiet) detailLoading.value = true; error.value = '';
     try {
-        const response = await api.get(`/business/products/${id}`, { params: { page: target } });
+        const response = await api.get(`/business/products/${id}`, { params: { page: target, store_id: props.store?.id || undefined } });
         if (version !== detailRequest) return;
         selected.value = response.data.data.product; variants.value = response.data.data.variants;
     } catch (e) { if (version === detailRequest) error.value = errorMessage(e); }
@@ -156,6 +157,23 @@ function cardDisplayPrice(product: CatalogProduct): string {
 }
 function cardDisplayVariantLabel(product: CatalogProduct): string {
     return activeCardImage(product)?.variant_label || product.variant_summary || '';
+}
+function cardAvailableStock(product: CatalogProduct): string | null {
+    if (!product.track_stock) return null;
+    const imgStock = activeCardImage(product)?.variant_available_stock;
+    if (imgStock !== undefined && imgStock !== null) return imgStock;
+    return product.available_stock ?? null;
+}
+function stockPillTone(stock: string | null | undefined): 'out' | 'low' | 'ok' {
+    const n = Number(stock ?? 0);
+    if (!Number.isFinite(n) || n <= 0) return 'out';
+    if (n <= 2) return 'low';
+    return 'ok';
+}
+function stockPillText(stock: string | null | undefined): string {
+    const n = Number(stock ?? 0);
+    if (!Number.isFinite(n) || n <= 0) return 'Agotado';
+    return `${fmtQty(stock ?? '0')} disp.`;
 }
 function onCardTouchStart(e: TouchEvent) {
     swipeStartX = e.changedTouches[0]?.clientX ?? 0;
@@ -215,6 +233,7 @@ async function refreshCatalog() { notice.value = ''; await Promise.all([loadOpti
 async function importChanged() { await Promise.all([loadProducts(1), ...(selected.value ? [detail(selected.value.id)] : [])]); }
 watch(query, () => { clearTimeout(searchTimer); searchTimer = setTimeout(() => loadProducts(), 300); });
 watch([category, brand, status, type], () => loadProducts());
+watch(() => props.store?.id, () => { loadProducts(page.value); if (selected.value) detail(selected.value.id, variants.value.current_page, true); });
 onMounted(() => { loadOptions(); loadProducts(); });
 onUnmounted(() => { ++request; ++detailRequest; controller?.abort(); clearTimeout(searchTimer); });
 </script>
@@ -307,6 +326,11 @@ onUnmounted(() => { ++request; ++detailRequest; controller?.abort(); clearTimeou
                             </strong>
                             <span v-if="selectedDetailVariant" class="badge">{{ variantDisplayName(selectedDetailVariant) }}</span>
                             <span v-else-if="activeDetailImage?.variant_label" class="badge">{{ activeDetailImage.variant_label }}</span>
+                            <span
+                                v-if="selected.track_stock && (selectedDetailVariant?.available_stock !== undefined || activeDetailImage?.variant_available_stock !== undefined || selected.available_stock !== undefined)"
+                                class="cat-stock-pill"
+                                :class="stockPillTone(selectedDetailVariant?.available_stock ?? activeDetailImage?.variant_available_stock ?? selected.available_stock)"
+                            >{{ stockPillText(selectedDetailVariant?.available_stock ?? activeDetailImage?.variant_available_stock ?? selected.available_stock) }}</span>
                             <span v-if="selected.status === 'archived'" class="badge inactive">Archivado</span>
                         </div>
                         <div v-if="variants.data.length > 1" class="variant-filter-pills" role="group" aria-label="Filtrar fotos por variante">
@@ -329,7 +353,7 @@ onUnmounted(() => { ++request; ++detailRequest; controller?.abort(); clearTimeou
                     </div>
                 </div>
                 <div class="panel-heading catalog-section-heading"><div><h3>Variantes y precios</h3><p class="muted">{{ variants.total }} {{ variants.total === 1 ? 'variante' : 'variantes' }}</p></div><button v-if="manage" type="button" class="button primary" :disabled="selected.status !== 'active'" @click="editVariant(null, $event)">+ Nueva variante</button></div>
-                <div class="record-list"><article v-for="variant in variants.data" :key="variant.id" class="record catalog-variant-record" :class="{ 'variant-selected': selectedVariantId === variant.id }" @click="selectDetailVariant(variant.id)"><div class="record-main"><strong>{{ variant.attribute_values.map(v => `${v.attribute_name}: ${v.value}`).join(' · ') || 'Variante general' }}</strong><p class="muted">{{ variant.sku }}<span v-if="variant.barcode"> · Barras: {{ variant.barcode }}</span> · {{ variantPhotoCount(variant.id) }} {{ variantPhotoCount(variant.id) === 1 ? 'foto' : 'fotos' }}</p></div><div class="variant-price"><strong>{{ amount(variant.sale_price, business.default_currency) }}</strong><small v-if="costs">Costo: {{ amount(variant.cost_price, business.default_currency) }}</small><span class="badge" :class="{ inactive: !variant.is_active }">{{ variant.is_active ? 'Activa' : 'Inactiva' }}</span></div><button v-if="manage" type="button" class="button secondary" @click.stop="editVariant(variant, $event)">Editar<span class="sr-only"> {{ variant.sku }}</span></button></article></div>
+                <div class="record-list"><article v-for="variant in variants.data" :key="variant.id" class="record catalog-variant-record" :class="{ 'variant-selected': selectedVariantId === variant.id }" @click="selectDetailVariant(variant.id)"><div class="record-main"><strong>{{ variant.attribute_values.map(v => `${v.attribute_name}: ${v.value}`).join(' · ') || 'Variante general' }}</strong><p class="muted">{{ variant.sku }}<span v-if="variant.barcode"> · Barras: {{ variant.barcode }}</span> · {{ variantPhotoCount(variant.id) }} {{ variantPhotoCount(variant.id) === 1 ? 'foto' : 'fotos' }}</p></div><div class="variant-price"><strong>{{ amount(variant.sale_price, business.default_currency) }}</strong><small v-if="costs">Costo: {{ amount(variant.cost_price, business.default_currency) }}</small><span v-if="selected.track_stock && variant.available_stock !== undefined && variant.available_stock !== null" class="cat-stock-pill" :class="stockPillTone(variant.available_stock)">{{ stockPillText(variant.available_stock) }}</span><span class="badge" :class="{ inactive: !variant.is_active }">{{ variant.is_active ? 'Activa' : 'Inactiva' }}</span></div><button v-if="manage" type="button" class="button secondary" @click.stop="editVariant(variant, $event)">Editar<span class="sr-only"> {{ variant.sku }}</span></button></article></div>
                 <p v-if="!variants.data.length" class="empty">No hay variantes para mostrar.</p>
                 <div v-if="variants.last_page > 1" class="catalog-pagination"><button type="button" class="button secondary" :disabled="variants.current_page <= 1" @click="detail(selected.id, variants.current_page - 1)">Anterior</button><span>Página {{ variants.current_page }} de {{ variants.last_page }}</span><button type="button" class="button secondary" :disabled="variants.current_page >= variants.last_page" @click="detail(selected.id, variants.current_page + 1)">Siguiente</button></div>
             </section>
@@ -402,7 +426,14 @@ onUnmounted(() => { ++request; ++detailRequest; controller?.abort(); clearTimeou
                                 <h2 class="product-card-title">{{ product.name }}</h2>
                                 <p v-if="cardDisplayVariantLabel(product)" class="product-variant-tag">{{ cardDisplayVariantLabel(product) }}</p>
                                 <strong class="product-price">{{ cardDisplayPrice(product) }}</strong>
-                                <p v-if="product.active_variants_count > 1" class="muted product-vars-count">{{ product.active_variants_count }} variantes</p>
+                                <div class="product-meta-row">
+                                    <span
+                                        v-if="cardAvailableStock(product) !== null"
+                                        class="cat-stock-pill"
+                                        :class="stockPillTone(cardAvailableStock(product))"
+                                    >{{ stockPillText(cardAvailableStock(product)) }}</span>
+                                    <span v-if="product.active_variants_count > 1" class="muted product-vars-count">{{ product.active_variants_count }} variantes</span>
+                                </div>
                             </button>
                             <button
                                 v-if="manage"
@@ -666,6 +697,36 @@ onUnmounted(() => { ++request; ++detailRequest; controller?.abort(); clearTimeou
 .product-vars-count {
     margin: 0;
     font-size: 0.74rem;
+    white-space: nowrap;
+}
+.product-meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 5px 8px;
+    margin-top: 2px;
+}
+.cat-stock-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 0.74rem;
+    font-weight: 700;
+    line-height: 1.3;
+    white-space: nowrap;
+}
+.cat-stock-pill.ok {
+    background: #eaf9f0;
+    color: #127345;
+}
+.cat-stock-pill.low {
+    background: #fff6e5;
+    color: #a85c00;
+}
+.cat-stock-pill.out {
+    background: #ffefef;
+    color: #b42318;
 }
 .card-delete-btn {
     flex: 0 0 auto;

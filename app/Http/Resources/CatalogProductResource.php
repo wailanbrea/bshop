@@ -39,6 +39,7 @@ class CatalogProductResource extends JsonResource
             'brand' => $this->brand ? ['id' => $this->brand->id, 'name' => $this->brand->name] : null,
             'primary_sku' => $this->primary_sku, 'variants_count' => $this->variants_count, 'active_variants_count' => $this->active_variants_count,
             'variant_summary' => $variantSummary,
+            'available_stock' => $this->track_stock ? $this->getAttribute('available_stock') : null,
             'min_sale_price' => $this->min_sale_price, 'max_sale_price' => $this->max_sale_price,
             'images' => ProductImageResource::collection($this->whenLoaded('images')),
         ];

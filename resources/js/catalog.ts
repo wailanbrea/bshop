@@ -10,16 +10,18 @@ export interface CatalogProduct {
     category: { id: number; name: string } | null; brand: { id: number; name: string } | null;
     primary_sku: string | null; variants_count: number; active_variants_count: number;
     variant_summary?: string | null;
+    available_stock?: string | null;
     min_sale_price: string | null; max_sale_price: string | null;
 }
 export interface ProductImage {
-    id: number; variant_id: number | null; variant_sale_price?: string | null; variant_label?: string | null; alt_text: string | null; is_primary: boolean; sort_order: number;
+    id: number; variant_id: number | null; variant_sale_price?: string | null; variant_available_stock?: string | null; variant_label?: string | null; alt_text: string | null; is_primary: boolean; sort_order: number;
     renditions: Record<'thumb' | 'card' | 'detail', { url: string | null; width: number; height: number }>;
 }
 export interface CatalogVariant {
     id: number; product_id: number; sku: string; barcode: string | null; sale_price: string; cost_price?: string | null;
     description: string | null;
     is_active: boolean; version: number;
+    available_stock?: string | null;
     attribute_values: { id: number; attribute_id: number; attribute_name: string; value: string }[];
 }
 export interface VariantPage { data: CatalogVariant[]; current_page: number; last_page: number; total: number }

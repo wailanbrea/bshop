@@ -39,9 +39,70 @@ class CatalogController extends Controller
         abort_if($product->status !== 'active' && ! $request->user()->permits('catalog.manage'), 404);
     }
 
+    private function attachAvailableStock(iterable $products, ?int $storeId = null): array
+    {
+        $variantIds = [];
+        foreach ($products as $product) {
+            if ($product->relationLoaded('variants')) {
+                foreach ($product->variants as $v) {
+                    $variantIds[$v->id] = true;
+                }
+            }
+            if ($product->relationLoaded('images')) {
+                foreach ($product->images as $img) {
+                    if ($img->variant_id) {
+                        $variantIds[$img->variant_id] = true;
+                    }
+                }
+            }
+        }
+        $byVariant = [];
+        if (! empty($variantIds)) {
+            $rows = DB::table('stock_balances as sb')
+                ->join('warehouses as w', 'w.id', '=', 'sb.warehouse_id')
+                ->where('w.is_active', true)
+                ->when($storeId, fn ($q) => $q->where('w.store_id', $storeId))
+                ->whereIn('sb.variant_id', array_keys($variantIds))
+                ->select('sb.variant_id', 'sb.on_hand', 'sb.reserved')
+                ->get();
+            foreach ($rows as $row) {
+                $vid = (int) $row->variant_id;
+                $avail = bcsub(bcadd((string) $row->on_hand, '0', 4), bcadd((string) $row->reserved, '0', 4), 4);
+                if (bccomp($avail, '0', 4) < 0) {
+                    $avail = '0.0000';
+                }
+                $byVariant[$vid] = bcadd($byVariant[$vid] ?? '0.0000', $avail, 4);
+            }
+        }
+        foreach ($products as $product) {
+            if (! $product->track_stock) {
+                $product->setAttribute('available_stock', null);
+            } else {
+                $sum = '0.0000';
+                if ($product->relationLoaded('variants')) {
+                    foreach ($product->variants as $v) {
+                        $vAvail = $byVariant[$v->id] ?? '0.0000';
+                        $v->setAttribute('available_stock', $vAvail);
+                        $sum = bcadd($sum, $vAvail, 4);
+                    }
+                }
+                $product->setAttribute('available_stock', $sum);
+            }
+            if ($product->relationLoaded('images')) {
+                foreach ($product->images as $img) {
+                    if ($img->relationLoaded('variant') && $img->variant) {
+                        $img->variant->setAttribute('available_stock', $product->track_stock ? ($byVariant[$img->variant->id] ?? '0.0000') : null);
+                    }
+                }
+            }
+        }
+
+        return $byVariant;
+    }
+
     public function index(Request $request)
     {
-        $data = $request->validate(['q' => ['nullable', 'string', 'max:120'], 'category_id' => ['nullable', 'integer', 'exists:categories,id'], 'brand_id' => ['nullable', 'integer', 'exists:brands,id'], 'status' => ['nullable', Rule::in(['active', 'archived', 'all'])], 'product_type' => ['nullable', Rule::in(['physical', 'service'])], 'page' => ['nullable', 'integer', 'min:1'], 'per_page' => ['nullable', 'integer', 'between:1,60']]);
+        $data = $request->validate(['q' => ['nullable', 'string', 'max:120'], 'category_id' => ['nullable', 'integer', 'exists:categories,id'], 'brand_id' => ['nullable', 'integer', 'exists:brands,id'], 'status' => ['nullable', Rule::in(['active', 'archived', 'all'])], 'product_type' => ['nullable', Rule::in(['physical', 'service'])], 'store_id' => ['nullable', 'integer', 'min:1'], 'page' => ['nullable', 'integer', 'min:1'], 'per_page' => ['nullable', 'integer', 'between:1,60']]);
         $status = $data['status'] ?? 'active';
         abort_if($status !== 'active' && ! $request->user()->permits('catalog.manage'), 403);
         $query = $this->products()->when($status !== 'all', fn ($q) => $q->where('status', $status));
@@ -56,15 +117,23 @@ class CatalogController extends Controller
                 ->orWhereHas('variants', fn ($v) => $v->where(fn ($codes) => $codes->whereRaw("sku LIKE ? ESCAPE '!'", ['%'.$search.'%'])->orWhereRaw("barcode LIKE ? ESCAPE '!'", ['%'.$search.'%']))));
         }
 
-        return CatalogProductResource::collection($query->orderByDesc('id')->paginate($data['per_page'] ?? 24)->withQueryString());
+        $paginated = $query->orderByDesc('id')->paginate($data['per_page'] ?? 24)->withQueryString();
+        $this->attachAvailableStock($paginated->getCollection(), isset($data['store_id']) ? (int) $data['store_id'] : null);
+
+        return CatalogProductResource::collection($paginated);
     }
 
     public function show(Request $request)
     {
-        $request->validate(['page' => ['nullable', 'integer', 'min:1']]);
+        $data = $request->validate(['page' => ['nullable', 'integer', 'min:1'], 'store_id' => ['nullable', 'integer', 'min:1']]);
         $product = $this->products()->findOrFail($request->route('product'));
         $this->authorizeRead($product, $request);
+        $storeId = isset($data['store_id']) ? (int) $data['store_id'] : null;
+        $byVariant = $this->attachAvailableStock([$product], $storeId);
         $variants = $product->variants()->with('attributeValues.attribute')->when(! $request->user()->permits('catalog.manage'), fn ($q) => $q->where('is_active', true))->orderBy('id')->paginate(24);
+        foreach ($variants->items() as $v) {
+            $v->setAttribute('available_stock', $product->track_stock ? ($byVariant[$v->id] ?? '0.0000') : null);
+        }
 
         return response()->json(['data' => ['product' => (new CatalogProductResource($product))->resolve($request), 'variants' => ['data' => CatalogVariantResource::collection($variants->items())->resolve($request), 'current_page' => $variants->currentPage(), 'last_page' => $variants->lastPage(), 'total' => $variants->total()]]]);
     }

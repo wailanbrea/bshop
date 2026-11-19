@@ -23,6 +23,7 @@ class ProductImageResource extends JsonResource
             'id' => $this->id,
             'variant_id' => $this->variant_id,
             'variant_sale_price' => $variant?->sale_price,
+            'variant_available_stock' => $variant?->getAttribute('available_stock'),
             'variant_label' => $variantLabel,
             'alt_text' => $this->alt_text,
             'is_primary' => $this->is_primary,
