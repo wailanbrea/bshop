@@ -421,7 +421,7 @@ onUnmounted(() => { ++request; ++detailRequest; controller?.abort(); clearTimeou
         </template>
     </template>
     <ProductEditor v-if="manage" :open="productOpen" :product="productDraft" :initial-mode="editorMode" :options="options" :costs="costs" :opener="opener" :actor-id="actorId" :store="store" :warehouses="warehouses" :inventory-manage="permissions.includes('inventory.manage')" @close="productOpen = false" @saved="savedProduct" @photo-recovery="refreshPhotoReminders" />
-    <VariantEditor v-if="manage" :open="variantOpen" :product="selected" :variant="variantDraft" :options="options" :costs="costs" :opener="opener" @close="variantOpen = false" @saved="savedVariant" />
+    <VariantEditor v-if="manage" :open="variantOpen" :product="selected" :variant="variantDraft" :options="options" :costs="costs" :opener="opener" :store="store" :warehouses="warehouses" :inventory-manage="permissions.includes('inventory.manage')" @close="variantOpen = false" @saved="savedVariant" />
     <ProductGallery :open="photosOpen" :product="selected" :variants="variants.data" :manage="manage" :opener="photoOpener" @close="photosOpen = false" @changed="photosChanged" />
     <AppDialog
         v-if="manage"
