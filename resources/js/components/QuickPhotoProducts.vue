@@ -36,6 +36,9 @@ type QuickItem = {
     quantity: string;
     color: string;
     size: string;
+    sizeQuantities: Record<string, string>;
+    sizeSkus: Record<string, string>;
+    sizeStockKeys: Record<string, string>;
     description: string;
     sku: string;
     requestKey: string;
@@ -136,6 +139,9 @@ function createEmptyItem(file: File | null = null, cat = 'Ropa', footwear: 'eu' 
         quantity: '1',
         color: '',
         size: '',
+        sizeQuantities: {},
+        sizeSkus: {},
+        sizeStockKeys: {},
         description: '',
         sku: makeSku(),
         requestKey: crypto.randomUUID(),
@@ -147,9 +153,36 @@ function createEmptyItem(file: File | null = null, cat = 'Ropa', footwear: 'eu' 
     };
 }
 
+function selectedSizes(item: QuickItem): string[] {
+    return Object.keys(item.sizeQuantities);
+}
+
+function toggleSizeChip(item: QuickItem, size: string) {
+    if (busy.value || item.productId !== null) return;
+    if (item.sizeQuantities[size] !== undefined) {
+        const next = { ...item.sizeQuantities };
+        delete next[size];
+        item.sizeQuantities = next;
+    } else {
+        item.sizeQuantities = { ...item.sizeQuantities, [size]: '1' };
+        if (!item.sizeSkus[size]) item.sizeSkus = { ...item.sizeSkus, [size]: makeSku() };
+        if (!item.sizeStockKeys[size]) item.sizeStockKeys = { ...item.sizeStockKeys, [size]: crypto.randomUUID() };
+    }
+}
+
+function sizeTotalUnits(item: QuickItem): number {
+    return selectedSizes(item).reduce((sum, s) => {
+        const n = Number((item.sizeQuantities[s] || '0').replace(',', '.'));
+        return sum + (Number.isFinite(n) && n > 0 ? n : 0);
+    }, 0);
+}
+
 function syncItemCategory(item: QuickItem) {
     const p = categoryProfile(item.categoryName);
-    if (!p.showSize) item.size = '';
+    if (!p.showSize) {
+        item.size = '';
+        item.sizeQuantities = {};
+    }
     if (!p.showColor) item.color = '';
 }
 
@@ -170,6 +203,7 @@ function applyBatchFootwearSystem(sys: 'eu' | 'us') {
         if (item.productId === null) {
             item.footwearSystem = sys;
             item.size = '';
+            item.sizeQuantities = {};
         }
     }
 }
@@ -328,25 +362,77 @@ function validateCard(item: QuickItem, label: string, requireName = true): strin
     }
     const sale = decimalInput(item.salePrice.trim());
     if (!sale || units(sale) === null) return `Indica un precio de venta válido en ${label}.`;
-    const qty = item.quantity.trim().replace(',', '.');
-    if (!qty || units(qty) === null) return `Indica una cantidad válida en ${label}.`;
     const p = categoryProfile(item.categoryName);
     if (p.requireColor && !item.color.trim()) return `Indica el color en ${label}.`;
-    if (p.requireSize && !item.size.trim()) return `Indica la talla en ${label}.`;
+    const multiSizes = p.showSize ? selectedSizes(item) : [];
+    if (multiSizes.length > 0) {
+        for (const s of multiSizes) {
+            const q = (item.sizeQuantities[s] || '').trim().replace(',', '.');
+            if (!q || units(q) === null) return `Indica una cantidad válida para talla ${s} en ${label}.`;
+        }
+    } else {
+        const qty = item.quantity.trim().replace(',', '.');
+        if (!qty || units(qty) === null) return `Indica una cantidad válida en ${label}.`;
+        if (p.requireSize && !item.size.trim()) return `Selecciona al menos una talla en ${label}.`;
+    }
     return null;
+}
+
+function buildItemVariants(item: QuickItem) {
+    const p = categoryProfile(item.categoryName);
+    const costVal = item.costPrice.trim() ? decimalInput(item.costPrice.trim()) : null;
+    const saleVal = decimalInput(item.salePrice.trim());
+    const multiSizes = p.showSize ? selectedSizes(item) : [];
+    const variants: Record<string, unknown>[] = [];
+    const stockItems: { sku: string; quantity: string; request_key: string }[] = [];
+
+    if (multiSizes.length > 0) {
+        for (const s of multiSizes) {
+            const sku = item.sizeSkus[s] || makeSku();
+            item.sizeSkus[s] = sku;
+            const stockKey = item.sizeStockKeys[s] || crypto.randomUUID();
+            item.sizeStockKeys[s] = stockKey;
+            const qty = (item.sizeQuantities[s] || '0').trim().replace(',', '.');
+            variants.push({
+                color: p.showColor && item.color.trim() ? item.color.trim() : null,
+                size: s,
+                sku,
+                description: item.description.trim() || null,
+                sale_price: saleVal,
+                ...(props.costs ? { cost_price: costVal } : {}),
+                is_active: true,
+            });
+            if (props.inventoryManage && units(qty) !== null && units(qty)! > 0n) {
+                stockItems.push({ sku, quantity: qty, request_key: stockKey });
+            }
+        }
+    } else {
+        const qty = item.quantity.trim().replace(',', '.');
+        variants.push({
+            color: p.showColor && item.color.trim() ? item.color.trim() : null,
+            size: p.showSize && item.size.trim() ? item.size.trim() : null,
+            sku: item.sku,
+            description: item.description.trim() || null,
+            sale_price: saleVal,
+            ...(props.costs ? { cost_price: costVal } : {}),
+            is_active: true,
+        });
+        if (props.inventoryManage && units(qty) !== null && units(qty)! > 0n) {
+            stockItems.push({ sku: item.sku, quantity: qty, request_key: item.stockKey });
+        }
+    }
+
+    return { variants, stockItems, primarySku: String(variants[0]?.sku || item.sku) };
 }
 
 async function persistItem(item: QuickItem, indexLabel: string): Promise<number> {
     item.itemError = '';
     if (item.productId === null) {
         progress.value = `Guardando ${indexLabel}: ${item.name.trim()}…`;
-        const qty = item.quantity.trim().replace(',', '.');
-        const hasPositiveStock = props.inventoryManage && units(qty) !== null && units(qty)! > 0n;
-        if (hasPositiveStock && (!props.store?.is_active || !activeWarehouseId.value)) {
+        const built = buildItemVariants(item);
+        if (built.stockItems.length > 0 && (!props.store?.is_active || !activeWarehouseId.value)) {
             throw new Error('Selecciona una sucursal y un almacén activos para registrar la cantidad.');
         }
-        const p = categoryProfile(item.categoryName);
-        const costVal = item.costPrice.trim() ? decimalInput(item.costPrice.trim()) : null;
         const body: Record<string, unknown> = {
             name: item.name.trim(),
             description: item.description.trim() || null,
@@ -358,29 +444,13 @@ async function persistItem(item: QuickItem, indexLabel: string): Promise<number>
             track_stock: true,
             status: 'active',
             request_key: item.requestKey,
-            clothing_variants: [
-                {
-                    color: p.showColor && item.color.trim() ? item.color.trim() : null,
-                    size: p.showSize && item.size.trim() ? item.size.trim() : null,
-                    sku: item.sku,
-                    description: item.description.trim() || null,
-                    sale_price: decimalInput(item.salePrice.trim()),
-                    ...(props.costs ? { cost_price: costVal } : {}),
-                    is_active: true,
-                },
-            ],
-            ...(hasPositiveStock
+            clothing_variants: built.variants,
+            ...(built.stockItems.length > 0
                 ? {
                       initial_stock: {
                           store_id: props.store!.id,
                           warehouse_id: activeWarehouseId.value,
-                          items: [
-                              {
-                                  sku: item.sku,
-                                  quantity: qty,
-                                  request_key: item.stockKey,
-                              },
-                          ],
+                          items: built.stockItems,
                       },
                   }
                 : {}),
@@ -447,25 +517,14 @@ async function submitSharedBatch() {
     const errors: string[] = [];
     try {
         if (batchSharedProductId.value === null) {
-            progress.value = `Guardando ${sharedName} con ${list.length} ${list.length === 1 ? 'variante' : 'variantes'}…`;
-            const p = categoryProfile(batchCategory.value);
             const stockItems: { sku: string; quantity: string; request_key: string }[] = [];
-            const clothingVariants = list.map((item) => {
-                const qty = item.quantity.trim().replace(',', '.');
-                if (props.inventoryManage && units(qty) !== null && units(qty)! > 0n) {
-                    stockItems.push({ sku: item.sku, quantity: qty, request_key: item.stockKey });
-                }
-                const costVal = item.costPrice.trim() ? decimalInput(item.costPrice.trim()) : null;
-                return {
-                    color: p.showColor && item.color.trim() ? item.color.trim() : null,
-                    size: p.showSize && item.size.trim() ? item.size.trim() : null,
-                    sku: item.sku,
-                    description: item.description.trim() || null,
-                    sale_price: decimalInput(item.salePrice.trim()),
-                    ...(props.costs ? { cost_price: costVal } : {}),
-                    is_active: true,
-                };
-            });
+            const clothingVariants: Record<string, unknown>[] = [];
+            for (const item of list) {
+                const built = buildItemVariants(item);
+                clothingVariants.push(...built.variants);
+                stockItems.push(...built.stockItems);
+            }
+            progress.value = `Guardando ${sharedName} con ${clothingVariants.length} ${clothingVariants.length === 1 ? 'variante' : 'variantes'}…`;
             if (stockItems.length > 0 && (!props.store?.is_active || !activeWarehouseId.value)) {
                 throw new Error('Selecciona una sucursal y un almacén activos para registrar la cantidad.');
             }
@@ -519,7 +578,8 @@ async function submitSharedBatch() {
             progress.value = `Subiendo foto ${i + 1} de ${list.length}…`;
             try {
                 const normalizedFile = await normalizePhotoForUpload(item.file);
-                const variantId = batchVariantIdMap.value[item.sku.toUpperCase()];
+                const primarySku = buildItemVariants(item).primarySku;
+                const variantId = batchVariantIdMap.value[primarySku.toUpperCase()];
                 const uploadAttempt = async (key: string) => {
                     const formData = new FormData();
                     formData.append('file', normalizedFile);
@@ -709,8 +769,8 @@ defineExpose({ submit, busy });
                             >
                         </label>
                     </div>
-                    <div class="quick-grid-3" :class="{ 'no-size': !categoryProfile(singleItem.categoryName).showSize, 'only-qty': !categoryProfile(singleItem.categoryName).showColor && !categoryProfile(singleItem.categoryName).showSize }">
-                        <label>
+                    <div class="quick-grid-3" :class="{ 'no-size': !categoryProfile(singleItem.categoryName).showSize || selectedSizes(singleItem).length > 0, 'only-qty': (!categoryProfile(singleItem.categoryName).showColor && !categoryProfile(singleItem.categoryName).showSize) || (selectedSizes(singleItem).length > 0 && categoryProfile(singleItem.categoryName).showColor) }">
+                        <label v-if="selectedSizes(singleItem).length === 0">
                             Cantidad
                             <input
                                 v-model="singleItem.quantity"
@@ -732,11 +792,11 @@ defineExpose({ submit, busy });
                                 placeholder="Ej. Negro"
                             >
                         </label>
-                        <label v-if="categoryProfile(singleItem.categoryName).showSize">
+                        <label v-if="categoryProfile(singleItem.categoryName).showSize && selectedSizes(singleItem).length === 0">
                             Size
                             <input
                                 v-model="singleItem.size"
-                                required
+                                :required="selectedSizes(singleItem).length === 0"
                                 maxlength="120"
                                 :list="`quick-sizes-${singleItem.id}`"
                                 :disabled="busy || singleItem.productId !== null"
@@ -747,18 +807,40 @@ defineExpose({ submit, busy });
                             </datalist>
                         </label>
                     </div>
-                    <div v-if="categoryProfile(singleItem.categoryName).showSize" class="size-chips" role="group" aria-label="Tallas disponibles">
-                        <button
-                            v-for="s in sizesForItem(singleItem)"
-                            :key="s"
-                            type="button"
-                            class="size-chip"
-                            :class="{ active: normalize(singleItem.size) === normalize(s) }"
-                            :disabled="busy || singleItem.productId !== null"
-                            @click="singleItem.size = s"
-                        >
-                            {{ s }}
-                        </button>
+                    <div v-if="categoryProfile(singleItem.categoryName).showSize" class="size-picker-block">
+                        <div class="size-picker-label">
+                            <span>Tallas disponibles (toca varias para indicar cantidad por talla)</span>
+                            <small v-if="selectedSizes(singleItem).length > 0">{{ selectedSizes(singleItem).length }} {{ selectedSizes(singleItem).length === 1 ? 'talla' : 'tallas' }} · {{ sizeTotalUnits(singleItem) }} unid.</small>
+                        </div>
+                        <div class="size-chips" role="group" aria-label="Tallas disponibles">
+                            <button
+                                v-for="s in sizesForItem(singleItem)"
+                                :key="s"
+                                type="button"
+                                class="size-chip"
+                                :class="{ active: singleItem.sizeQuantities[s] !== undefined }"
+                                :aria-pressed="singleItem.sizeQuantities[s] !== undefined"
+                                :disabled="busy || singleItem.productId !== null"
+                                @click="toggleSizeChip(singleItem, s)"
+                            >
+                                {{ s }}
+                            </button>
+                        </div>
+                        <div v-if="selectedSizes(singleItem).length > 0" class="size-qty-grid" role="group" aria-label="Cantidad por talla">
+                            <div v-for="s in selectedSizes(singleItem)" :key="s" class="size-qty-item">
+                                <span class="size-qty-badge">{{ s }}</span>
+                                <input
+                                    v-model="singleItem.sizeQuantities[s]"
+                                    required
+                                    inputmode="decimal"
+                                    maxlength="20"
+                                    :aria-label="`Cantidad talla ${s}`"
+                                    :disabled="busy || singleItem.productId !== null"
+                                    placeholder="1"
+                                >
+                                <button type="button" class="size-qty-rm" :aria-label="`Quitar talla ${s}`" :disabled="busy || singleItem.productId !== null" @click="toggleSizeChip(singleItem, s)">×</button>
+                            </div>
+                        </div>
                     </div>
                     <label>
                         Descripción (opcional)
@@ -910,8 +992,8 @@ defineExpose({ submit, busy });
                                 >
                             </label>
                         </div>
-                        <div class="quick-grid-3" :class="{ 'no-size': !categoryProfile(item.categoryName).showSize, 'only-qty': !categoryProfile(item.categoryName).showColor && !categoryProfile(item.categoryName).showSize }">
-                            <label>
+                        <div class="quick-grid-3" :class="{ 'no-size': !categoryProfile(item.categoryName).showSize || selectedSizes(item).length > 0, 'only-qty': (!categoryProfile(item.categoryName).showColor && !categoryProfile(item.categoryName).showSize) || (selectedSizes(item).length > 0 && categoryProfile(item.categoryName).showColor) }">
+                            <label v-if="selectedSizes(item).length === 0">
                                 Cantidad (foto {{ index + 1 }})
                                 <input
                                     v-model="item.quantity"
@@ -933,11 +1015,11 @@ defineExpose({ submit, busy });
                                     placeholder="Ej. Negro"
                                 >
                             </label>
-                            <label v-if="categoryProfile(item.categoryName).showSize">
+                            <label v-if="categoryProfile(item.categoryName).showSize && selectedSizes(item).length === 0">
                                 Size (foto {{ index + 1 }})
                                 <input
                                     v-model="item.size"
-                                    required
+                                    :required="selectedSizes(item).length === 0"
                                     maxlength="120"
                                     :list="`quick-sizes-${item.id}`"
                                     :disabled="busy || item.productId !== null"
@@ -948,18 +1030,40 @@ defineExpose({ submit, busy });
                                 </datalist>
                             </label>
                         </div>
-                        <div v-if="categoryProfile(item.categoryName).showSize" class="size-chips" role="group" :aria-label="`Tallas foto ${index + 1}`">
-                            <button
-                                v-for="s in sizesForItem(item)"
-                                :key="s"
-                                type="button"
-                                class="size-chip"
-                                :class="{ active: normalize(item.size) === normalize(s) }"
-                                :disabled="busy || item.productId !== null"
-                                @click="item.size = s"
-                            >
-                                {{ s }}
-                            </button>
+                        <div v-if="categoryProfile(item.categoryName).showSize" class="size-picker-block">
+                            <div class="size-picker-label">
+                                <span>Tallas (toca varias)</span>
+                                <small v-if="selectedSizes(item).length > 0">{{ selectedSizes(item).length }}t · {{ sizeTotalUnits(item) }} u.</small>
+                            </div>
+                            <div class="size-chips" role="group" :aria-label="`Tallas foto ${index + 1}`">
+                                <button
+                                    v-for="s in sizesForItem(item)"
+                                    :key="s"
+                                    type="button"
+                                    class="size-chip"
+                                    :class="{ active: item.sizeQuantities[s] !== undefined }"
+                                    :aria-pressed="item.sizeQuantities[s] !== undefined"
+                                    :disabled="busy || item.productId !== null"
+                                    @click="toggleSizeChip(item, s)"
+                                >
+                                    {{ s }}
+                                </button>
+                            </div>
+                            <div v-if="selectedSizes(item).length > 0" class="size-qty-grid" role="group" :aria-label="`Cantidad por talla foto ${index + 1}`">
+                                <div v-for="s in selectedSizes(item)" :key="s" class="size-qty-item">
+                                    <span class="size-qty-badge">{{ s }}</span>
+                                    <input
+                                        v-model="item.sizeQuantities[s]"
+                                        required
+                                        inputmode="decimal"
+                                        maxlength="20"
+                                        :aria-label="`Cantidad talla ${s} (foto ${index + 1})`"
+                                        :disabled="busy || item.productId !== null"
+                                        placeholder="1"
+                                    >
+                                    <button type="button" class="size-qty-rm" :aria-label="`Quitar talla ${s} (foto ${index + 1})`" :disabled="busy || item.productId !== null" @click="toggleSizeChip(item, s)">×</button>
+                                </div>
+                            </div>
                         </div>
                         <label>
                             Descripción (foto {{ index + 1 }}, opcional)
@@ -1087,6 +1191,64 @@ defineExpose({ submit, busy });
 }
 .quick-grid-3.only-qty {
     grid-template-columns: minmax(0, 1fr);
+}
+.size-picker-block {
+    display: grid;
+    gap: 8px;
+}
+.size-picker-label {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: #4f4563;
+}
+.size-picker-label small {
+    color: #6a46d8;
+    font-weight: 700;
+    white-space: nowrap;
+}
+.size-qty-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+    gap: 8px;
+}
+.size-qty-item {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 7px;
+    border: 1px solid #d7c9f0;
+    border-radius: 10px;
+    background: #f9f6ff;
+}
+.size-qty-badge {
+    font-weight: 800;
+    font-size: 0.86rem;
+    color: #4c2fa6;
+    min-width: 24px;
+    text-align: center;
+    white-space: nowrap;
+}
+.size-qty-item input {
+    min-height: 34px;
+    padding: 4px 6px;
+    text-align: center;
+    font-size: 16px;
+    border-radius: 8px;
+}
+.size-qty-rm {
+    border: 0;
+    background: transparent;
+    color: #7c6f94;
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 2px 4px;
 }
 .size-chips {
     display: flex;

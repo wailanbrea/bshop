@@ -376,3 +376,28 @@ test('detail view filters photos by selected variant and delete requires double 
     expect(deleted).toBe(true);
     expect(businessState.writes).toBe(0);
 });
+
+test('footwear and clothing support selecting multiple sizes with independent quantity per size',async({page,catalog})=>{
+    catalog.failPhoto=false;
+    await page.goto('/');if((page.viewportSize()?.width||0)<768)await page.getByRole('button',{name:'Abrir menú',exact:true}).click();await page.getByRole('button',{name:'Catálogo',exact:true}).click();
+    await page.getByRole('button',{name:'+ Nuevo producto',exact:true}).click();const dialog=page.getByRole('dialog',{name:'Nuevo producto'});
+    await dialog.getByRole('combobox',{name:'Categoría',exact:true}).selectOption('Calzado');
+    await dialog.getByLabel('Nombre',{exact:true}).fill('Tenis Blanco');
+    await dialog.getByLabel('Precio de venta',{exact:true}).fill('65');
+    await dialog.getByLabel('Color',{exact:true}).fill('Blanco');
+
+    const sizes=dialog.getByRole('group',{name:'Tallas disponibles'});
+    await sizes.getByRole('button',{name:'36',exact:true}).click();
+    await sizes.getByRole('button',{name:'37',exact:true}).click();
+    await sizes.getByRole('button',{name:'38',exact:true}).click();
+    await dialog.getByLabel('Cantidad talla 36').fill('2');
+    await dialog.getByLabel('Cantidad talla 37').fill('3');
+    await dialog.getByLabel('Cantidad talla 38').fill('1');
+
+    await dialog.getByRole('button',{name:'Guardar producto',exact:true}).click();
+    await expect(dialog).not.toBeVisible();
+
+    expect(catalog.creates).toHaveLength(1);
+    expect(catalog.creates[0].clothing_variants.map((v:any)=>`${v.color}/${v.size}`)).toEqual(['Blanco/36','Blanco/37','Blanco/38']);
+    expect(catalog.creates[0].initial_stock.items.map((i:any)=>i.quantity)).toEqual(['2','3','1']);
+});
