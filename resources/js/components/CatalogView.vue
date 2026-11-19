@@ -21,6 +21,7 @@ const products = ref<CatalogProduct[]>([]); const page = ref(1); const lastPage 
 const query = ref(''); const category = ref<number | ''>(''); const brand = ref<number | ''>(''); const status = ref('active'); const type = ref('');
 const loading = ref(true); const error = ref(''); const notice = ref(''); const organizing = ref(false);
 const importing = ref(false);
+const filtersOpen = ref(false);
 const photosOpen = ref(false); const photoOpener = ref<HTMLElement | null>(null);
 const photoReminders=ref(photoRecoveries(props.actorId));
 function refreshPhotoReminders(){photoReminders.value=photoRecoveries(props.actorId);}
@@ -154,7 +155,7 @@ function cardDisplayPrice(product: CatalogProduct): string {
     return `${product.min_sale_price !== product.max_sale_price ? 'Desde ' : ''}${amount(product.min_sale_price, props.business.default_currency)}`;
 }
 function cardDisplayVariantLabel(product: CatalogProduct): string {
-    return activeCardImage(product)?.variant_label || '';
+    return activeCardImage(product)?.variant_label || product.variant_summary || '';
 }
 function onCardTouchStart(e: TouchEvent) {
     swipeStartX = e.changedTouches[0]?.clientX ?? 0;
@@ -224,7 +225,21 @@ onUnmounted(() => { ++request; ++detailRequest; controller?.abort(); clearTimeou
     <CatalogImportView v-if="importing && manage" :business="business" :options="options" :costs="costs" @back="importing = false" @changed="importChanged" @product="id => { importing = false; detail(id); }" />
     <CatalogOptionsManager v-else-if="organizing && manage" :options="options" @back="organizing = false" @changed="loadOptions" />
     <template v-else>
-        <div class="catalog-actions"><div><span class="eyebrow">PRODUCTOS Y SERVICIOS</span><p class="muted">{{ business.name }} · Catálogo del negocio</p></div><div class="actions"><button type="button" class="button secondary" :disabled="loading || detailLoading" @click="refreshCatalog">Actualizar</button><button v-if="manage" type="button" class="button secondary" @click="organizing = true">Organizar catálogo</button><button v-if="manage" type="button" class="button secondary" @click="openImport">Importar CSV</button><button v-if="manage" type="button" class="button secondary" @click="editProduct(null, $event, 'batch')">+ Subir hasta 10 fotos</button><button v-if="manage" type="button" class="button primary" @click="editProduct(null, $event, 'single')">+ Nuevo producto</button></div></div>
+        <div class="cat-top-header">
+            <div class="cat-top-title">
+                <span class="eyebrow">PRODUCTOS Y SERVICIOS</span>
+                <p class="muted">{{ business.name }} · Catálogo del negocio</p>
+            </div>
+            <div class="cat-primary-ctas" v-if="manage">
+                <button type="button" class="button primary" @click="editProduct(null, $event, 'single')">+ Nuevo producto</button>
+                <button type="button" class="button soft-purple" @click="editProduct(null, $event, 'batch')">+ Varias fotos</button>
+            </div>
+            <div class="cat-secondary-tools">
+                <button type="button" class="tool-pill" :disabled="loading || detailLoading" @click="refreshCatalog">Actualizar</button>
+                <button v-if="manage" type="button" class="tool-pill" @click="organizing = true">Organizar catálogo</button>
+                <button v-if="manage" type="button" class="tool-pill" @click="openImport">Importar CSV</button>
+            </div>
+        </div>
         <template v-if="selected || detailLoading">
             <button type="button" class="text-button" @click="back">← Volver a productos</button>
             <p v-if="detailLoading" class="notice" role="status">Cargando producto…</p>
@@ -320,16 +335,37 @@ onUnmounted(() => { ++request; ++detailRequest; controller?.abort(); clearTimeou
             </section>
         </template>
         <template v-else>
-            <section class="panel catalog-filters" aria-label="Filtros de productos">
-                <label class="catalog-search">Buscar producto<input v-model="query" type="search" maxlength="120" placeholder="Nombre, SKU o código de barras" enterkeyhint="search" autocomplete="off" autocorrect="off"></label>
-                <label>Categoría<select v-model="category"><option value="">Todas las categorías</option><option v-for="item in options.categories" :key="item.id" :value="item.id">{{ item.name }}{{ item.is_active ? '' : ' · Inactiva' }}</option></select></label>
-                <label>Marca<select v-model="brand"><option value="">Todas las marcas</option><option v-for="item in options.brands" :key="item.id" :value="item.id">{{ item.name }}{{ item.is_active ? '' : ' · Inactiva' }}</option></select></label>
-                <label>Tipo<select v-model="type"><option value="">Todos los tipos</option><option value="physical">Productos físicos</option><option value="service">Servicios</option></select></label>
-                <label v-if="manage">Estado<select v-model="status"><option value="active">Activos</option><option value="archived">Archivados</option><option value="all">Todos</option></select></label>
+            <section class="cat-filter-shell" aria-label="Filtros de productos">
+                <div class="cat-search-bar">
+                    <label class="cat-search-input">
+                        <span class="sr-only">Buscar producto</span>
+                        <input v-model="query" type="search" maxlength="120" placeholder="Buscar producto, SKU o código de barras" enterkeyhint="search" autocomplete="off" autocorrect="off" aria-label="Buscar producto">
+                    </label>
+                    <button type="button" class="cat-filter-toggle" :aria-expanded="filtersOpen" @click="filtersOpen = !filtersOpen">
+                        Filtros {{ filtersOpen ? '▴' : '▾' }}
+                    </button>
+                </div>
+                <div v-if="options.categories.length" class="cat-quick-chips" role="group" aria-label="Categorías rápidas">
+                    <button type="button" class="cat-chip" :class="{ active: category === '' }" @click="category = ''">Todas</button>
+                    <button
+                        v-for="item in options.categories.filter(c => c.is_active)"
+                        :key="item.id"
+                        type="button"
+                        class="cat-chip"
+                        :class="{ active: category === item.id }"
+                        @click="category = item.id"
+                    >{{ item.name }}</button>
+                </div>
+                <div class="panel catalog-filters cat-adv-filters" :class="{ open: filtersOpen }">
+                    <label>Categoría<select v-model="category"><option value="">Todas las categorías</option><option v-for="item in options.categories" :key="item.id" :value="item.id">{{ item.name }}{{ item.is_active ? '' : ' · Inactiva' }}</option></select></label>
+                    <label>Marca<select v-model="brand"><option value="">Todas las marcas</option><option v-for="item in options.brands" :key="item.id" :value="item.id">{{ item.name }}{{ item.is_active ? '' : ' · Inactiva' }}</option></select></label>
+                    <label>Tipo<select v-model="type"><option value="">Todos los tipos</option><option value="physical">Productos físicos</option><option value="service">Servicios</option></select></label>
+                    <label v-if="manage">Estado<select v-model="status"><option value="active">Activos</option><option value="archived">Archivados</option><option value="all">Todos</option></select></label>
+                </div>
             </section>
             <p v-if="loading" class="notice" role="status">Buscando productos…</p>
             <template v-else>
-                <div class="catalog-results"><strong>{{ total }} {{ total === 1 ? 'producto' : 'productos' }}</strong><span class="muted">Fotos y variantes del catálogo.</span></div>
+                <div class="catalog-results"><strong>{{ total }} {{ total === 1 ? 'producto' : 'productos' }}</strong><span class="muted">Toca un producto para ver detalles.</span></div>
                 <section class="product-grid" aria-label="Catálogo de productos">
                     <article v-for="product in products" :key="product.id" class="product-card product-card-carousel">
                         <div class="product-visual product-visual-carousel" :class="{ service: product.product_type === 'service' }" @touchstart.passive="onCardTouchStart" @touchend.passive="onCardTouchEnd(product, $event)">
@@ -338,10 +374,12 @@ onUnmounted(() => { ++request; ++detailRequest; controller?.abort(); clearTimeou
                                 :src="activeCardImage(product)?.renditions.card?.url || activeCardImage(product)?.renditions.detail?.url || undefined"
                                 :alt="activeCardImage(product)?.alt_text || product.name"
                                 loading="lazy"
-                                style="width: 100%; height: 100%; object-fit: contain"
+                                class="product-card-photo"
                                 @click="detail(product.id)"
                             >
                             <span v-else aria-hidden="true" @click="detail(product.id)">{{ product.product_type === 'service' ? '✦' : product.name.slice(0, 1).toUpperCase() }}</span>
+                            <span class="card-cat-badge">{{ product.category?.name || 'Sin categoría' }}</span>
+                            <span v-if="product.status === 'archived'" class="card-arch-badge">Archivado</span>
                             <template v-if="orderedImages(product).length > 1">
                                 <button type="button" class="slide-arrow slide-prev" :aria-label="`Foto anterior de ${product.name}`" @click.stop="stepCardImage(product, -1)">‹</button>
                                 <button type="button" class="slide-arrow slide-next" :aria-label="`Foto siguiente de ${product.name}`" @click.stop="stepCardImage(product, 1)">›</button>
@@ -359,18 +397,21 @@ onUnmounted(() => { ++request; ++detailRequest; controller?.abort(); clearTimeou
                                 </div>
                             </template>
                         </div>
-                        <button type="button" class="product-card-body product-card-open" :aria-label="`Ver ${product.name}`" @click="detail(product.id)">
-                            <div class="catalog-tags">
-                                <span v-if="product.status === 'archived'" class="badge inactive">Archivado</span>
-                                <small>{{ product.category?.name || 'Sin categoría' }}</small>
-                            </div>
-                            <h2>{{ product.name }}</h2>
-                            <p v-if="cardDisplayVariantLabel(product)" class="product-variant-tag">{{ cardDisplayVariantLabel(product) }}</p>
-                            <strong class="product-price">{{ cardDisplayPrice(product) }}</strong>
-                            <p class="muted">{{ product.active_variants_count }} {{ product.active_variants_count === 1 ? 'variante' : 'variantes' }}</p>
-                        </button>
-                        <div v-if="manage" class="product-card-footer">
-                            <button type="button" class="text-button danger-text" :aria-label="`Eliminar ${product.name}`" @click.stop="askDeleteProduct(product, $event)">Eliminar</button>
+                        <div class="product-card-bottom">
+                            <button type="button" class="product-card-body product-card-open" :aria-label="`Ver ${product.name}`" @click="detail(product.id)">
+                                <h2 class="product-card-title">{{ product.name }}</h2>
+                                <p v-if="cardDisplayVariantLabel(product)" class="product-variant-tag">{{ cardDisplayVariantLabel(product) }}</p>
+                                <strong class="product-price">{{ cardDisplayPrice(product) }}</strong>
+                                <p v-if="product.active_variants_count > 1" class="muted product-vars-count">{{ product.active_variants_count }} variantes</p>
+                            </button>
+                            <button
+                                v-if="manage"
+                                type="button"
+                                class="card-delete-btn"
+                                :aria-label="`Eliminar ${product.name}`"
+                                title="Eliminar producto"
+                                @click.stop="askDeleteProduct(product, $event)"
+                            >🗑</button>
                         </div>
                     </article>
                 </section>
@@ -425,23 +466,172 @@ onUnmounted(() => { ++request; ++detailRequest; controller?.abort(); clearTimeou
 </template>
 
 <style scoped>
+.cat-top-header {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px 14px;
+    margin-bottom: 14px;
+}
+.cat-top-title p {
+    margin: 2px 0 0;
+}
+.cat-primary-ctas {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+.cat-primary-ctas .button {
+    min-height: 44px;
+    white-space: nowrap;
+}
+.soft-purple {
+    background: #f2edff;
+    border: 1px solid #d8c8fb;
+    color: #5230b8;
+}
+.cat-secondary-tools {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+.tool-pill {
+    min-height: 36px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    border: 1px solid #e2dcf0;
+    background: #fff;
+    color: #4b425e;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.cat-filter-shell {
+    display: grid;
+    gap: 10px;
+    margin-bottom: 14px;
+}
+.cat-search-bar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+    align-items: center;
+}
+.cat-search-input {
+    display: block;
+    min-width: 0;
+}
+.cat-search-input input {
+    width: 100%;
+    min-height: 44px;
+}
+.cat-filter-toggle {
+    min-height: 44px;
+    padding: 0 14px;
+    border-radius: 12px;
+    border: 1px solid #e2dcf0;
+    background: #fff;
+    color: #241b35;
+    font-weight: 700;
+    font-size: 0.85rem;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.cat-quick-chips {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding-bottom: 2px;
+}
+.cat-chip {
+    flex: 0 0 auto;
+    min-height: 34px;
+    padding: 5px 12px;
+    border-radius: 999px;
+    border: 1px solid #e2dcf0;
+    background: #fff;
+    color: #2b223d;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.cat-chip.active {
+    background: #1f1730;
+    border-color: #1f1730;
+    color: #fff;
+}
+.cat-adv-filters {
+    margin-bottom: 0;
+}
 .product-card-carousel {
     display: flex;
     flex-direction: column;
     padding: 0;
     overflow: hidden;
     text-align: left;
+    border-radius: 14px;
 }
 .product-visual-carousel {
     position: relative;
+    height: auto;
+    aspect-ratio: 4 / 5;
+    width: 100%;
+    overflow: hidden;
     cursor: pointer;
     user-select: none;
+    background: #f3f0fa;
+}
+.product-card-photo {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+.card-cat-badge {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    max-width: calc(100% - 64px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.92);
+    color: #1f1730;
+    font-size: 0.72rem;
+    font-weight: 700;
+    pointer-events: none;
+}
+.card-arch-badge {
+    position: absolute;
+    bottom: 8px;
+    left: 8px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: rgba(180, 35, 24, 0.85);
+    color: #fff;
+    font-size: 0.7rem;
+    font-weight: 700;
+    pointer-events: none;
+}
+.product-card-bottom {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 6px;
+    padding: 10px 10px 11px;
+    flex: 1;
 }
 .product-card-open {
     display: grid;
-    gap: 6px;
-    width: 100%;
-    padding: 14px;
+    gap: 4px;
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 0;
     border: 0;
     background: transparent;
     text-align: left;
@@ -449,14 +639,77 @@ onUnmounted(() => { ++request; ++detailRequest; controller?.abort(); clearTimeou
     font: inherit;
     cursor: pointer;
 }
+.product-card-title {
+    margin: 0;
+    font-size: 0.95rem;
+    line-height: 1.25;
+    font-weight: 700;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
 .product-variant-tag {
     margin: 0;
-    font-size: 0.85rem;
+    font-size: 0.76rem;
     font-weight: 600;
     color: #5b3fb3;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 .product-price {
+    font-size: 1rem;
+    font-weight: 800;
     white-space: nowrap;
+}
+.product-vars-count {
+    margin: 0;
+    font-size: 0.74rem;
+}
+.card-delete-btn {
+    flex: 0 0 auto;
+    width: 32px;
+    height: 32px;
+    border: 0;
+    border-radius: 8px;
+    background: #fff1f1;
+    color: #b42318;
+    font-size: 0.88rem;
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+    padding: 0;
+}
+@media (max-width: 767px) {
+    .cat-top-title {
+        display: none;
+    }
+    .cat-primary-ctas {
+        width: 100%;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .cat-secondary-tools {
+        width: 100%;
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        padding-bottom: 2px;
+    }
+    .cat-adv-filters:not(.open) {
+        display: none;
+    }
+    .product-card-title {
+        font-size: 0.88rem;
+    }
+    .product-price {
+        font-size: 0.95rem;
+    }
+}
+@media (min-width: 768px) {
+    .cat-filter-toggle {
+        display: none;
+    }
 }
 .slide-arrow {
     position: absolute;

@@ -28,7 +28,7 @@ class CatalogController extends Controller
 {
     private function products()
     {
-        return Product::with(['category', 'brand', 'images.asset.renditions', 'images.variant.attributeValues.attribute'])->withCount('variants')->withCount(['variants as active_variants_count' => fn ($q) => $q->where('is_active', true)])
+        return Product::with(['category', 'brand', 'images.asset.renditions', 'images.variant.attributeValues.attribute', 'variants' => fn ($q) => $q->where('is_active', true)->orderBy('id')->with('attributeValues.attribute')])->withCount('variants')->withCount(['variants as active_variants_count' => fn ($q) => $q->where('is_active', true)])
             ->withMin(['variants as min_sale_price' => fn ($q) => $q->where('is_active', true)], 'sale_price')
             ->withMax(['variants as max_sale_price' => fn ($q) => $q->where('is_active', true)], 'sale_price')
             ->addSelect(['primary_sku' => ProductVariant::select('sku')->whereColumn('product_id', 'products.id')->where('is_active', true)->orderBy('id')->limit(1)]);

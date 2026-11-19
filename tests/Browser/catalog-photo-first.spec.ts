@@ -115,7 +115,7 @@ test('quick one-by-one mode captures photo, name, cost price, sale price, quanti
 
 test('batch mode up to 10 photos creates independent products with cost and sale prices under each photo',async({page,catalog})=>{
     catalog.failPhoto=false;await page.goto('/');if((page.viewportSize()?.width||0)<768)await page.getByRole('button',{name:'Abrir menú',exact:true}).click();await page.getByRole('button',{name:'Catálogo',exact:true}).click();
-    await page.getByRole('button',{name:'+ Subir hasta 10 fotos',exact:true}).click();const dialog=page.getByRole('dialog',{name:'Nuevo producto'});
+    await page.getByRole('button',{name:'+ Varias fotos',exact:true}).click();const dialog=page.getByRole('dialog',{name:'Nuevo producto'});
     await dialog.getByLabel('Seleccionar hasta 20 fotos').setInputFiles([
         {name:'uno.png',mimeType:'image/png',buffer:Buffer.from('foto-1')},
         {name:'dos.png',mimeType:'image/png',buffer:Buffer.from('foto-2')},
@@ -186,7 +186,7 @@ test('category-aware forms adapt fields for Calzado, Ropa, Electronicos and Joye
 
 test('batch mode selects category once at the top for all photos and supports 2 and 4 column views',async({page,catalog},testInfo)=>{
     catalog.failPhoto=false;await page.goto('/');if((page.viewportSize()?.width||0)<768)await page.getByRole('button',{name:'Abrir menú',exact:true}).click();await page.getByRole('button',{name:'Catálogo',exact:true}).click();
-    await page.getByRole('button',{name:'+ Subir hasta 10 fotos',exact:true}).click();const dialog=page.getByRole('dialog',{name:'Nuevo producto'});
+    await page.getByRole('button',{name:'+ Varias fotos',exact:true}).click();const dialog=page.getByRole('dialog',{name:'Nuevo producto'});
 
     // Choose category once at the top
     await dialog.getByRole('combobox',{name:'Categoría del lote',exact:true}).selectOption('Electrónicos');
@@ -281,7 +281,7 @@ test('batch same-product mode creates 1 product with 3 variant photos and slidin
     });
 
     await page.goto('/');if((page.viewportSize()?.width||0)<768)await page.getByRole('button',{name:'Abrir menú',exact:true}).click();await page.getByRole('button',{name:'Catálogo',exact:true}).click();
-    await page.getByRole('button',{name:'+ Subir hasta 10 fotos',exact:true}).click();const dialog=page.getByRole('dialog',{name:'Nuevo producto'});
+    await page.getByRole('button',{name:'+ Varias fotos',exact:true}).click();const dialog=page.getByRole('dialog',{name:'Nuevo producto'});
     await dialog.getByRole('combobox',{name:'Categoría del lote',exact:true}).selectOption('Electrónicos');
     await dialog.getByRole('button',{name:'Mismo producto (variantes)',exact:true}).click();
     await dialog.getByLabel('Nombre del producto',{exact:true}).fill('Audifonos');

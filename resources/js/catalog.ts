@@ -9,6 +9,7 @@ export interface CatalogProduct {
     track_stock: boolean; status: 'active' | 'archived'; version: number;
     category: { id: number; name: string } | null; brand: { id: number; name: string } | null;
     primary_sku: string | null; variants_count: number; active_variants_count: number;
+    variant_summary?: string | null;
     min_sale_price: string | null; max_sale_price: string | null;
 }
 export interface ProductImage {
