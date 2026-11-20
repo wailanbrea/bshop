@@ -11,7 +11,29 @@ const props = defineProps<{ store?: Store; permissions: string[] }>();
 const emit = defineEmits<{ openOrder: [number] }>();
 const rows = ref<Row[]>([]); const summary = ref<Summary[]>([]);
 const query = ref(''); const type = ref('all'); const state = ref('all'); const minDays = ref('0');
-const loading = ref(false); const exporting = ref(false); const filtersOpen = ref(false); const error = ref('');
+const loading = ref(false); const exporting = ref(false); const filtersOpen = ref(false);
+const notice = ref('');
+const remindingId = ref<number | null>(null);
+async function remindWhatsApp(row: Row) {
+    if (!props.store?.id || remindingId.value !== null) return;
+    remindingId.value = row.order_id;
+    notice.value = '';
+    error.value = '';
+    try {
+        await api.post(`/business/stores/${props.store.id}/whatsapp/receivables-reminder`, {
+            customer_id: row.customer_id,
+            pending_total: row.pending,
+            reference: row.reference,
+        });
+        notice.value = `Recordatorio enviado por WhatsApp API a ${row.customer_name}.`;
+    } catch {
+        const digits = (row.phone || '').replace(/\D+/g, '');
+        const text = `Hola ${row.customer_name}, te recordamos amablemente que tienes un saldo pendiente de ${amount(row.pending, row.currency)} en ${props.store.name} correspondiente a ${row.reference}.`;
+        window.open(`https://wa.me/${digits}?text=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer');
+    } finally {
+        remindingId.value = null;
+    }
+} const error = ref('');
 const page = ref(1); const lastPage = ref(1); const total = ref(0);
 const root = computed(() => `/business/stores/${props.store?.id}/receivables`);
 const canPay = computed(() => props.permissions.includes('payments.record'));
@@ -48,6 +70,7 @@ onUnmounted(() => { ++sequence; controller?.abort(); clearTimeout(timer); });
     <section class="receivables" aria-label="Cuentas por cobrar">
         <div class="panel-heading"><div><h2>Saldos de {{ store?.name || 'la sucursal' }}</h2><p class="muted">Facturas y apartados con saldo pendiente.</p></div><div class="actions"><button type="button" class="button secondary" :disabled="loading || !store" @click="load(page)">Actualizar saldos</button><button type="button" class="button primary" :disabled="loading || exporting || !store || !!error || !rows.length" @click="exportCsv">{{ exporting ? 'Exportando…' : 'Exportar CSV' }}</button></div></div>
         <p v-if="error" class="notice error" role="alert">{{ error }}</p>
+        <p v-if="notice" class="notice success" role="status">{{ notice }}</p>
         <div class="cxc-filters panel">
             <div class="cxc-search-row">
                 <label class="cxc-search-label">Buscar cliente o documento<input v-model="query" type="search" maxlength="120" placeholder="Nombre, teléfono, factura o apartado"></label>
@@ -72,7 +95,10 @@ onUnmounted(() => { ++sequence; controller?.abort(); clearTimeout(timer); });
                     <div><strong>{{ row.customer_name }}</strong><p class="muted">{{ row.phone || 'Sin teléfono' }}</p><span class="badge">{{ row.invoiced ? 'Factura' : 'Apartado' }}</span></div>
                     <div><strong>{{ row.reference }}</strong><p class="muted">{{ row.date }} · {{ row.age_days }} días</p><p v-if="row.return_pending" class="notice">Devolución recibida: importes originales pendientes de ajuste. Cobro bloqueado.</p><p v-if="row.return_credit_total&&row.return_credit_total!=='0.0000'" class="muted">Original {{ amount(row.original_total,row.currency) }} · Ajuste {{ amount(row.return_credit_total,row.currency) }} · Total neto {{ amount(row.total,row.currency) }}</p></div>
                     <dl><div><dt>Total</dt><dd>{{ amount(row.total, row.currency) }}</dd></div><div><dt>Abonado</dt><dd>{{ amount(row.paid, row.currency) }}</dd></div><div class="cxc-due"><dt>Pendiente</dt><dd>{{ amount(row.pending, row.currency) }}</dd></div></dl>
-                    <button type="button" class="button secondary" :aria-label="`${row.return_pending ? 'Ver devolución' : canPay ? 'Ver pedido y abonar' : 'Ver pedido'} ${row.reference}`" @click="emit('openOrder', row.order_id)">{{ row.return_pending ? 'Ver devolución' : canPay ? 'Ver pedido y abonar' : 'Ver pedido' }}</button>
+                    <div class="actions" style="flex-wrap: wrap;">
+                        <button type="button" class="button secondary" :disabled="remindingId === row.order_id" @click="remindWhatsApp(row)">{{ remindingId === row.order_id ? 'Enviando…' : 'Recordar WS' }}</button>
+                        <button type="button" class="button secondary" :aria-label="`${row.return_pending ? 'Ver devolución' : canPay ? 'Ver pedido y abonar' : 'Ver pedido'} ${row.reference}`" @click="emit('openOrder', row.order_id)">{{ row.return_pending ? 'Ver devolución' : canPay ? 'Ver pedido y abonar' : 'Ver pedido' }}</button>
+                    </div>
                 </article>
                 <p v-if="!rows.length" class="empty">No hay saldos pendientes con estos filtros.</p>
                 <div v-if="lastPage > 1" class="catalog-pagination"><button type="button" class="button secondary" :disabled="page <= 1" @click="load(page - 1)">Anterior</button><span>Página {{ page }} de {{ lastPage }}</span><button type="button" class="button secondary" :disabled="page >= lastPage" @click="load(page + 1)">Siguiente</button></div>

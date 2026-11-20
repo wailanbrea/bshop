@@ -10,6 +10,10 @@ Schedule::command('bshop:inventory-reconcile --json')->hourly()->withoutOverlapp
 
 Schedule::command('bshop:whatsapp-dispatch-scheduled')->everyMinute()->withoutOverlapping(10)->appendOutputTo(storage_path('logs/whatsapp-dispatch.log'));
 
+Schedule::command('bshop:whatsapp-expiry-warnings')->hourly()->withoutOverlapping(30)->appendOutputTo(storage_path('logs/whatsapp-expiry.log'));
+
+Schedule::command('bshop:whatsapp-owner-summary')->everyMinute()->withoutOverlapping(10)->appendOutputTo(storage_path('logs/whatsapp-owner-summary.log'));
+
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');

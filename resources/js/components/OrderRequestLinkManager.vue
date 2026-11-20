@@ -21,6 +21,26 @@ function toggle(id:number,name:string){if(busy.value||pending.value)return;selec
 async function generate(){if(busy.value||!props.customerActive)return;busy.value=true;error.value='';copied.value=false;pending.value??={request_key:crypto.randomUUID(),customer_id:props.customerId,warehouse_id:Number(warehouse.value),...(targetOrderId.value?{target_order_id:Number(targetOrderId.value)}:{}),variant_ids:selected.value.map(v=>v.id),hours:Number(hours.value),shipping:shipping.value};try{const result=(await api.post(endpoint,pending.value)).data.data;pending.value=null;url.value=result.path?new URL(result.path,location.origin).href:'';urlId.value=result.link.id;links.value=[result.link,...links.value.filter(l=>l.id!==result.link.id)].slice(0,20);}catch(e){error.value=errorMessage(e);if(axios.isAxiosError(e)&&e.response&&[409,422].includes(e.response.status))pending.value=null;}finally{busy.value=false;}}
 async function revoke(link:Link){busy.value=true;error.value='';try{const result=(await api.post(`${endpoint}/${link.id}/revoke`)).data.data;links.value=links.value.map(l=>l.id===link.id?result:l);if(urlId.value===link.id){url.value='';copied.value=false;}}catch(e){error.value=errorMessage(e);}finally{busy.value=false;}}
 async function copy(){try{await navigator.clipboard.writeText(url.value);copied.value=true;}catch{error.value='Selecciona y copia el enlace del campo.';}}
+const sendingWs = ref(false);
+const wsSent = ref('');
+async function sendLinkWhatsApp() {
+    if (!url.value || sendingWs.value) return;
+    sendingWs.value = true; error.value = ''; wsSent.value = '';
+    const activeLink = links.value.find(l => l.id === urlId.value) || links.value[0];
+    try {
+        await api.post(`${props.root}/whatsapp/catalog-link`, {
+            customer_id: props.customerId,
+            share_url: url.value,
+            expires_at: activeLink?.expires_at || new Date(Date.now() + 86400000).toISOString(),
+        });
+        wsSent.value = 'Enlace enviado por WhatsApp API al cliente.';
+    } catch {
+        const text = `Hola, aquí tienes tu enlace de catálogo personalizado para elegir tus artículos: ${url.value}`;
+        window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer');
+    } finally {
+        sendingWs.value = false;
+    }
+}
 onUnmounted(()=>{++token;clearTimeout(timer);});
 </script>
 <template><button type="button" class="button secondary" @click="show">Enlace para nuevo pedido</button>
@@ -33,7 +53,7 @@ onUnmounted(()=>{++token;clearTimeout(timer);});
     <p v-if="!customerActive" class="notice">Reactiva el cliente para generar nuevos enlaces. Puedes revocar los existentes.</p>
     <button type="button" class="button primary" :disabled="busy||!customerActive||!warehouse||!selected.length" @click="generate">{{ pending?'Reintentar enlace de pedido':'Generar enlace de pedido' }}</button>
     <p v-if="pending" class="notice">Reintentar conserva la misma autorización y duración.</p>
-    <template v-if="url"><label>Enlace de pedido para el cliente<input :value="url" type="url" readonly @focus="($event.target as HTMLInputElement).select()"></label><button type="button" class="button secondary" @click="copy">Copiar enlace de pedido</button><a class="button secondary" :href="url" target="_blank" rel="noopener noreferrer">Abrir vista del cliente</a><p class="muted">La confirmación en esta vista crea un apartado real. No confirmes si solo deseas probar.</p><p v-if="copied" role="status">Enlace copiado.</p></template>
+    <template v-if="url"><label>Enlace de pedido para el cliente<input :value="url" type="url" readonly @focus="($event.target as HTMLInputElement).select()"></label><div class="actions" style="flex-wrap:wrap;"><button type="button" class="button primary" :disabled="sendingWs" @click="sendLinkWhatsApp">{{ sendingWs ? 'Enviando…' : 'Enviar por WhatsApp' }}</button><button type="button" class="button secondary" @click="copy">Copiar enlace de pedido</button><a class="button secondary" :href="url" target="_blank" rel="noopener noreferrer">Abrir vista del cliente</a></div><p class="muted">La confirmación en esta vista crea un apartado real. No confirmes si solo deseas probar.</p><p v-if="copied" role="status">Enlace copiado.</p><p v-if="wsSent" class="notice success" role="status">{{ wsSent }}</p></template>
     <section aria-label="Enlaces de pedido recientes" class="request-link-options"><h3>Enlaces recientes</h3><article v-for="link in links" :key="link.id"><strong>#{{ link.id }} · {{ ({active:'Activo',used:'Pedido confirmado',expired:'Caducado',revoked:'Revocado'} as Record<string,string>)[link.status] }}</strong><p>{{ new Date(link.expires_at).toLocaleString('es') }}</p><button v-if="link.status!=='revoked'" type="button" class="button secondary" :disabled="busy" :aria-label="`Revocar enlace de pedido #${link.id}`" @click="revoke(link)">Revocar acceso</button></article></section>
     <template #footer><button type="button" class="button secondary" :disabled="busy" @click="open=false">Cerrar</button></template>
 </AppDialog></template>

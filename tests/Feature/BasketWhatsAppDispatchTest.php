@@ -196,5 +196,43 @@ class BasketWhatsAppDispatchTest extends TestCase
         $this->assertSame(1, $batch['sent_count']);
         $this->assertSame(0, $batch['failed_count']);
         Http::assertSentCount(2);
+
+        // Save all 8 automations + owner_phone for Store B
+        $this->actingAs($userB)->patchJson("/api/v1/business/stores/{$storeB->id}/whatsapp/automations", [
+            'owner_phone' => '+18092374444',
+            'daily_summary_time' => '21:00',
+            'rules' => [
+                'payment_receipt' => ['enabled' => true, 'template' => 'recibo_abono'],
+                'order_dispatched' => ['enabled' => true, 'template' => 'pedido_despachado'],
+                'receivables_reminder' => ['enabled' => true, 'template' => 'recordatorio_saldo'],
+                'expiry_warning' => ['enabled' => true, 'template' => 'apartado_por_vencer', 'hours_before' => 24],
+                'weekly_close_pdf' => ['enabled' => true, 'template' => 'cuenta_semanal_pdf'],
+                'catalog_link' => ['enabled' => true, 'template' => 'enlace_catalogo_cliente'],
+                'owner_daily_summary' => ['enabled' => true, 'template' => 'resumen_diario_dueno'],
+                'low_stock_alert' => ['enabled' => true, 'template' => 'alerta_stock_bajo', 'threshold' => 2],
+            ],
+        ])->assertOk()
+            ->assertJsonPath('data.owner_phone', '+18092374444')
+            ->assertJsonPath('data.rules.payment_receipt.enabled', true);
+
+        // Trigger receivables reminder, catalog link, and owner daily summary test
+        $this->actingAs($userB)->postJson("/api/v1/business/stores/{$storeB->id}/whatsapp/receivables-reminder", [
+            'customer_id' => $customer->id,
+            'pending_total' => '200.00',
+            'reference' => 'FAC-000001',
+        ])->assertOk()->assertJsonPath('data.status', 'sent');
+
+        $this->actingAs($userB)->postJson("/api/v1/business/stores/{$storeB->id}/whatsapp/catalog-link", [
+            'customer_id' => $customer->id,
+            'share_url' => 'https://keylashop.bsolutions.dev/s/abc123',
+            'expires_at' => now()->addDay()->toIso8601String(),
+        ])->assertOk()->assertJsonPath('data.status', 'sent');
+
+        $this->actingAs($userB)->postJson("/api/v1/business/stores/{$storeB->id}/whatsapp/owner-summary/test")
+            ->assertOk()->assertJsonPath('data.status', 'sent');
+
+        $logs = $this->actingAs($userB)->getJson("/api/v1/business/stores/{$storeB->id}/whatsapp/automations")
+            ->assertOk()->json('data.logs');
+        $this->assertGreaterThanOrEqual(3, count($logs));
     }
 }

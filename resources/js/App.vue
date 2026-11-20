@@ -19,6 +19,7 @@ const InvoicesView = defineAsyncComponent(() => import('./components/InvoicesVie
 const ReceivablesView = defineAsyncComponent(() => import('./components/ReceivablesView.vue'));
 import BasketBoard from './components/BasketBoard.vue';
 const WhatsAppSettings = defineAsyncComponent(() => import('./components/WhatsAppSettings.vue'));
+const WhatsAppAutomations = defineAsyncComponent(() => import('./components/WhatsAppAutomations.vue'));
 const ReservationSettings = defineAsyncComponent(() => import('./components/ReservationSettings.vue'));
 const SalesControlView = defineAsyncComponent(() => import('./components/SalesControlView.vue'));
 import {salesControlText} from './locales/es/salesControl';
@@ -182,6 +183,7 @@ onUnmounted(() => { unlockMenu?.(); drawerQuery.removeEventListener('change', sy
                     <ReservationSettings v-if="page==='settings'&&workspace.permissions.includes('business.manage')" />
                     <WeeklySettings v-if="page==='settings'&&workspace.permissions.includes('business.manage')" />
                     <WhatsAppSettings v-if="page==='settings'&&workspace.permissions.includes('business.manage')" :store="store" />
+                    <WhatsAppAutomations v-if="page==='settings'&&workspace.permissions.includes('business.manage')" :store="store" />
                     <footer class="content-footer"><span>BShop · {{ activeBrandName }}.</span></footer>
                 </template>
             </main>

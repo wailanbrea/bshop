@@ -8,6 +8,7 @@ use App\Domain\Sales\InvoiceDocument;
 use App\Domain\Sales\OrderInvoice;
 use App\Domain\Sales\OrderSettlement;
 use App\Domain\Sales\SalesService;
+use App\Domain\Sales\WhatsAppTemplateDispatcher;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\ProductImageResource;
 use App\Models\BusinessProfile;
@@ -79,11 +80,15 @@ class SalesController extends Controller
         return response()->json(['data' => $service->quote($context, $request->all(), $request->user())]);
     }
 
-    public function create(Request $request, StoreContext $context, SalesService $service, InvoiceDocument $documents)
+    public function create(Request $request, StoreContext $context, SalesService $service, InvoiceDocument $documents, WhatsAppTemplateDispatcher $whatsapp)
     {
         $result = $service->create($context, $request->all(), $request->user());
+        $presented = $this->documentState($result, $documents);
+        if (! ($result['replay'] ?? false) && ! empty($presented['order']['id'])) {
+            $this->dispatchPostSaleNotifications($presented['order'], (string) $request->input('initial_payment', '0'), $whatsapp);
+        }
 
-        return response()->json(['data' => $this->documentState($result, $documents)], $result['replay'] ? 200 : 201);
+        return response()->json(['data' => $presented], $result['replay'] ? 200 : 201);
     }
 
     public function index(Request $request, StoreContext $context, SalesService $service)
@@ -99,11 +104,52 @@ class SalesController extends Controller
         return response()->json(['data' => $service->present(SalesOrder::where('store_id', $context->store()->id)->findOrFail($request->route('order')))]);
     }
 
-    public function change(Request $request, StoreContext $context, SalesService $service, InvoiceDocument $documents)
+    public function change(Request $request, StoreContext $context, SalesService $service, InvoiceDocument $documents, WhatsAppTemplateDispatcher $whatsapp)
     {
-        $result = $service->change($context, (int) $request->route('order'), $request->route('action'), $request->all(), $request->user());
+        $action = (string) $request->route('action');
+        $result = $service->change($context, (int) $request->route('order'), $action, $request->all(), $request->user());
+        $presented = $this->documentState($result, $documents);
+        if (! ($result['replay'] ?? false) && ! empty($presented['order']['id'])) {
+            try {
+                $orderModel = SalesOrder::find($presented['order']['id']);
+                if ($orderModel) {
+                    if ($action === 'payment') {
+                        $amount = (string) $request->input('amount', '0');
+                        if (bccomp($amount, '0', 4) > 0) {
+                            $whatsapp->notifyPaymentReceipt($orderModel, $amount, (string) ($presented['order']['pending_total'] ?? '0'));
+                        }
+                    } elseif ($action === 'deliver') {
+                        $whatsapp->notifyOrderDispatched($orderModel, (string) ($presented['order']['pending_total'] ?? '0'));
+                    }
+                }
+            } catch (\Throwable) {
+                // Never disrupt committed financial operations if WhatsApp notification fails.
+            }
+        }
 
-        return response()->json(['data' => $this->documentState($result, $documents)]);
+        return response()->json(['data' => $presented]);
+    }
+
+    private function dispatchPostSaleNotifications(array $orderData, string $initialPayment, WhatsAppTemplateDispatcher $whatsapp): void
+    {
+        try {
+            $orderModel = SalesOrder::find($orderData['id']);
+            if (! $orderModel) {
+                return;
+            }
+            if (is_numeric($initialPayment) && bccomp($initialPayment, '0', 4) > 0) {
+                $whatsapp->notifyPaymentReceipt($orderModel, $initialPayment, (string) ($orderData['pending_total'] ?? '0'));
+            }
+            foreach ($orderModel->items()->get(['variant_id']) as $item) {
+                $bal = DB::table('stock_balances')->where('warehouse_id', $orderModel->warehouse_id)->where('variant_id', $item->variant_id)->first();
+                if ($bal) {
+                    $avail = bcsub((string) $bal->on_hand, (string) $bal->reserved, 4);
+                    $whatsapp->notifyLowStockIfNeeded((int) $orderModel->store_id, (int) $orderModel->warehouse_id, (int) $item->variant_id, $avail);
+                }
+            }
+        } catch (\Throwable) {
+            // Non-blocking notification.
+        }
     }
 
     private function documentState(array $result, InvoiceDocument $documents): array
