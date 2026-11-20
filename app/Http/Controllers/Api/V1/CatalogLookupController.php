@@ -22,9 +22,23 @@ class CatalogLookupController extends Controller
     public function options(Request $request)
     {
         $manage = $request->user()->permits('catalog.manage');
+        $storeId = $request->integer('store_id') ?: null;
+        $usedOnly = $request->boolean('used_only');
+
+        $categoriesQuery = Category::when(! $manage || $usedOnly, fn ($q) => $q->where('is_active', true));
+        if ($storeId !== null && $usedOnly) {
+            $categoriesQuery->whereExists(function ($q) use ($storeId) {
+                $q->selectRaw('1')
+                    ->from('products')
+                    ->whereColumn('products.category_id', 'categories.id')
+                    ->where('products.store_id', $storeId)
+                    ->where('products.status', 'active')
+                    ->whereNull('products.deleted_at');
+            });
+        }
 
         return response()->json(['data' => [
-            'categories' => Category::when(! $manage, fn ($q) => $q->where('is_active', true))->orderBy('name')->get(),
+            'categories' => $categoriesQuery->orderBy('name')->get(),
             'brands' => Brand::when(! $manage, fn ($q) => $q->where('is_active', true))->orderBy('name')->get(),
             'attributes' => ProductAttribute::when(! $manage, fn ($q) => $q->where('is_active', true))->with(['values' => fn ($q) => $q->when(! $manage, fn ($v) => $v->where('is_active', true))->orderBy('value')])->orderBy('name')->get(),
         ]]);

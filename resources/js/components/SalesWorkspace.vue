@@ -361,16 +361,42 @@ async function share() {
             <p v-if="documentState === 'failed'" class="notice error" role="alert">
                 La factura está emitida; su PDF requiere reintento. Usa «Descargar factura PDF».
             </p>
+            <div v-if="warehouseId" class="sales-quick-bar" aria-label="Tipo de operación y cliente">
+                <div class="sales-quick-mode" role="group" aria-label="Tipo de operación">
+                    <button
+                        type="button"
+                        :class="{ active: mode === 'sale' }"
+                        :disabled="locked || !!saved"
+                        @click="mode = 'sale'"
+                    >
+                        Venta
+                    </button>
+                    <button
+                        type="button"
+                        :class="{ active: mode === 'reservation' }"
+                        :disabled="locked || !!saved"
+                        @click="mode = 'reservation'"
+                    >
+                        Apartado
+                    </button>
+                </div>
+                <button
+                    type="button"
+                    class="sales-quick-customer"
+                    :class="{ 'has-customer': !!customer }"
+                    :disabled="locked || !!saved"
+                    @click="chooseCustomer"
+                >
+                    <span class="sales-quick-customer-dot" aria-hidden="true">{{ customer ? customer.full_name.slice(0, 1).toUpperCase() : '+' }}</span>
+                    <span class="sales-quick-customer-text">
+                        <strong>{{ customer ? customer.full_name : 'Seleccionar cliente' }}</strong>
+                        <small>{{ customer ? (customer.phone || 'Cambiar cliente') : 'Toca para elegir' }}</small>
+                    </span>
+                </button>
+            </div>
             <div class="sales-mobile-tabs">
                 <button type="button" :class="{ active: mobilePanel === 'products' }" @click="mobilePanel = 'products'">
                     Productos</button
-                ><button
-                    v-if="mode === 'reservation'"
-                    type="button"
-                    :class="{ active: mobilePanel === 'customers' }"
-                    @click="chooseCustomer"
-                >
-                    Cliente</button
                 ><button type="button" :class="{ active: mobilePanel === 'summary' }" @click="mobilePanel = 'summary'">
                     Resumen ({{ saved?.items.length || lines.length }})
                 </button>
@@ -378,17 +404,20 @@ async function share() {
             <div
                 v-if="warehouseId"
                 class="sales-layout"
-                :class="`show-${mobilePanel}`"
+                :class="[`show-${mobilePanel}`, { 'has-mobile-cart': mobilePanel === 'products' && (saved?.items.length || lines.length) > 0 }]"
             >
                 <div class="sales-products-pane">
                     <SalesProducts
                         :root="root"
                         :warehouse-id="warehouseId"
+                        :store-id="store?.id"
                         :currency="business.default_currency"
                         :disabled="locked || !!saved || !canCreate"
                         :refresh="refresh"
+                        :lines="lines"
                         mode="sale"
                         @add="draft.add"
+                        @quantity="draft.changeQuantity"
                     />
                 </div>
                 <SalesSummary
@@ -427,7 +456,21 @@ async function share() {
                     @pdf="downloadPdf"
                 />
             </div>
-            <p v-else class="notice">Selecciona una sucursal y un almacén activos para operar.</p>
+            <div
+                v-if="warehouseId && mobilePanel === 'products' && (saved?.items.length || lines.length) > 0"
+                class="sales-mobile-cart-bar"
+                role="region"
+                aria-label="Resumen rápido del carrito"
+            >
+                <div class="sales-mobile-cart-info">
+                    <strong class="sales-mobile-cart-total">{{ amount(saved?.grand_total || quote?.grand_total || lines.reduce((sum, l) => sum + Number(l.price || 0) * Number(l.quantity || 0), 0).toFixed(4), saved?.currency || business.default_currency) }}</strong>
+                    <small>{{ saved ? saved.items.length : lines.length }} {{ (saved ? saved.items.length : lines.length) === 1 ? 'artículo' : 'artículos' }} · {{ customer ? customer.full_name : 'Sin cliente' }}</small>
+                </div>
+                <button type="button" class="button primary sales-mobile-cart-cta" @click="mobilePanel = 'summary'">
+                    {{ mode === 'reservation' ? 'Ver apartado →' : 'Ver resumen →' }}
+                </button>
+            </div>
+            <p v-else-if="!warehouseId" class="notice">Selecciona una sucursal y un almacén activos para operar.</p>
         </div>
         <AppDialog
             :open="customerPicker"
