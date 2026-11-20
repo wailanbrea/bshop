@@ -110,4 +110,103 @@ class CustomerController extends Controller
 
         return response()->json(['data' => $result], $result['replay'] ? 200 : 201);
     }
+
+    public function import(Request $request, StoreContext $context, AuditTrailService $audit)
+    {
+        $data = $request->validate([
+            'default_country_code' => ['nullable', 'string', 'regex:/^\+[1-9][0-9]{0,3}$/D'],
+            'contacts' => ['required', 'array', 'min:1', 'max:500'],
+            'contacts.*.full_name' => ['required', 'string', 'max:180'],
+            'contacts.*.phone' => ['nullable', 'string', 'max:40'],
+            'contacts.*.email' => ['nullable', 'email', 'max:190'],
+            'contacts.*.notes' => ['nullable', 'string', 'max:4000'],
+        ]);
+
+        $storeId = $context->store()->id;
+        $defaultCode = $data['default_country_code'] ?? '+1';
+
+        $normalizePhone = function (?string $raw) use ($defaultCode): ?string {
+            if ($raw === null || trim($raw) === '') {
+                return null;
+            }
+            $trimmed = trim($raw);
+            $hasPlus = str_starts_with($trimmed, '+');
+            $digits = preg_replace('/\D+/', '', $trimmed);
+            if ($digits === '' || strlen($digits) < 7) {
+                return $trimmed;
+            }
+            if ($hasPlus) {
+                return '+'.$digits;
+            }
+            if (strlen($digits) === 10 && $defaultCode === '+1') {
+                return '+1'.$digits;
+            }
+            if (strlen($digits) === 11 && str_starts_with($digits, '1') && $defaultCode === '+1') {
+                return '+'.$digits;
+            }
+
+            return $defaultCode.$digits;
+        };
+
+        $summary = DB::transaction(function () use ($data, $storeId, $normalizePhone, $audit, $request, $context) {
+            abort_unless(User::whereKey($request->user()->id)->sharedLock()->firstOrFail()->permits('customers.manage'), 403);
+            abort_unless(DB::table('store_user')->where('user_id', $request->user()->id)->where('store_id', $storeId)->sharedLock()->first(), 404);
+
+            $existing = Customer::where('store_id', $storeId)->get(['id', 'full_name', 'phone']);
+            $existingPhones = [];
+            $existingNames = [];
+            foreach ($existing as $c) {
+                $digits = preg_replace('/\D+/', '', (string) $c->phone);
+                if ($digits !== '') {
+                    $existingPhones[$digits] = true;
+                }
+                $existingNames[mb_strtolower(trim($c->full_name)).'|'.$digits] = true;
+            }
+
+            $created = [];
+            $skipped = 0;
+
+            foreach ($data['contacts'] as $row) {
+                $name = trim($row['full_name']);
+                if ($name === '') {
+                    $skipped++;
+                    continue;
+                }
+                $phone = $normalizePhone($row['phone'] ?? null);
+                $digits = preg_replace('/\D+/', '', (string) $phone);
+                $nameKey = mb_strtolower($name).'|'.$digits;
+
+                if (($digits !== '' && isset($existingPhones[$digits])) || isset($existingNames[$nameKey])) {
+                    $skipped++;
+                    continue;
+                }
+
+                $customer = Customer::create([
+                    'store_id' => $storeId,
+                    'full_name' => $name,
+                    'phone' => $phone,
+                    'email' => ! empty($row['email']) ? trim($row['email']) : null,
+                    'notes' => ! empty($row['notes']) ? trim($row['notes']) : 'Importado desde contactos de WhatsApp',
+                ]);
+                if ($digits !== '') {
+                    $existingPhones[$digits] = true;
+                }
+                $existingNames[$nameKey] = true;
+                $created[] = $customer->toArray();
+            }
+
+            if (count($created) > 0) {
+                $audit->record('customer.batch_imported', $context->store(), after: ['store_id' => $storeId, 'created' => count($created), 'skipped' => $skipped], actor: $request->user());
+            }
+
+            return [
+                'created_count' => count($created),
+                'skipped_count' => $skipped,
+                'total_submitted' => count($data['contacts']),
+                'customers' => array_slice($created, 0, 20),
+            ];
+        });
+
+        return response()->json(['data' => $summary], 201);
+    }
 }

@@ -154,5 +154,22 @@ class StoreTenantIsolationTest extends TestCase
             ->assertOk()
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.name', 'Vestido Keyla');
+
+        // Tenant B batch-imports WhatsApp contacts with normalization and duplicate skipping
+        $this->actingAs($userB)->postJson("/api/v1/business/stores/{$storeB->id}/customers/import", [
+            'default_country_code' => '+1',
+            'contacts' => [
+                ['full_name' => 'Daniel', 'phone' => '809-237-4444'],
+                ['full_name' => 'Daniel Duplicado', 'phone' => '+18092374444'],
+                ['full_name' => 'María Gómez', 'phone' => '+1 829-555-0199'],
+            ],
+        ])->assertCreated()
+            ->assertJsonPath('data.created_count', 2)
+            ->assertJsonPath('data.skipped_count', 1);
+
+        // Tenant A cannot see Tenant B's imported contacts
+        $this->actingAs($userA)->getJson("/api/v1/business/stores/{$storeA->id}/customers")
+            ->assertOk()
+            ->assertJsonCount(1, 'data');
     }
 }

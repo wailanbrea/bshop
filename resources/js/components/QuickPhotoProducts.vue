@@ -49,11 +49,12 @@ type QuickItem = {
     itemError: string;
 };
 
-const defaultCategories = ['Ropa', 'Calzado', 'Electrónicos', 'Lentes', 'Joyería', 'Perfumes', 'Cremas', 'Carteras / Bolsos', 'Accesorios', 'Otros'];
+const defaultCategories = ['Ropa', 'Calzado', 'Correas', 'Electrónicos', 'Lentes', 'Joyería', 'Perfumes', 'Cremas', 'Carteras / Bolsos', 'Accesorios', 'Otros'];
 const defaultColors = ['Negro', 'Blanco', 'Gris', 'Verde', 'Azul', 'Celeste', 'Rojo', 'Vino', 'Rosado', 'Peach / Salmón', 'Beige', 'Crema', 'Marrón', 'Amarillo', 'Naranja', 'Morado', 'Dorado', 'Plateado', 'Multicolor'];
 const clothingSizes = ['XS', 'S', 'M', 'L', 'XL', '2XL'];
 const footwearEuSizes = ['35', '36', '37', '38', '39', '40', '41', '42'];
 const footwearUsSizes = ['6', '6.5', '7', '7.5', '8', '8.5', '9', '9.5', '10'];
+const beltSizesCm = ['95cm', '100cm', '105cm', '110cm', '115cm', '120cm', '125cm', '130cm'];
 
 const normalize = (value: string) => value.trim().toLocaleLowerCase('es').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 function buildChoices(defaults: string[], attributeName: string): string[] {
@@ -84,23 +85,27 @@ type CategoryProfile = {
     showSize: boolean;
     requireSize: boolean;
     isFootwear: boolean;
+    isBelt: boolean;
 };
 
 function categoryProfile(categoryName: string): CategoryProfile {
     const clean = normalize(categoryName || 'ropa');
     if (clean.includes('calzado') || clean.includes('zapato') || clean.includes('tenis') || clean.includes('sandalia')) {
-        return { showColor: true, requireColor: true, showSize: true, requireSize: true, isFootwear: true };
+        return { showColor: true, requireColor: true, showSize: true, requireSize: true, isFootwear: true, isBelt: false };
+    }
+    if (clean.includes('correa') || clean.includes('cinturon') || clean.includes('cinto')) {
+        return { showColor: true, requireColor: false, showSize: true, requireSize: true, isFootwear: false, isBelt: true };
     }
     if (clean === 'ropa' || clean.includes('vestido') || clean.includes('blusa') || clean.includes('pantalon')) {
-        return { showColor: true, requireColor: true, showSize: true, requireSize: true, isFootwear: false };
+        return { showColor: true, requireColor: true, showSize: true, requireSize: true, isFootwear: false, isBelt: false };
     }
     if (clean.includes('electronico') || clean.includes('audifono') || clean.includes('bocina')) {
-        return { showColor: true, requireColor: true, showSize: false, requireSize: false, isFootwear: false };
+        return { showColor: true, requireColor: true, showSize: false, requireSize: false, isFootwear: false, isBelt: false };
     }
     if (clean.includes('lente') || clean.includes('joyer') || clean.includes('pulsera') || clean.includes('anillo') || clean.includes('perfume') || clean.includes('crema')) {
-        return { showColor: false, requireColor: false, showSize: false, requireSize: false, isFootwear: false };
+        return { showColor: false, requireColor: false, showSize: false, requireSize: false, isFootwear: false, isBelt: false };
     }
-    return { showColor: true, requireColor: false, showSize: false, requireSize: false, isFootwear: false };
+    return { showColor: true, requireColor: false, showSize: false, requireSize: false, isFootwear: false, isBelt: false };
 }
 
 function sizesForItem(item: QuickItem): string[] {
@@ -108,6 +113,9 @@ function sizesForItem(item: QuickItem): string[] {
     if (!profile.showSize) return [];
     if (profile.isFootwear) {
         return item.footwearSystem === 'eu' ? footwearEuSizes : footwearUsSizes;
+    }
+    if (profile.isBelt) {
+        return beltSizesCm;
     }
     return clothingSizes;
 }

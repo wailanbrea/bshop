@@ -5,6 +5,7 @@ import { api, errorMessage } from '../api';
 import type { SalesCustomer, CustomerSummary } from '../sales';
 import { amount } from '../catalog';
 import AppDialog from './AppDialog.vue';
+import CustomerContactImportModal from './CustomerContactImportModal.vue';
 import { readPending, savePending, clearPending } from '../lib/pendingRequests';
 
 const props = withDefaults(defineProps<{ root: string; selected: SalesCustomer | null; manage: boolean; currency: string; actorId: number; refresh?: number; canSummary?: boolean; allowArchived?: boolean }>(), { canSummary: true });
@@ -15,7 +16,7 @@ const filter = ref('active');
 const query = ref(''); const customers = ref<SalesCustomer[]>([]); const loading = ref(false); const error = ref('');
 const page = ref(1); const lastPage = ref(1); const total = ref(0); const summary = ref<CustomerSummary | null>(null);
 const listError = ref(''); const requestedPage = ref(1);
-const open = ref(false); const busy = ref(false); const fullName = ref(''); const phone = ref(''); const email = ref(''); const address = ref(''); const notes = ref(''); const opener = ref<HTMLElement | null>(null); const pending = ref<Record<string, unknown> | null>(null);
+const open = ref(false); const importOpen = ref(false); const importOpener = ref<HTMLElement | null>(null); const busy = ref(false); const fullName = ref(''); const phone = ref(''); const email = ref(''); const address = ref(''); const notes = ref(''); const opener = ref<HTMLElement | null>(null); const pending = ref<Record<string, unknown> | null>(null);
 let token = 0; let summaryToken = 0; let controller: AbortController | undefined; let timer: ReturnType<typeof setTimeout> | undefined;
 async function load(target = 1) {
     clearTimeout(timer); requestedPage.value = target;
@@ -65,8 +66,12 @@ onUnmounted(() => { window.removeEventListener('bshop:customer-changed',customer
         <p v-if="!loading && !listError && !customers.length" class="muted">No hay clientes con esa búsqueda.</p>
         <div v-if="lastPage > 1" class="catalog-pagination"><button type="button" class="button secondary" :disabled="page <= 1 || loading || !!listError" @click="load(page - 1)">Anterior</button><span>{{ page }}/{{ lastPage }}</span><button type="button" class="button secondary" :disabled="page >= lastPage || loading || !!listError" @click="load(page + 1)">Siguiente</button></div>
         <article v-if="selected && !allowArchived" class="customer-summary"><h3>{{ selected.full_name }}</h3><p>{{ selected.phone || 'Sin teléfono' }}</p><template v-if="summary"><dl><dt>Compras</dt><dd>{{ summary.purchase_count }}</dd><dt>Saldo pendiente en esta sucursal</dt><dd>{{ amount(summary.pending_total, currency) }}</dd></dl><div v-if="summary.open_baskets.length"><h4>Apartados abiertos</h4><button v-for="basket in summary.open_baskets" :key="basket.id" type="button" class="text-button" @click="emit('openOrder', basket.id)">Abrir #{{ basket.id }} · {{ amount(basket.total, currency) }}</button></div></template><p v-if="summary?.customer?.notes || selected.notes" class="customer-notes">{{ summary?.customer?.notes || selected.notes }}</p></article>
-        <button v-if="manage" type="button" class="button secondary full" :disabled="busy || !!pending" @click="newCustomer">+ Nuevo cliente</button>
+        <div v-if="manage" class="customer-action-stack">
+            <button type="button" class="button secondary full" :disabled="busy || !!pending" @click="newCustomer">+ Nuevo cliente</button>
+            <button type="button" class="button secondary full" :disabled="busy || !!pending" @click="(e) => { importOpener = e.currentTarget as HTMLElement; importOpen = true; }">Importar WhatsApp</button>
+        </div>
     </section>
+    <CustomerContactImportModal :open="importOpen" :root="root" :opener="importOpener" @close="importOpen = false" @imported="() => load(1)" />
     <AppDialog :open="open" title="Nuevo cliente" :busy="busy || !!pending" :return-focus="opener" @close="open = false">
         <p v-if="error" class="notice error" role="alert">{{ error }}</p><form :id="formId" @submit.prevent="create"><fieldset class="form-fields" :disabled="busy || !!pending"><label>Nombre completo<input v-model="fullName" required maxlength="180" autocomplete="name"></label><label>Teléfono<input v-model="phone" type="tel" maxlength="40" autocomplete="tel"></label><label>Correo electrónico<input v-model="email" type="email" maxlength="190" autocomplete="email"></label><label>Dirección<input v-model="address" maxlength="255" autocomplete="street-address"></label><label>Notas del cliente<textarea v-model="notes" rows="3" maxlength="4000"></textarea></label></fieldset></form>
         <template #footer><button class="button secondary" :disabled="busy || !!pending" @click="open = false">Cancelar</button><button class="button primary" type="submit" :form="formId" :disabled="busy">{{ pending ? 'Reintentar alta' : 'Crear y seleccionar' }}</button></template>
@@ -78,6 +83,7 @@ onUnmounted(() => { window.removeEventListener('bshop:customer-changed',customer
 .customer-directory .directory-heading { display:flex; align-items:center; justify-content:space-between; margin-bottom:18px; }
 .customer-directory .directory-heading h2 { font-size:18px; margin:0; font-weight:700; color:#3d3253; }
 .directory-count { display:flex; align-items:center; justify-content:center; min-width:28px; height:28px; padding:0 8px; color:#947bb6; background:#f3effa; border-radius:8px; font-size:12px; font-weight:650; }
+.customer-action-stack { display:grid; gap:8px; margin-top:10px; }
 .customer-directory > input { background:#faf9fd; border-color:#e6e0ef; border-radius:12px; }
 .customer-directory > label:not(.sr-only) { display:grid; gap:8px; margin-top:16px; font-size:12px; color:#796b87; font-weight:550; }
 .customer-directory select { border-color:#e6e0ef; border-radius:12px; color:#5d4e72; }

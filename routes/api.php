@@ -175,6 +175,7 @@ Route::middleware(['auth:sanctum', 'active', 'auth.session'])->group(function ()
             Route::get('customers', [CustomerController::class, 'index'])->middleware('can:customers.view');
             Route::get('customers/requests/{key}', [CustomerController::class, 'requestStatus'])->whereUuid('key')->middleware('can:customers.view');
             Route::post('customers', [CustomerController::class, 'create'])->middleware('can:customers.manage');
+            Route::post('customers/import', [CustomerController::class, 'import'])->middleware(['can:customers.manage', 'throttle:20,1']);
             Route::get('customers/{customer}/summary', [SalesController::class, 'summary'])->whereNumber('customer')->middleware(['can:customers.view', 'can:sales.view']);
             Route::middleware('can:sales.view')->group(function () {
                 Route::get('sales/requests/{key}', [SalesController::class, 'requestStatus'])->whereUuid('key');
