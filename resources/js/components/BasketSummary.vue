@@ -17,14 +17,14 @@ const emit = defineEmits<{ shipping: [string]; discount: [string]; deposit: [] }
 <template>
     <section class="basket-summary" aria-label="Resumen económico">
         <div>
-            <span>Depósito</span><strong>{{ amount(order.paid_total, order.currency) }}</strong
+            <span>Abonado</span><strong>{{ amount(order.paid_total, order.currency) }}</strong
             ><button
                 type="button"
                 class="text-button"
-                :disabled="busy || !canDeposit || order.status === 'cancelled' || order.pending_total === '0.0000'"
+                :disabled="busy || !canDeposit || order.status === 'cancelled' || Number(order.pending_total || 0) <= 0"
                 @click="emit('deposit')"
             >
-                Registrar depósito
+                + Abonar
             </button>
         </div>
         <div><DecimalStepper

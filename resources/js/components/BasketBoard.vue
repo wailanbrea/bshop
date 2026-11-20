@@ -287,9 +287,15 @@ async function save() {
 function dialog(kind: string) {
     if (!selected.value || locked.value) return;
     opener.value = document.activeElement as HTMLElement;
-    modal.value = kind;
+    const isFullPay = kind === 'pay_full';
+    modal.value = isFullPay ? 'payment' : kind;
     number.value = selected.value.basket_number || String(selected.value.id);
-    amount.value = '';
+    if (isFullPay) {
+        const pendingNum = Number(selected.value.pending_total || 0);
+        amount.value = pendingNum > 0 ? pendingNum.toFixed(2) : '';
+    } else {
+        amount.value = '';
+    }
     deliverNow.value = false;
     const c = selected.value.customer_live || selected.value.customer_snapshot;
     contact.value = {

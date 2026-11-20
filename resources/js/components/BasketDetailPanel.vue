@@ -44,10 +44,38 @@ const emit = defineEmits<{
 }>();
 function editable(order: SavedOrder) { return props.permissions.includes('sales.create') && domainEditable(order); }
 const query = ref('');
+const catalogOpen = ref(false);
 const products = ref<SalesProduct[]>([]);
 const selectedVariants = ref<Record<number, number | ''>>({});
 const searching = ref(false);
 const searchError = ref('');
+async function fetchCatalog(searchTerm: string) {
+    clearTimeout(timer);
+    controller?.abort();
+    const token = ++version;
+    searching.value = true;
+    controller = new AbortController();
+    try {
+        const result = await api.get(`${props.root}/sales/catalog`, {
+            signal: controller.signal,
+            params: { warehouse_id: props.order.warehouse_id, q: searchTerm || undefined },
+        });
+        if (token === version) {
+            products.value = result.data.data;
+            searchError.value = '';
+        }
+    } catch (e) {
+        if (token === version && !axios.isCancel(e)) searchError.value = errorMessage(e);
+    } finally {
+        if (token === version) searching.value = false;
+    }
+}
+function toggleCatalog() {
+    catalogOpen.value = !catalogOpen.value;
+    if (catalogOpen.value && !products.value.length) {
+        fetchCatalog(query.value.trim());
+    }
+}
 const sellerEditing = ref(false);
 const sellerOptions = ref<{ id: number; full_name: string; employee_code: string }[]>([]);
 const sellerValue = ref<number | ''>('');
@@ -87,33 +115,19 @@ let controller: AbortController | undefined;
 watch(query, (value) => {
     clearTimeout(timer);
     controller?.abort();
-    const token = ++version;
-    products.value = [];
     selectedVariants.value = {};
-    if (!value.trim()) return;
-    timer = setTimeout(async () => {
-        searching.value = true;
-        controller = new AbortController();
-        try {
-            const result = await api.get(`${props.root}/sales/catalog`, {
-                signal: controller.signal,
-                params: { warehouse_id: props.order.warehouse_id, q: value },
-            });
-            if (token === version) {
-                products.value = result.data.data;
-                searchError.value = '';
-            }
-        } catch (e) {
-            if (token === version && !axios.isCancel(e)) searchError.value = errorMessage(e);
-        } finally {
-            if (token === version) searching.value = false;
-        }
-    }, 200);
+    if (!value.trim() && !catalogOpen.value) {
+        products.value = [];
+        return;
+    }
+    if (value.trim()) catalogOpen.value = true;
+    timer = setTimeout(() => fetchCatalog(value.trim()), 200);
 });
 watch(
     () => props.order.id,
     () => {
         query.value = '';
+        catalogOpen.value = false;
         products.value = [];
         sellerEditing.value = false;
         sellerError.value = '';
@@ -205,23 +219,29 @@ onUnmounted(() => {
         <p v-if="order.closed_at" class="notice">
             Factura generada. Los artículos y precios históricos están cerrados.
         </p>
-        <label v-if="editable(order)" class="basket-product-search"
-            >Buscar artículo para agregar<input
+        <div v-if="editable(order)" class="basket-add-bar">
+            <button type="button" class="button primary" :disabled="busy" @click="toggleCatalog">
+                {{ catalogOpen ? 'Ocultar catálogo' : '+ Agregar producto' }}
+            </button>
+            <input
                 v-model="query"
                 type="search"
-                placeholder="Nombre, SKU o código de barras…"
+                class="basket-add-search"
+                placeholder="Buscar producto por nombre o SKU…"
                 maxlength="120"
                 :disabled="busy"
                 autocomplete="off"
-        /></label>
-        <p v-if="searching" role="status">Buscando artículos…</p>
+                aria-label="Buscar artículo para agregar"
+            />
+        </div>
+        <p v-if="searching" role="status">Cargando productos…</p>
         <p v-if="searchError" class="notice error">{{ searchError }}</p>
-        <section v-if="query.trim()" class="basket-product-results" aria-label="Resultados de artículos">
-            <template v-for="product in products.slice(0, 8)" :key="product.id">
+        <section v-if="editable(order) && (catalogOpen || query.trim())" class="basket-product-results" aria-label="Productos disponibles para agregar">
+            <template v-for="product in products.slice(0, 12)" :key="product.id">
                 <div v-if="supportsColorSize(product.variants)" class="basket-product-result basket-variant-group">
                     <strong>{{ product.name }}</strong>
                     <VariantSelector v-model="selectedVariants[product.id]" :product-name="product.name" :variants="product.variants" :currency="order.currency" :disabled="busy" />
-                    <button type="button" class="button secondary" :disabled="busy || !product.variants.find(v=>v.id===selectedVariants[product.id] && available(v))" :aria-label="`Agregar ${product.name}`" @click="emit('add',product,product.variants.find(v=>v.id===selectedVariants[product.id])!); query=''">Agregar artículo</button>
+                    <button type="button" class="button secondary" :disabled="busy || !product.variants.find(v=>v.id===selectedVariants[product.id] && available(v))" :aria-label="`Agregar ${product.name}`" @click="emit('add',product,product.variants.find(v=>v.id===selectedVariants[product.id])!); query=''">+ Agregar al apartado</button>
                 </div>
                 <button v-else
                     v-for="variant in product.variants"
@@ -234,14 +254,14 @@ onUnmounted(() => {
                         query = '';
                     "
                 >
-                    <strong>{{ product.name }}</strong
+                    <strong>+ {{ product.name }}</strong
                     ><span>{{ variant.attributes.map((a) => `${a.name}: ${a.value}`).join(' · ') || variant.sku }}</span
                     ><span
                         >{{ amount(variant.price, order.currency) }} ·
                         {{
                             variant.available === null
                                 ? 'Sin control de stock'
-                                : `Disponible adicional: ${variant.available}`
+                                : `Disponible: ${variant.available}`
                         }}</span
                     >
                 </button></template>
@@ -277,6 +297,27 @@ onUnmounted(() => {
             >
                 Guardar cambios</button
             ><button
+                v-if="permissions.includes('payments.record') && order.status !== 'cancelled' && !order.return_pending && Number(order.pending_total || 0) > 0"
+                type="button"
+                class="button secondary"
+                :disabled="busy || dirty"
+                @click="emit('action', 'payment')"
+            >
+                Abonar</button
+            ><button
+                v-if="permissions.includes('payments.record') && order.status !== 'cancelled' && !order.return_pending && Number(order.pending_total || 0) > 0"
+                type="button"
+                class="button basket-pay-full-btn"
+                :disabled="busy || dirty"
+                @click="emit('action', 'pay_full')"
+            >
+                Marcar pagada ({{ amount(order.pending_total, order.currency) }})</button
+            ><span
+                v-if="order.status !== 'cancelled' && Number(order.pending_total || 0) <= 0 && Number(order.grand_total || 0) > 0"
+                class="badge basket-paid-pill"
+            >
+                ✓ Pagada
+            </span><button
                 v-if="!order.invoice && order.status !== 'cancelled' && permissions.includes('sales.create')"
                 type="button"
                 class="button primary"
@@ -344,3 +385,14 @@ onUnmounted(() => {
         </p>
     </section>
 </template>
+<style scoped>
+.basket-add-bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 10px 0 4px; }
+.basket-add-bar .button { flex-shrink: 0; white-space: nowrap; }
+.basket-add-search { flex: 1 1 220px; min-width: 0; }
+.basket-pay-full-btn { background: #16a34a; color: #fff; border: 0; white-space: nowrap; }
+.basket-pay-full-btn:disabled { opacity: 0.5; }
+.basket-paid-pill { display: inline-flex; align-items: center; padding: 8px 14px; border-radius: 999px; background: #dcfce7; color: #166534; font-weight: 750; font-size: 13px; white-space: nowrap; }
+@media (max-width: 600px) {
+    .basket-add-bar .button, .basket-add-search { width: 100%; }
+}
+</style>
