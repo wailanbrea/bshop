@@ -204,10 +204,21 @@ final class WeeklyAccounts
             $account->closed_at = now();
             $account->lock_version++;
             $account->save();
+            $profile = BusinessProfile::current();
+            $storeRecord = Store::find($account->store_id);
+            $businessSnapshot = [
+                'name' => $storeRecord?->name ?: $profile->name,
+                'legal_name' => ($storeRecord && $storeRecord->name !== $profile->name) ? null : $profile->legal_name,
+                'store_code' => $storeRecord?->code,
+                'phone' => $storeRecord?->phone,
+                'address' => $storeRecord?->address,
+                'timezone' => $profile->timezone,
+                'locale' => $profile->locale,
+            ];
             $invoiceId = DB::table('invoices')->insertGetId(['store_id' => $account->store_id, 'customer_id' => $account->customer_id, 'weekly_account_id' => $id,
                 'invoice_number' => OrderInvoice::number($account->store_id), 'status' => 'issued', 'currency' => $account->currency,
                 ...array_intersect_key($review['totals'], array_flip(['subtotal', 'discount_total', 'tax_total', 'shipping_total', 'grand_total'])),
-                'business_snapshot' => json_encode(BusinessProfile::current()->only(['name', 'legal_name', 'timezone', 'locale']), JSON_THROW_ON_ERROR), 'issued_at' => now(), 'created_at' => now(), 'updated_at' => now()]);
+                'business_snapshot' => json_encode($businessSnapshot, JSON_THROW_ON_ERROR), 'issued_at' => now(), 'created_at' => now(), 'updated_at' => now()]);
             foreach ($orders->whereIn('id', $included) as $order) {
                 abort_unless($order->currency === $account->currency && $order->customer_id === $account->customer_id && $order->store_id === $account->store_id, 409);
                 $items = $order->items()->orderBy('id')->lockForUpdate()->get();

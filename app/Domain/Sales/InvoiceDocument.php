@@ -37,8 +37,23 @@ final class InvoiceDocument
             $weekly = $invoice->weekly_account_id ? DB::table('weekly_accounts')->where('id', $invoice->weekly_account_id)->firstOrFail() : null;
             $items = DB::table('invoice_items')->where('invoice_id', $invoiceId)->orderBy('id')->get();
             $business = json_decode($invoice->business_snapshot, true, flags: JSON_THROW_ON_ERROR);
+            $store = DB::table('stores')->where('id', $invoice->store_id)->first();
+            if ($store) {
+                $business['name'] = $store->name ?: ($business['name'] ?? 'BShop');
+                $business['phone'] = $business['phone'] ?? $store->phone;
+                $business['address'] = $business['address'] ?? $store->address;
+                $business['store_code'] = $business['store_code'] ?? $store->code;
+            }
             $customer = OrderInvoice::customer($invoice);
-            $bytes = Pdf::loadView('documents.invoice', compact('invoice', 'items', 'business', 'customer', 'weekly'))->setPaper('a4')->setOptions(['isRemoteEnabled' => false, 'isPhpEnabled' => false, 'isJavascriptEnabled' => false, 'defaultFont' => 'DejaVu Sans'])->output();
+            $settlement = OrderSettlement::invoice($invoice);
+            $paymentMethods = DB::table('payment_allocations as pa')
+                ->join('payments as p', 'p.id', '=', 'pa.payment_id')
+                ->where('pa.invoice_id', $invoiceId)
+                ->where('p.status', 'posted')
+                ->distinct()
+                ->pluck('p.payment_method')
+                ->all();
+            $bytes = Pdf::loadView('documents.invoice', compact('invoice', 'items', 'business', 'customer', 'weekly', 'settlement', 'paymentMethods'))->setPaper('a4')->setOptions(['isRemoteEnabled' => false, 'isPhpEnabled' => false, 'isJavascriptEnabled' => false, 'defaultFont' => 'DejaVu Sans'])->output();
             if (! str_starts_with($bytes, '%PDF-')) {
                 throw new \RuntimeException('Invalid invoice PDF output.');
             }

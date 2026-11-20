@@ -460,7 +460,18 @@ final class SalesService
         $order->save();
         $number = OrderInvoice::number($order->store_id);
         $invoiceId = DB::table('invoices')->insertGetId(['store_id' => $order->store_id, 'customer_id' => $order->customer_id, 'order_id' => $order->id, 'invoice_number' => $number, 'status' => 'issued', 'currency' => $order->currency, 'subtotal' => $order->subtotal, 'discount_total' => $order->discount_total, 'tax_total' => $order->tax_total, 'shipping_total' => $order->shipping_total, 'grand_total' => $order->grand_total, 'issued_at' => now(), 'created_at' => now(), 'updated_at' => now()]);
-        DB::table('invoices')->where('id', $invoiceId)->update(['business_snapshot' => json_encode(BusinessProfile::current()->only(['name', 'legal_name', 'timezone', 'locale']), JSON_THROW_ON_ERROR)]);
+        $profile = BusinessProfile::current();
+        $storeRecord = Store::find($order->store_id);
+        $businessSnapshot = [
+            'name' => $storeRecord?->name ?: $profile->name,
+            'legal_name' => ($storeRecord && $storeRecord->name !== $profile->name) ? null : $profile->legal_name,
+            'store_code' => $storeRecord?->code,
+            'phone' => $storeRecord?->phone,
+            'address' => $storeRecord?->address,
+            'timezone' => $profile->timezone,
+            'locale' => $profile->locale,
+        ];
+        DB::table('invoices')->where('id', $invoiceId)->update(['business_snapshot' => json_encode($businessSnapshot, JSON_THROW_ON_ERROR)]);
         DB::table('invoice_orders')->insert(['invoice_id' => $invoiceId, 'order_id' => $order->id, 'direct_order_id' => $order->id, 'store_id' => $order->store_id, 'customer_id' => $order->customer_id, 'currency' => $order->currency]);
         foreach ($order->items()->get() as $item) {
             DB::table('invoice_items')->insert(['invoice_id' => $invoiceId, 'order_item_id' => $item->id, 'order_id' => $order->id, 'variant_id' => $item->variant_id, 'seller_employee_id' => $item->seller_employee_id, 'commission_plan_id' => $item->commission_plan_id, 'commission_rate_snapshot' => $item->commission_rate_snapshot, 'store_id' => $order->store_id, 'customer_id' => $order->customer_id, 'currency' => $order->currency, 'description' => $item->product_name_snapshot, 'sku_snapshot' => $item->sku_snapshot, 'quantity' => $item->quantity, 'unit_price' => $item->unit_price, 'discount_amount' => $item->line_discount, 'tax_amount' => $item->line_tax, 'line_total' => $item->line_total, 'created_at' => now()]);

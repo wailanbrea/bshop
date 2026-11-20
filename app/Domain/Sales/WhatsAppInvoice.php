@@ -75,7 +75,9 @@ final class WhatsAppInvoice
 
                     return $this->fresh($delivery->id);
                 }
-                $values = ['customer_name' => $snapshot['full_name'], 'invoice_number' => $invoice->invoice_number, 'total' => ($invoice->currency === 'USD' ? 'US$ ' : $invoice->currency.' ').bcadd((string) $invoice->grand_total, '0', 2), 'business_name' => json_decode($invoice->business_snapshot, true)['name']];
+                $storeName = DB::table('stores')->where('id', $invoice->store_id)->value('name');
+                $snapshotBusiness = json_decode($invoice->business_snapshot, true);
+                $values = ['customer_name' => $snapshot['full_name'], 'invoice_number' => $invoice->invoice_number, 'total' => ($invoice->currency === 'USD' ? 'US$ ' : $invoice->currency.' ').bcadd((string) $invoice->grand_total, '0', 2), 'business_name' => $storeName ?: ($snapshotBusiness['name'] ?? 'BShop')];
                 $components = [['type' => 'header', 'parameters' => [['type' => 'document', 'document' => ['id' => $upload->json('id'), 'filename' => $invoice->invoice_number.'.pdf']]]]];
                 if ($c['body_fields']) {
                     $components[] = ['type' => 'body', 'parameters' => array_map(fn ($field) => ['type' => 'text', 'text' => (string) $values[$field]], $c['body_fields'])];
