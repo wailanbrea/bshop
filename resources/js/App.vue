@@ -181,7 +181,7 @@ onUnmounted(() => { unlockMenu?.(); drawerQuery.removeEventListener('change', sy
                     <KeepAlive :max="5"><SalesWorkspace v-if="salesVisited && workspace.permissions.includes('sales.view')" ref="salesWorkspace" v-show="page === 'sales'" :key="store?.id || 'none'" :actor-id="session.user.id" :active="page === 'sales'" :business="workspace.business" :store="store" :warehouses="warehouses" :permissions="workspace.permissions" @context-locked="salesContextLocked = $event" @title-change="salesTitle = $event" @open-apartados="openSavedOrder" /></KeepAlive>
                     <ReservationSettings v-if="page==='settings'&&workspace.permissions.includes('business.manage')" />
                     <WeeklySettings v-if="page==='settings'&&workspace.permissions.includes('business.manage')" />
-                    <WhatsAppSettings v-if="page==='settings'&&workspace.permissions.includes('business.manage')" />
+                    <WhatsAppSettings v-if="page==='settings'&&workspace.permissions.includes('business.manage')" :store="store" />
                     <footer class="content-footer"><span>BShop · {{ activeBrandName }}.</span></footer>
                 </template>
             </main>

@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\BasketController;
+use App\Http\Controllers\Api\V1\BasketWhatsAppDispatchController;
 use App\Http\Controllers\Api\V1\BusinessInvitationController;
 use App\Http\Controllers\Api\V1\BusinessTeamController;
 use App\Http\Controllers\Api\V1\CatalogController;
@@ -150,6 +151,10 @@ Route::middleware(['auth:sanctum', 'active', 'auth.session'])->group(function ()
             Route::get('receivables/export', [ReceivablesController::class, 'export'])->middleware(['can:sales.view', 'can:customers.view', 'throttle:10,1']);
             Route::post('invoices/{invoice}/whatsapp', [WhatsAppInvoiceController::class, 'send'])->whereNumber('invoice')->middleware(['can:invoices.view', 'can:sales.create', 'throttle:10,1']);
             Route::get('baskets', [BasketController::class, 'index'])->middleware('can:sales.view');
+            Route::get('baskets/whatsapp-dispatch', [BasketWhatsAppDispatchController::class, 'overview'])->middleware('can:sales.view');
+            Route::patch('baskets/whatsapp-dispatch/schedule', [BasketWhatsAppDispatchController::class, 'saveSchedule'])->middleware('can:sales.create');
+            Route::post('baskets/whatsapp-dispatch/send', [BasketWhatsAppDispatchController::class, 'send'])->middleware(['can:sales.create', 'throttle:10,1']);
+            Route::post('baskets/whatsapp-dispatch/log-manual', [BasketWhatsAppDispatchController::class, 'logManual'])->middleware('can:sales.create');
             Route::get('baskets/{order}/view-links', [OrderViewLinkController::class, 'index'])->whereNumber('order')->middleware('can:sales.view');
             Route::post('baskets/{order}/view-links', [OrderViewLinkController::class, 'create'])->whereNumber('order')->middleware(['can:sales.create', 'throttle:order-view-manage']);
             Route::post('baskets/{order}/view-links/{link}/revoke', [OrderViewLinkController::class, 'revoke'])->whereNumber(['order', 'link'])->middleware(['can:sales.create', 'throttle:30,1']);

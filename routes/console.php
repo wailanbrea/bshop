@@ -8,6 +8,8 @@ Schedule::command('bshop:reservations-expire --apply')->everyFiveMinutes()->with
 
 Schedule::command('bshop:inventory-reconcile --json')->hourly()->withoutOverlapping(60)->appendOutputTo(storage_path('logs/inventory-reconciliation.log'));
 
+Schedule::command('bshop:whatsapp-dispatch-scheduled')->everyMinute()->withoutOverlapping(10)->appendOutputTo(storage_path('logs/whatsapp-dispatch.log'));
+
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');

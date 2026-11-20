@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue';
+import { onMounted, reactive, ref, watch } from 'vue';
 import { api, errorMessage } from '../api';
+import type { Store } from '../types';
+const props = defineProps<{ store?: Store }>();
 const busy = ref(false);
 const error = ref('');
 const notice = ref('');
@@ -30,13 +32,16 @@ function apply(data: any) {
         verify_token: '',
     });
 }
-onMounted(async () => {
+async function load() {
+    error.value = '';
     try {
-        apply((await api.get('/business/integrations/whatsapp')).data.data);
+        apply((await api.get('/business/integrations/whatsapp', { params: props.store?.id ? { store_id: props.store.id } : undefined })).data.data);
     } catch (e) {
         error.value = errorMessage(e);
     }
-});
+}
+onMounted(load);
+watch(() => props.store?.id, () => load());
 async function save() {
     if (busy.value) return;
     busy.value = true;
@@ -47,6 +52,7 @@ async function save() {
             (
                 await api.patch('/business/integrations/whatsapp', {
                     ...form,
+                    ...(props.store?.id ? { store_id: props.store.id } : {}),
                     body_fields: form.body_fields
                         .split(',')
                         .map((s) => s.trim())
@@ -54,7 +60,7 @@ async function save() {
                 })
             ).data.data,
         );
-        notice.value = 'Configuración de WhatsApp guardada. No se enviaron mensajes.';
+        notice.value = `Configuración de WhatsApp guardada para ${props.store?.name || 'la tienda'}. Los secretos quedan cifrados y aislados.`;
     } catch (e) {
         error.value = errorMessage(e);
     } finally {

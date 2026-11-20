@@ -10,6 +10,7 @@ import { fromOrder, editable, type BasketCardData, type BasketDraft, type Basket
 import { readPending, savePending, clearPending } from '../lib/pendingRequests';
 import BasketGrid from './BasketGrid.vue';
 import BasketDetailPanel from './BasketDetailPanel.vue';
+import BasketWhatsAppDispatch from './BasketWhatsAppDispatch.vue';
 import SalesCustomers from './SalesCustomers.vue';
 import AppDialog from './AppDialog.vue';
 
@@ -55,6 +56,8 @@ const whatsapp = ref({ enabled: false, ready: false, reason: 'WhatsApp está des
 const pending = ref<Record<string, any> | null>(null);
 const journal = `bshop:pending-basket:${props.actorId}:${props.store?.id}`;
 const clientOpen = ref(false);
+const whatsappOpen = ref(false);
+const whatsappOpener = ref<HTMLElement | null>(null);
 const newCustomer = ref<SalesCustomer | null>(null);
 const warehouse = ref<number | ''>('');
 const modal = ref('');
@@ -455,18 +458,38 @@ onUnmounted(() => {
                 <h1>Tablero de Apartados</h1>
                 <p class="muted">Selecciona una tarjeta para trabajar su detalle aquí mismo.</p>
             </div>
-            <button
-                type="button"
-                class="button primary basket-add-client-btn"
-                :disabled="locked || !warehouse || !permissions.includes('sales.create')"
-                @click="
-                    opener = $event.currentTarget as HTMLElement;
-                    clientOpen = true;
-                "
-            >
-                + Cliente
-            </button>
+            <div class="actions" style="flex-wrap: wrap;">
+                <button
+                    type="button"
+                    class="button secondary"
+                    :disabled="locked || !store"
+                    @click="
+                        whatsappOpener = $event.currentTarget as HTMLElement;
+                        whatsappOpen = true;
+                    "
+                >
+                    WhatsApp masivo
+                </button>
+                <button
+                    type="button"
+                    class="button primary basket-add-client-btn"
+                    :disabled="locked || !warehouse || !permissions.includes('sales.create')"
+                    @click="
+                        opener = $event.currentTarget as HTMLElement;
+                        clientOpen = true;
+                    "
+                >
+                    + Cliente
+                </button>
+            </div>
         </header>
+        <BasketWhatsAppDispatch
+            :open="whatsappOpen"
+            :store="store"
+            :can-manage="permissions.includes('sales.create')"
+            :opener="whatsappOpener"
+            @close="whatsappOpen = false"
+        />
         <p v-if="notice" class="notice success" role="status">{{ notice }}</p>
         <p v-if="pending && !busy" class="notice error" role="alert">
             Hay una operación sin confirmación.

@@ -18,8 +18,9 @@ final class WhatsAppInvoice
     public function send(StoreContext $context, int $invoiceId, string $key, User $actor): array
     {
         abort_unless(Str::isUuid($key), 422, 'Identificador de envío no válido.');
-        $c = $this->configuration->resolve();
-        abort_unless($this->configuration->status()['ready'], 409, 'WhatsApp es opcional y todavía no está habilitado/configurado.');
+        $storeId = $context->store()->id;
+        $c = $this->configuration->resolve($storeId);
+        abort_unless($this->configuration->status(false, $storeId)['ready'], 409, 'WhatsApp es opcional y todavía no está habilitado/configurado.');
         abort_unless(preg_match('/^v[0-9]{1,2}\.0$/D', $c['graph_version']) && preg_match('/^[0-9]{5,40}$/D', $c['phone_number_id']), 422, 'Configuración del proveedor no válida.');
         $invoice = DB::table('invoices')->where('store_id', $context->store()->id)->where('id', $invoiceId)->firstOrFail();
         $snapshot = OrderInvoice::customer($invoice);

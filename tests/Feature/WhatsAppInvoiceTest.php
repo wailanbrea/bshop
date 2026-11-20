@@ -70,7 +70,7 @@ class WhatsAppInvoiceTest extends BasketBoardTest
     {
         $response = $this->patchJson('/api/v1/business/integrations/whatsapp', ['enabled' => false, 'phone_number_id' => '12345678', 'template' => 'invoice_qa', 'language' => 'es', 'graph_version' => 'v23.0', 'body_fields' => ['customer_name'], 'access_token' => 'new-private-qa-token']);
         $response->assertOk()->assertJsonPath('data.enabled', false)->assertJsonMissingPath('data.access_token');
-        $this->assertStringNotContainsString('new-private-qa-token', DB::table('business_settings')->value('configuration'));
+        $this->assertStringNotContainsString('new-private-qa-token', (string) (DB::table('store_whatsapp_configs')->value('access_token_encrypted') ?? DB::table('business_settings')->value('configuration') ?? ''));
         $invoice = $this->invoice();
         $this->postJson($this->root()."/invoices/$invoice/whatsapp", ['request_key' => (string) Str::uuid()])->assertConflict();
         Http::assertNothingSent();
