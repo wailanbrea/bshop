@@ -241,7 +241,6 @@ watch(() => props.open, (isOpen) => {
         :open="open"
         title="Importar contactos desde WhatsApp"
         :busy="busy"
-        :wide="true"
         :return-focus="opener"
         @close="emit('close')"
     >
