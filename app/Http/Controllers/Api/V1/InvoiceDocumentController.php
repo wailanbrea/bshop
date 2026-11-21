@@ -33,7 +33,7 @@ class InvoiceDocumentController extends Controller
     {
         $invoice = DB::table('invoices')->where('store_id', $context->store()->id)->where('id', $request->route('invoice'))->firstOrFail();
         try {
-            $documents->ensure($invoice->id);
+            $documents->ensure($invoice->id, $request->boolean('refresh'));
         } catch (\Throwable) {
             return response()->json(['message' => 'La factura existe; no se pudo preparar su PDF. Reintenta este mismo documento.'], 503);
         }
