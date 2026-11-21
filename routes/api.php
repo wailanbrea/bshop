@@ -17,6 +17,7 @@ use App\Http\Controllers\Api\V1\InvoiceDocumentController;
 use App\Http\Controllers\Api\V1\MediaController;
 use App\Http\Controllers\Api\V1\OrderRequestLinkController;
 use App\Http\Controllers\Api\V1\OrderViewLinkController;
+use App\Http\Controllers\Api\V1\PaymentMethodSettingsController;
 use App\Http\Controllers\Api\V1\PaymentReversalController;
 use App\Http\Controllers\Api\V1\ReceivablesController;
 use App\Http\Controllers\Api\V1\ReservationSettingsController;
@@ -98,6 +99,11 @@ Route::middleware(['auth:sanctum', 'active', 'auth.session'])->group(function ()
             Route::patch('users/{user}', [BusinessTeamController::class, 'update'])->whereNumber('user');
         });
         Route::prefix('stores/{store}')->whereNumber('store')->middleware('store')->group(function () {
+            Route::get('payment-methods', [PaymentMethodSettingsController::class, 'index']);
+            Route::put('payment-methods', [PaymentMethodSettingsController::class, 'sync'])->middleware('can:business.manage');
+            Route::post('payment-methods/custom', [PaymentMethodSettingsController::class, 'storeCustom'])->middleware('can:business.manage');
+            Route::patch('payment-methods/custom/{method}', [PaymentMethodSettingsController::class, 'updateCustom'])->whereNumber('method')->middleware('can:business.manage');
+            Route::delete('payment-methods/custom/{method}', [PaymentMethodSettingsController::class, 'destroyCustom'])->whereNumber('method')->middleware('can:business.manage');
             Route::get('employees', [EmployeeController::class, 'index'])->middleware('can:members.manage');
             Route::get('employees/export', [EmployeeController::class, 'export'])->middleware('can:members.manage');
             Route::post('employees', [EmployeeController::class, 'create'])->middleware('can:members.manage');

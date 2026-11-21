@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { PAYMENT_METHODS } from '../lib/paymentMethods';
+import { watch } from 'vue';
+import { enabledPaymentMethods, svgDataUri } from '../lib/paymentMethods';
 
-withDefaults(defineProps<{
+const props = withDefaults(defineProps<{
     modelValue: string;
     label?: string;
     disabled?: boolean;
@@ -13,6 +14,17 @@ withDefaults(defineProps<{
 });
 
 const emit = defineEmits<{ 'update:modelValue': [string] }>();
+
+watch(
+    () => [props.modelValue, enabledPaymentMethods.value] as const,
+    ([current, list]) => {
+        if (!list.length) return;
+        if (!current || !list.some((m) => m.code === current)) {
+            emit('update:modelValue', list[0].code);
+        }
+    },
+    { immediate: true },
+);
 </script>
 
 <template>
@@ -20,7 +32,7 @@ const emit = defineEmits<{ 'update:modelValue': [string] }>();
         <span v-if="label" class="pm-picker-label">{{ label }}</span>
         <div class="pm-grid">
             <button
-                v-for="item in PAYMENT_METHODS"
+                v-for="item in enabledPaymentMethods"
                 :key="item.code"
                 type="button"
                 role="radio"
@@ -31,7 +43,13 @@ const emit = defineEmits<{ 'update:modelValue': [string] }>();
                 @click="emit('update:modelValue', item.code)"
             >
                 <span class="pm-icon" :style="{ background: item.bg, color: item.fg }" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" class="pm-svg" focusable="false">
+                    <img
+                        v-if="item.iconSvg && svgDataUri(item.iconSvg, item.fg)"
+                        :src="svgDataUri(item.iconSvg, item.fg) || ''"
+                        alt=""
+                        class="pm-svg"
+                    >
+                    <svg v-else viewBox="0 0 24 24" class="pm-svg" focusable="false">
                         <path :d="item.svgPath" fill="currentColor" />
                     </svg>
                 </span>
@@ -75,8 +93,9 @@ const emit = defineEmits<{ 'update:modelValue': [string] }>();
     border-radius: 7px;
     flex-shrink: 0;
     padding: 4px;
+    overflow: hidden;
 }
-.pm-svg { width: 100%; height: 100%; display: block; }
+.pm-svg { width: 100%; height: 100%; display: block; object-fit: contain; }
 .pm-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 520px) {
     .pm-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }

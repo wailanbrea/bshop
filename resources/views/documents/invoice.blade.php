@@ -227,7 +227,7 @@
     $statusLabel = $isPaid ? 'Pagada' : ($isPartial ? 'Pago parcial' : 'Pendiente');
     $statusClass = $isPaid ? 'status-paid' : ($isPartial ? 'status-partial' : 'status-pending');
 
-    $methodLabels = [
+    $methodLabels = array_merge([
         'cash' => 'Efectivo',
         'bank_transfer' => 'Transferencia',
         'transfer' => 'Transferencia',
@@ -242,7 +242,7 @@
         'apple_pay' => 'Apple Pay',
         'mobile' => 'Pago móvil',
         'other' => 'Otro',
-    ];
+    ], $paymentMethodLabels ?? []);
     $formattedMethods = collect($paymentMethods ?? [])
         ->map(fn ($m) => $methodLabels[$m] ?? ucfirst((string) $m))
         ->filter()

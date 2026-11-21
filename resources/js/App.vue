@@ -20,11 +20,13 @@ const ReceivablesView = defineAsyncComponent(() => import('./components/Receivab
 import BasketBoard from './components/BasketBoard.vue';
 const WhatsAppSettings = defineAsyncComponent(() => import('./components/WhatsAppSettings.vue'));
 const WhatsAppAutomations = defineAsyncComponent(() => import('./components/WhatsAppAutomations.vue'));
+const PaymentMethodSettings = defineAsyncComponent(() => import('./components/PaymentMethodSettings.vue'));
 const ReservationSettings = defineAsyncComponent(() => import('./components/ReservationSettings.vue'));
 const SalesControlView = defineAsyncComponent(() => import('./components/SalesControlView.vue'));
 import {salesControlText} from './locales/es/salesControl';
 import { useVisualViewport } from './composables/useVisualViewport';
 import { lockPageScroll } from './lib/scrollLock';
+import { loadStorePaymentMethods } from './lib/paymentMethods';
 
 useVisualViewport();
 
@@ -63,6 +65,7 @@ const salesWorkspace = ref<InstanceType<typeof SalesWorkspace>>();
 const invitationToken = ref(location.pathname.startsWith('/join/') ? location.pathname.split('/').pop() || '' : '');
 const nav = computed(() => [{ id: 'overview', label: 'Vista general', icon: 'home' }, ...(workspace.value?.permissions.includes('sales.view') && workspace.value?.permissions.includes('customers.view') ? [{ id: 'receivables', label: 'Cuentas por cobrar', icon: 'document' },{id:'weekly',label:'Cuentas semanales',icon:'document'}] : []), ...(workspace.value?.permissions.includes('sales.view') ? [{ id: 'sales', label: 'Ventas', icon: 'cart' },{id:'history',label:salesControlText.navigation,icon:'document'},{id:'baskets',label:'Apartados',icon:'bag'}] : []), ...(workspace.value?.permissions.includes('customers.view') && workspace.value?.permissions.includes('sales.view') && workspace.value?.permissions.includes('sales.create') ? [{ id: 'customer-links', label: 'Vista del cliente', icon: 'users' }] : []), ...(workspace.value?.permissions.includes('customers.view') ? [{ id: 'customers', label: 'Clientes', icon: 'users' }] : []), ...(workspace.value?.permissions.includes('catalog.view') ? [{ id: 'catalog', label: 'Catálogo', icon: 'box' }] : []), ...(workspace.value?.permissions.includes('inventory.view') ? [{ id: 'inventory', label: 'Inventario', icon: 'inventory' }] : []), ...(workspace.value?.permissions.includes('invoices.view') ? [{ id: 'invoices', label: 'Facturas', icon: 'document' }] : []), { id: 'stores', label: 'Sucursales', icon: 'store' }, { id: 'warehouses', label: 'Almacenes', icon: 'warehouse' }, ...(workspace.value?.permissions.includes('members.manage') ? [{ id: 'employees', label: 'Vendedores', icon: 'users' },{ id: 'team', label: 'Equipo', icon: 'users' }] : []), { id: 'settings', label: 'Configuración', icon: 'settings' }]);
 const store = computed(() => workspace.value?.stores.find(s => s.id === storeId.value));
+watch(() => store.value?.id, (id) => { loadStorePaymentMethods(id); }, { immediate: true });
 const activeBrandName = computed(() => store.value?.name || workspace.value?.business.name || session.value?.business.name || 'BShop');
 watch(activeBrandName, name => { if (name) document.title = `${name} · BShop`; }, { immediate: true });
 const title = computed(() => nav.value.find(n => n.id === page.value)?.label || 'Mi negocio');
@@ -180,6 +183,7 @@ onUnmounted(() => { unlockMenu?.(); drawerQuery.removeEventListener('change', sy
                     <TeamView v-else-if="page === 'team'" :business="workspace.business" @access-changed="refreshAccess" />
                     <BusinessSettings v-else-if="page !== 'sales'" :key="page" :business="workspace.business" :stores="workspace.stores" :warehouses="warehouses" :store="store" :permissions="workspace.permissions" :page="page" @changed="reload" />
                     <KeepAlive :max="5"><SalesWorkspace v-if="salesVisited && workspace.permissions.includes('sales.view')" ref="salesWorkspace" v-show="page === 'sales'" :key="store?.id || 'none'" :actor-id="session.user.id" :active="page === 'sales'" :business="workspace.business" :store="store" :warehouses="warehouses" :permissions="workspace.permissions" @context-locked="salesContextLocked = $event" @title-change="salesTitle = $event" @open-apartados="openSavedOrder" /></KeepAlive>
+                    <PaymentMethodSettings v-if="page==='settings'&&workspace.permissions.includes('business.manage')" :store="store || null" />
                     <ReservationSettings v-if="page==='settings'&&workspace.permissions.includes('business.manage')" />
                     <WeeklySettings v-if="page==='settings'&&workspace.permissions.includes('business.manage')" />
                     <WhatsAppSettings v-if="page==='settings'&&workspace.permissions.includes('business.manage')" :store="store" />

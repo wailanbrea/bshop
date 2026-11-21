@@ -32,11 +32,11 @@ final class SalesService
         abort_unless(DB::table('store_user')->where('user_id', $user->id)->where('store_id', $context->store()->id)->sharedLock()->first(), 404);
     }
 
-    public function validate(array $input, bool $confirmation = false): array
+    public function validate(array $input, bool $confirmation = false, ?int $storeId = null): array
     {
         $rules = ['warehouse_id' => ['required', 'integer', 'min:1'], 'customer_id' => [$confirmation ? 'required' : 'nullable', 'integer', 'min:1'], 'seller_employee_id' => ['nullable', 'integer', 'min:1'], 'lines' => ['required', 'array', 'list', 'min:1', 'max:50'], 'lines.*.variant_id' => ['required', 'integer', 'min:1', 'distinct'], 'lines.*.quantity' => ['required', new DecimalAmount], 'discount' => ['required', new DecimalAmount], 'shipping' => ['required', new DecimalAmount], 'notes' => ['nullable', 'string', 'max:4000'], 'estimated_delivery' => ['nullable', 'date_format:Y-m-d']];
         if ($confirmation) {
-            $rules = [...$rules, 'request_key' => ['required', 'uuid'], 'quote_hash' => ['required', 'string', 'size:64'], 'mode' => ['required', 'in:sale,reservation'], 'initial_payment' => ['required', new DecimalAmount], 'payment_method' => ['required', 'in:cash,bank_transfer,card,zelle,cash_app,paypal,venmo,credit,afterpay,klarna,apple_pay']];
+            $rules = [...$rules, 'request_key' => ['required', 'uuid'], 'quote_hash' => ['required', 'string', 'size:64'], 'mode' => ['required', 'in:sale,reservation'], 'initial_payment' => ['required', new DecimalAmount], 'payment_method' => ['required', 'string', 'max:30', \App\Domain\Payments\PaymentMethodCatalog::validationRule($storeId)]];
         }
         $data = Validator::make($input, $rules)->validate();
         foreach (['warehouse_id', 'customer_id', 'seller_employee_id'] as $field) {
@@ -131,7 +131,7 @@ final class SalesService
 
     public function create(StoreContext $context, array $input, User $actor): array
     {
-        $data = $this->validate($input, true);
+        $data = $this->validate($input, true, $context->store()->id);
         $key = $data['request_key'];
         unset($data['request_key']);
 
@@ -259,7 +259,7 @@ final class SalesService
     public function change(StoreContext $context, int $orderId, string $action, array $input, User $actor): array
     {
         abort_unless(in_array($action, ['cancel', 'invoice', 'deliver', 'payment', 'remove', 'seller'], true), 404);
-        $data = Validator::make($input, ['request_key' => ['required', 'uuid'], 'version' => ['required', 'integer', 'min:0'], 'amount' => ['sometimes', new DecimalAmount], 'payment_method' => ['sometimes', 'in:cash,bank_transfer,card,zelle,cash_app,paypal,venmo,credit,afterpay,klarna,apple_pay'], 'item_id' => ['sometimes', 'integer', 'min:1'], 'quantity' => ['sometimes', new DecimalAmount], 'deliver_now' => ['sometimes', 'boolean'], 'seller_employee_id' => ['nullable', 'integer', 'min:1']])->validate();
+        $data = Validator::make($input, ['request_key' => ['required', 'uuid'], 'version' => ['required', 'integer', 'min:0'], 'amount' => ['sometimes', new DecimalAmount], 'payment_method' => ['sometimes', 'string', 'max:30', \App\Domain\Payments\PaymentMethodCatalog::validationRule($context->store()->id)], 'item_id' => ['sometimes', 'integer', 'min:1'], 'quantity' => ['sometimes', new DecimalAmount], 'deliver_now' => ['sometimes', 'boolean'], 'seller_employee_id' => ['nullable', 'integer', 'min:1']])->validate();
         if ($action === 'payment') {
             if (! isset($data['amount'], $data['payment_method'])) {
                 throw ValidationException::withMessages(['amount' => 'Indica el abono y su método.']);
