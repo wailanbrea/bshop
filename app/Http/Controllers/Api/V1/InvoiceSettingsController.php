@@ -24,7 +24,7 @@ final class InvoiceSettingsController extends Controller
     public function update(Request $request, StoreContext $context, InvoiceSettingsService $service, AuditTrailService $audit): JsonResponse
     {
         $data = $request->validate([
-            'logo_width_px' => ['sometimes', 'integer', 'min:28', 'max:110'],
+            'logo_width_px' => ['sometimes', 'integer', 'min:28', 'max:160'],
             'accent_color' => ['sometimes', 'string', 'regex:/^#[0-9a-fA-F]{6}$/'],
             'document_title' => ['sometimes', 'string', 'min:2', 'max:40'],
             'brand_subtitle' => ['sometimes', 'nullable', 'string', 'max:120'],

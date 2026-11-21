@@ -256,7 +256,7 @@
     $cfg = array_merge(\App\Domain\Sales\InvoiceSettingsService::DEFAULTS, $invoiceSettings ?? []);
     $accent = preg_match('/^#[0-9a-fA-F]{6}$/', (string) ($cfg['accent_color'] ?? '')) ? $cfg['accent_color'] : '#4f46e5';
     $logoUri = (!empty($cfg['show_logo']) && !empty($cfg['logo_data_uri'])) ? $cfg['logo_data_uri'] : null;
-    $logoWidth = max(28, min(110, (int) ($cfg['logo_width_px'] ?? 52)));
+    $logoWidth = max(28, min(160, (int) ($cfg['logo_width_px'] ?? 72)));
     $docTitle = trim((string) ($cfg['document_title'] ?? 'Factura')) ?: 'Factura';
     $brandSubtitle = trim((string) ($cfg['brand_subtitle'] ?? ''));
     $showProductImages = !empty($cfg['show_product_images']);

@@ -258,7 +258,7 @@ function openPdfPreview() {
 
                     <label v-if="form.has_logo && form.show_logo" class="inv-range-label">
                         <span>Tamaño del logo en la factura: <strong>{{ form.logo_width_px }} px</strong></span>
-                        <input v-model.number="form.logo_width_px" type="range" min="28" max="100" step="2">
+                        <input v-model.number="form.logo_width_px" type="range" min="28" max="160" step="2">
                     </label>
                 </div>
 
