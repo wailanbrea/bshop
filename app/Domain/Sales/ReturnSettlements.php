@@ -238,7 +238,7 @@ final class ReturnSettlements
                 $input[$field] = trim($input[$field]);
             }
         }
-        $data = Validator::make($input, ['request_key' => ['required', 'uuid'], 'version' => ['required', 'integer', 'min:0'], 'payment_id' => ['required', 'integer', 'min:1'], 'amount' => ['required', new DecimalAmount], 'method' => ['required', 'in:cash,bank_transfer,card'], 'external_reference' => ['nullable', 'string', 'max:160'], 'reason' => ['required', 'string', 'min:5', 'max:255']])->validate();
+        $data = Validator::make($input, ['request_key' => ['required', 'uuid'], 'version' => ['required', 'integer', 'min:0'], 'payment_id' => ['required', 'integer', 'min:1'], 'amount' => ['required', new DecimalAmount], 'method' => ['required', 'in:cash,bank_transfer,card,zelle,cash_app,paypal,venmo,credit,afterpay,klarna,apple_pay'], 'external_reference' => ['nullable', 'string', 'max:160'], 'reason' => ['required', 'string', 'min:5', 'max:255']])->validate();
         $key = $data['request_key'];
         unset($data['request_key']);
         $data['version'] = (int) $data['version'];

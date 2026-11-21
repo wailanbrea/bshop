@@ -10,6 +10,7 @@ import { useSalesDraft } from '../composables/useSalesDraft';
 import SalesCustomers from './SalesCustomers.vue';
 import SalesProducts from './SalesProducts.vue';
 import SalesSummary from './SalesSummary.vue';
+import PaymentMethodPicker from './PaymentMethodPicker.vue';
 import ReservationDeadline from './ReservationDeadline.vue';
 
 import AppDialog from './AppDialog.vue';
@@ -555,13 +556,7 @@ async function share() {
                                 required
                                 maxlength="20"
                                 @input="actionAmount = actionAmount.replace(',', '.')" /></label
-                        ><label
-                            >Método de abono<select v-model="actionMethod" aria-label="Método de abono">
-                                <option value="cash">Efectivo</option>
-                                <option value="bank_transfer">Transferencia bancaria</option>
-                                <option value="card">Tarjeta</option>
-                            </select></label
-                        ></template
+                        ><PaymentMethodPicker v-model="actionMethod" label="Método de abono" /></template
                     >
                     <label v-if="action === 'invoice'" class="check-label"
                         ><input v-model="deliverNow" type="checkbox" /> Entregar los artículos ahora</label

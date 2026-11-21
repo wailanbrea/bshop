@@ -328,7 +328,7 @@ class EmployeeController extends Controller
         $data = $request->validate([
             'request_key' => ['required', 'uuid'],
             'amount' => ['required', new DecimalAmount],
-            'payment_method' => ['required', 'in:cash,bank_transfer,card'],
+            'payment_method' => ['required', 'in:cash,bank_transfer,card,zelle,cash_app,paypal,venmo,credit,afterpay,klarna,apple_pay'],
             'reference' => ['nullable', 'string', 'max:160'],
         ]);
         $id = (int) $request->route('employee');

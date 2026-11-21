@@ -4,6 +4,7 @@ import { onMounted,onUnmounted,ref,useId } from 'vue';
 import { api,errorMessage } from '../api';
 import { amount } from '../catalog';
 import { readPending,savePending,clearPending } from '../lib/pendingRequests';
+import { paymentMethodLabel } from '../lib/paymentMethods';
 import type { SavedOrder } from '../sales';
 import AppDialog from './AppDialog.vue';
 type Payment={id:number;amount:string;currency:string;status:string;payment_method:string;paid_at:string|null;reversal:{id:number;reason:string;actor_name:string;reversed_at:string}|null};
@@ -14,7 +15,7 @@ const endpoint=`${props.root}/sales/orders/${props.order.id}/payments`;
 const journal=`bshop:payment-reversal:${props.actorId}:${props.root}:${props.order.id}`;
 const open=ref(false);const busy=ref(false);const error=ref('');const notice=ref('');const rows=ref<Payment[]>([]);const target=ref<Payment|null>(null);const reason=ref('');const pending=ref<Pending|null>(null);const opener=ref<HTMLElement|null>(null);const formId=useId();let alive=true;
 const explain=(e:unknown)=>axios.isAxiosError(e)&&e.response?.status===409&&typeof e.response.data?.message==='string'?e.response.data.message:errorMessage(e);
-const method=(name:string)=>({cash:'Efectivo',bank_transfer:'Transferencia',card:'Tarjeta'} as Record<string,string>)[name]||name;
+const method=(name:string)=>paymentMethodLabel(name);
 async function load(){const result=await api.get(endpoint);if(alive)rows.value=result.data.data;}
 async function show(event:Event){opener.value=event.currentTarget as HTMLElement;open.value=true;busy.value=true;error.value='';try{await load();}catch(e){if(alive)error.value=errorMessage(e);}finally{if(alive)busy.value=false;}}
 function choose(payment:Payment){if(busy.value||pending.value||props.disabled||!props.canReverse)return;target.value=payment;reason.value='';error.value='';notice.value='';}

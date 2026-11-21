@@ -11,6 +11,7 @@ import { readPending, savePending, clearPending } from '../lib/pendingRequests';
 import BasketGrid from './BasketGrid.vue';
 import BasketDetailPanel from './BasketDetailPanel.vue';
 import BasketWhatsAppDispatch from './BasketWhatsAppDispatch.vue';
+import PaymentMethodPicker from './PaymentMethodPicker.vue';
 import SalesCustomers from './SalesCustomers.vue';
 import AppDialog from './AppDialog.vue';
 
@@ -672,18 +673,12 @@ onUnmounted(() => {
                         pattern="[A-Za-z0-9][A-Za-z0-9\-]{0,23}" /></label
                 ><template v-if="modal === 'payment'"
                     ><label
-                        >Importe del depósito USD<input
+                        >Importe del pago USD<input
                             v-model="amount"
                             required
                             inputmode="decimal"
                             @input="amount = amount.replace(',', '.')" /></label
-                    ><label
-                        >Método<select v-model="paymentMethod" aria-label="Método de depósito">
-                            <option value="cash">Efectivo</option>
-                            <option value="bank_transfer">Transferencia</option>
-                            <option value="card">Tarjeta</option>
-                        </select></label
-                    ></template
+                    ><PaymentMethodPicker v-model="paymentMethod" label="Método de pago" /></template
                 ><template v-if="modal === 'close'"
                     ><p>Se cerrarán los artículos con sus importes guardados y se generará una sola factura.</p>
                     <label class="check-label"

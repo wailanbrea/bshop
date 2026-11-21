@@ -229,8 +229,17 @@
 
     $methodLabels = [
         'cash' => 'Efectivo',
+        'bank_transfer' => 'Transferencia',
         'transfer' => 'Transferencia',
         'card' => 'Tarjeta',
+        'zelle' => 'Zelle',
+        'cash_app' => 'Cash App',
+        'paypal' => 'PayPal',
+        'venmo' => 'Venmo',
+        'credit' => 'Crédito',
+        'afterpay' => 'Afterpay',
+        'klarna' => 'Klarna',
+        'apple_pay' => 'Apple Pay',
         'mobile' => 'Pago móvil',
         'other' => 'Otro',
     ];
