@@ -21,6 +21,7 @@ import BasketBoard from './components/BasketBoard.vue';
 const WhatsAppSettings = defineAsyncComponent(() => import('./components/WhatsAppSettings.vue'));
 const WhatsAppAutomations = defineAsyncComponent(() => import('./components/WhatsAppAutomations.vue'));
 const PaymentMethodSettings = defineAsyncComponent(() => import('./components/PaymentMethodSettings.vue'));
+const InvoiceSettings = defineAsyncComponent(() => import('./components/InvoiceSettings.vue'));
 const ReservationSettings = defineAsyncComponent(() => import('./components/ReservationSettings.vue'));
 const SalesControlView = defineAsyncComponent(() => import('./components/SalesControlView.vue'));
 import {salesControlText} from './locales/es/salesControl';
@@ -184,6 +185,7 @@ onUnmounted(() => { unlockMenu?.(); drawerQuery.removeEventListener('change', sy
                     <BusinessSettings v-else-if="page !== 'sales'" :key="page" :business="workspace.business" :stores="workspace.stores" :warehouses="warehouses" :store="store" :permissions="workspace.permissions" :page="page" @changed="reload" />
                     <KeepAlive :max="5"><SalesWorkspace v-if="salesVisited && workspace.permissions.includes('sales.view')" ref="salesWorkspace" v-show="page === 'sales'" :key="store?.id || 'none'" :actor-id="session.user.id" :active="page === 'sales'" :business="workspace.business" :store="store" :warehouses="warehouses" :permissions="workspace.permissions" @context-locked="salesContextLocked = $event" @title-change="salesTitle = $event" @open-apartados="openSavedOrder" /></KeepAlive>
                     <PaymentMethodSettings v-if="page==='settings'&&workspace.permissions.includes('business.manage')" :store="store || null" />
+                    <InvoiceSettings v-if="page==='settings'&&workspace.permissions.includes('business.manage')" :store="store || null" />
                     <ReservationSettings v-if="page==='settings'&&workspace.permissions.includes('business.manage')" />
                     <WeeklySettings v-if="page==='settings'&&workspace.permissions.includes('business.manage')" />
                     <WhatsAppSettings v-if="page==='settings'&&workspace.permissions.includes('business.manage')" :store="store" />

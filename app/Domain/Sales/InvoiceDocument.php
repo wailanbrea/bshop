@@ -54,7 +54,12 @@ final class InvoiceDocument
                 ->pluck('p.payment_method')
                 ->all();
             $paymentMethodLabels = \App\Domain\Payments\PaymentMethodCatalog::labelsForStore((int) $invoice->store_id);
-            $bytes = Pdf::loadView('documents.invoice', compact('invoice', 'items', 'business', 'customer', 'weekly', 'settlement', 'paymentMethods', 'paymentMethodLabels'))->setPaper('a4')->setOptions(['isRemoteEnabled' => false, 'isPhpEnabled' => false, 'isJavascriptEnabled' => false, 'defaultFont' => 'DejaVu Sans'])->output();
+            $settingsService = app(InvoiceSettingsService::class);
+            $invoiceSettings = $settingsService->getForStore((int) $invoice->store_id);
+            $itemImages = ! empty($invoiceSettings['show_product_images'])
+                ? $settingsService->productImagesForInvoice($items, (int) $invoice->store_id)
+                : [];
+            $bytes = Pdf::loadView('documents.invoice', compact('invoice', 'items', 'business', 'customer', 'weekly', 'settlement', 'paymentMethods', 'paymentMethodLabels', 'invoiceSettings', 'itemImages'))->setPaper('a4')->setOptions(['isRemoteEnabled' => false, 'isPhpEnabled' => false, 'isJavascriptEnabled' => false, 'defaultFont' => 'DejaVu Sans'])->output();
             if (! str_starts_with($bytes, '%PDF-')) {
                 throw new \RuntimeException('Invalid invoice PDF output.');
             }

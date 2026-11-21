@@ -14,6 +14,7 @@ use App\Http\Controllers\Api\V1\EmployeeController;
 use App\Http\Controllers\Api\V1\FinancialDocumentController;
 use App\Http\Controllers\Api\V1\InventoryController;
 use App\Http\Controllers\Api\V1\InvoiceDocumentController;
+use App\Http\Controllers\Api\V1\InvoiceSettingsController;
 use App\Http\Controllers\Api\V1\MediaController;
 use App\Http\Controllers\Api\V1\OrderRequestLinkController;
 use App\Http\Controllers\Api\V1\OrderViewLinkController;
@@ -99,6 +100,11 @@ Route::middleware(['auth:sanctum', 'active', 'auth.session'])->group(function ()
             Route::patch('users/{user}', [BusinessTeamController::class, 'update'])->whereNumber('user');
         });
         Route::prefix('stores/{store}')->whereNumber('store')->middleware('store')->group(function () {
+            Route::get('invoice-settings', [InvoiceSettingsController::class, 'show']);
+            Route::patch('invoice-settings', [InvoiceSettingsController::class, 'update'])->middleware('can:business.manage');
+            Route::post('invoice-settings/logo', [InvoiceSettingsController::class, 'uploadLogo'])->middleware('can:business.manage');
+            Route::delete('invoice-settings/logo', [InvoiceSettingsController::class, 'destroyLogo'])->middleware('can:business.manage');
+            Route::get('invoice-settings/preview', [InvoiceSettingsController::class, 'preview'])->middleware('can:business.manage');
             Route::get('payment-methods', [PaymentMethodSettingsController::class, 'index']);
             Route::put('payment-methods', [PaymentMethodSettingsController::class, 'sync'])->middleware('can:business.manage');
             Route::post('payment-methods/custom', [PaymentMethodSettingsController::class, 'storeCustom'])->middleware('can:business.manage');

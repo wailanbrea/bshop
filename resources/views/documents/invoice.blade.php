@@ -252,20 +252,45 @@
     $hasDiscount = bccomp((string) ($invoice->discount_total ?? '0'), '0', 4) > 0;
     $hasTax = bccomp((string) ($invoice->tax_total ?? '0'), '0', 4) > 0;
     $hasShipping = bccomp((string) ($invoice->shipping_total ?? '0'), '0', 4) > 0;
+
+    $cfg = array_merge(\App\Domain\Sales\InvoiceSettingsService::DEFAULTS, $invoiceSettings ?? []);
+    $accent = preg_match('/^#[0-9a-fA-F]{6}$/', (string) ($cfg['accent_color'] ?? '')) ? $cfg['accent_color'] : '#4f46e5';
+    $logoUri = (!empty($cfg['show_logo']) && !empty($cfg['logo_data_uri'])) ? $cfg['logo_data_uri'] : null;
+    $logoWidth = max(28, min(110, (int) ($cfg['logo_width_px'] ?? 52)));
+    $docTitle = trim((string) ($cfg['document_title'] ?? 'Factura')) ?: 'Factura';
+    $brandSubtitle = trim((string) ($cfg['brand_subtitle'] ?? ''));
+    $showProductImages = !empty($cfg['show_product_images']);
+    $showSku = !empty($cfg['show_sku']);
+    $showStoreContact = !empty($cfg['show_store_contact']);
+    $showCustomerContact = !empty($cfg['show_customer_contact']);
+    $showPaymentSummary = !empty($cfg['show_payment_summary']);
+    $showPaymentMethods = !empty($cfg['show_payment_methods']);
+    $showNotes = !empty($cfg['show_notes']) && trim((string) ($invoice->notes ?? '')) !== '';
+    $footerText = trim((string) ($cfg['footer_text'] ?? ''));
+    $termsText = trim((string) ($cfg['terms_text'] ?? ''));
+    $imagesMap = $itemImages ?? [];
 @endphp
 
-<table class="header-table">
+<table class="header-table" style="border-bottom-color: {{ $accent }};">
     <tr>
         <td style="width: 60%;">
             <table class="brand-table">
                 <tr>
-                    <td><div class="brand-mark">{{ $brandInitial }}</div></td>
+                    @if($logoUri)
+                        <td>
+                            <img src="{{ $logoUri }}" alt="{{ $brandName }}" style="max-width: {{ $logoWidth }}px; max-height: {{ $logoWidth }}px; border-radius: 6px; display: block;">
+                        </td>
+                    @else
+                        <td><div class="brand-mark" style="background: {{ $accent }};">{{ $brandInitial }}</div></td>
+                    @endif
                     <td class="brand-info">
                         <div class="brand-name">{{ $brandName }}</div>
-                        @if(!empty($business['legal_name']) && $business['legal_name'] !== $brandName)
+                        @if($brandSubtitle !== '')
+                            <div class="brand-sub">{{ $brandSubtitle }}</div>
+                        @elseif(!empty($business['legal_name']) && $business['legal_name'] !== $brandName)
                             <div class="brand-sub">{{ $business['legal_name'] }}</div>
                         @endif
-                        @if(!empty($business['address']) || !empty($business['phone']))
+                        @if($showStoreContact && (!empty($business['address']) || !empty($business['phone'])))
                             <div class="brand-sub">
                                 {{ implode(' · ', array_filter([$business['address'] ?? null, $business['phone'] ?? null])) }}
                             </div>
@@ -275,7 +300,7 @@
             </table>
         </td>
         <td class="right" style="width: 40%;">
-            <div class="doc-eyebrow">Factura</div>
+            <div class="doc-eyebrow" style="color: {{ $accent }};">{{ $docTitle }}</div>
             <div class="doc-number nowrap">{{ $invoice->invoice_number }}</div>
             <span class="status-pill {{ $statusClass }}">{{ $statusLabel }}</span>
         </td>
@@ -286,30 +311,30 @@
     <tr>
         <td class="card-left-wrap">
             <div class="info-card">
-                <div class="card-title">Facturar a (Cliente)</div>
+                <div class="card-title" style="color: {{ $accent }};">Facturar a (Cliente)</div>
                 <div class="client-name">{{ $customer['full_name'] ?? 'Cliente' }}</div>
                 <table class="kv-table">
-                    @if(!empty($customer['phone']))
+                    @if($showCustomerContact && !empty($customer['phone']))
                         <tr>
                             <td class="kv-label">Teléfono:</td>
                             <td class="kv-value nowrap">{{ $customer['phone'] }}</td>
                         </tr>
                     @endif
-                    @if(!empty($customer['email']))
+                    @if($showCustomerContact && !empty($customer['email']))
                         <tr>
                             <td class="kv-label">Correo:</td>
                             <td class="kv-value">{{ $customer['email'] }}</td>
                         </tr>
                     @endif
-                    @if(!empty($customer['address']))
+                    @if($showCustomerContact && !empty($customer['address']))
                         <tr>
                             <td class="kv-label">Dirección:</td>
                             <td class="kv-value">{{ $customer['address'] }}</td>
                         </tr>
                     @endif
-                    @if(empty($customer['phone']) && empty($customer['email']) && empty($customer['address']))
+                    @if(!$showCustomerContact || (empty($customer['phone']) && empty($customer['email']) && empty($customer['address'])))
                         <tr>
-                            <td class="muted small" colspan="2">Sin datos de contacto adicionales registrados.</td>
+                            <td class="muted small" colspan="2">{{ $showCustomerContact ? 'Sin datos de contacto adicionales registrados.' : 'Cliente registrado.' }}</td>
                         </tr>
                     @endif
                 </table>
@@ -317,7 +342,7 @@
         </td>
         <td class="card-right-wrap">
             <div class="info-card">
-                <div class="card-title">Detalles de la factura</div>
+                <div class="card-title" style="color: {{ $accent }};">Detalles de la factura</div>
                 <table class="kv-table">
                     <tr>
                         <td class="kv-label">Emisión:</td>
@@ -350,18 +375,40 @@
 <table class="items-table">
     <thead>
         <tr>
-            <th style="width: 52%;">Descripción / SKU</th>
-            <th class="right" style="width: 12%;">Cant.</th>
-            <th class="right" style="width: 18%;">Precio unit.</th>
-            <th class="right" style="width: 18%;">Importe</th>
+            <th style="width: 52%; color: {{ $accent }}; border-top-color: {{ $accent }}; border-bottom-color: {{ $accent }};">Descripción</th>
+            <th class="right" style="width: 12%; color: {{ $accent }}; border-top-color: {{ $accent }}; border-bottom-color: {{ $accent }};">Cant.</th>
+            <th class="right" style="width: 18%; color: {{ $accent }}; border-top-color: {{ $accent }}; border-bottom-color: {{ $accent }};">Precio unit.</th>
+            <th class="right" style="width: 18%; color: {{ $accent }}; border-top-color: {{ $accent }}; border-bottom-color: {{ $accent }};">Importe</th>
         </tr>
     </thead>
     <tbody>
         @foreach ($items as $item)
+            @php
+                $itemKey = $item->id ?? ($item->variant_id ?? null);
+                $itemImg = ($showProductImages && $itemKey !== null) ? ($imagesMap[$itemKey] ?? null) : null;
+            @endphp
             <tr>
                 <td>
-                    <div class="item-title">{{ $item->description }}</div>
-                    <div class="item-sku">SKU: {{ $item->sku_snapshot }}@if($invoice->weekly_account_id) · Pedido #{{ $item->order_id }}@endif</div>
+                    @if($itemImg)
+                        <table style="border-collapse: collapse; width: 100%;">
+                            <tr>
+                                <td style="width: 44px; padding: 0 8px 0 0; border: none; background: transparent; vertical-align: middle;">
+                                    <img src="{{ $itemImg }}" alt="" style="width: 38px; height: 38px; border-radius: 6px; border: 1px solid #e5e7f0; display: block;">
+                                </td>
+                                <td style="padding: 0; border: none; background: transparent; vertical-align: middle;">
+                                    <div class="item-title">{{ $item->description }}</div>
+                                    @if($showSku)
+                                        <div class="item-sku">SKU: {{ $item->sku_snapshot }}@if($invoice->weekly_account_id) · Pedido #{{ $item->order_id }}@endif</div>
+                                    @endif
+                                </td>
+                            </tr>
+                        </table>
+                    @else
+                        <div class="item-title">{{ $item->description }}</div>
+                        @if($showSku)
+                            <div class="item-sku">SKU: {{ $item->sku_snapshot }}@if($invoice->weekly_account_id) · Pedido #{{ $item->order_id }}@endif</div>
+                        @endif
+                    @endif
                 </td>
                 <td class="right nowrap">{{ $qty($item->quantity) }}</td>
                 <td class="right nowrap">{{ $money($item->unit_price) }}</td>
@@ -374,29 +421,37 @@
 <table class="summary-table">
     <tr>
         <td class="payment-box-wrap">
-            <div class="payment-card">
-                <div class="card-title">Resumen de pago</div>
-                <table class="kv-table">
-                    <tr>
-                        <td class="kv-label">Estado:</td>
-                        <td class="kv-value"><strong>{{ $statusLabel }}</strong></td>
-                    </tr>
-                    <tr>
-                        <td class="kv-label">Abonado:</td>
-                        <td class="kv-value nowrap">{{ $money($paidTotal) }}</td>
-                    </tr>
-                    <tr>
-                        <td class="kv-label">Pendiente:</td>
-                        <td class="kv-value nowrap {{ $isPaid ? 'balance-ok' : 'balance-due' }}">{{ $money($pendingTotal) }}</td>
-                    </tr>
-                    @if($formattedMethods !== '')
+            @if($showPaymentSummary)
+                <div class="payment-card">
+                    <div class="card-title" style="color: {{ $accent }};">Resumen de pago</div>
+                    <table class="kv-table">
                         <tr>
-                            <td class="kv-label">Método:</td>
-                            <td class="kv-value">{{ $formattedMethods }}</td>
+                            <td class="kv-label">Estado:</td>
+                            <td class="kv-value"><strong>{{ $statusLabel }}</strong></td>
                         </tr>
-                    @endif
-                </table>
-            </div>
+                        <tr>
+                            <td class="kv-label">Abonado:</td>
+                            <td class="kv-value nowrap">{{ $money($paidTotal) }}</td>
+                        </tr>
+                        <tr>
+                            <td class="kv-label">Pendiente:</td>
+                            <td class="kv-value nowrap {{ $isPaid ? 'balance-ok' : 'balance-due' }}">{{ $money($pendingTotal) }}</td>
+                        </tr>
+                        @if($showPaymentMethods && $formattedMethods !== '')
+                            <tr>
+                                <td class="kv-label">Método:</td>
+                                <td class="kv-value">{{ $formattedMethods }}</td>
+                            </tr>
+                        @endif
+                    </table>
+                </div>
+            @endif
+            @if($showNotes)
+                <div class="payment-card" style="margin-top: {{ $showPaymentSummary ? '10px' : '0' }};">
+                    <div class="card-title" style="color: {{ $accent }};">Notas</div>
+                    <div class="small" style="color: #334155;">{{ $invoice->notes }}</div>
+                </div>
+            @endif
         </td>
         <td class="totals-box-wrap">
             <table class="totals-table">
@@ -423,8 +478,8 @@
                     </tr>
                 @endif
                 <tr class="grand-total">
-                    <td>TOTAL</td>
-                    <td class="right nowrap">{{ $money($invoice->grand_total) }}</td>
+                    <td style="background: {{ $accent }};">TOTAL</td>
+                    <td class="right nowrap" style="background: {{ $accent }};">{{ $money($invoice->grand_total) }}</td>
                 </tr>
             </table>
         </td>
@@ -432,7 +487,12 @@
 </table>
 
 <div class="doc-footer">
-    Gracias por su preferencia · Documento histórico de la operación.<br>
+    @if($termsText !== '')
+        <div style="margin-bottom: 6px; color: #475569;">{{ $termsText }}</div>
+    @endif
+    @if($footerText !== '')
+        {{ $footerText }}<br>
+    @endif
     <strong>{{ $brandName }}</strong> · Emitido con BShop
 </div>
 </body>
