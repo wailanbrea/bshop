@@ -9,11 +9,37 @@ use Illuminate\Support\Facades\DB;
 
 class WhatsAppWebhookController extends Controller
 {
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function allConfigs(WhatsAppConfiguration $configuration): array
+    {
+        $configs = [];
+        if (\Illuminate\Support\Facades\Schema::hasTable('store_whatsapp_configs')) {
+            $storeIds = DB::table('store_whatsapp_configs')->pluck('store_id')->all();
+            foreach ($storeIds as $sid) {
+                $configs[] = $configuration->resolve((int) $sid);
+            }
+        }
+        $configs[] = $configuration->resolve();
+
+        return $configs;
+    }
+
     public function verify(Request $request, WhatsAppConfiguration $configuration)
     {
-        $c = $configuration->resolve();
         $token = (string) ($request->query('hub_verify_token') ?? $request->query('hub.verify_token'));
-        abort_unless(filled($c['verify_token']) && hash_equals($c['verify_token'], $token) && ($request->query('hub_mode') ?? $request->query('hub.mode')) === 'subscribe', 403);
+        $mode = (string) ($request->query('hub_mode') ?? $request->query('hub.mode'));
+        $matched = false;
+        if ($mode === 'subscribe' && $token !== '') {
+            foreach ($this->allConfigs($configuration) as $c) {
+                if (filled($c['verify_token'] ?? null) && hash_equals((string) $c['verify_token'], $token)) {
+                    $matched = true;
+                    break;
+                }
+            }
+        }
+        abort_unless($matched, 403);
         $challenge = (string) ($request->query('hub_challenge') ?? $request->query('hub.challenge'));
         abort_unless(preg_match('/^[0-9]{1,100}$/D', $challenge), 422);
 
@@ -22,10 +48,17 @@ class WhatsAppWebhookController extends Controller
 
     public function receive(Request $request, WhatsAppConfiguration $configuration)
     {
-        $c = $configuration->resolve();
         $raw = $request->getContent();
         abort_if(strlen($raw) > 1048576, 413);
-        abort_unless(filled($c['app_secret']) && hash_equals('sha256='.hash_hmac('sha256', $raw, $c['app_secret']), (string) $request->header('X-Hub-Signature-256')), 403);
+        $signature = (string) $request->header('X-Hub-Signature-256');
+        $matched = false;
+        foreach ($this->allConfigs($configuration) as $c) {
+            if (filled($c['app_secret'] ?? null) && hash_equals('sha256='.hash_hmac('sha256', $raw, (string) $c['app_secret']), $signature)) {
+                $matched = true;
+                break;
+            }
+        }
+        abort_unless($matched, 403);
         $payload = json_decode($raw, true, flags: JSON_THROW_ON_ERROR);
         foreach (($payload['entry'] ?? []) as $entry) {
             foreach (($entry['changes'] ?? []) as $change) {
