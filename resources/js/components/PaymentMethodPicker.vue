@@ -30,7 +30,11 @@ const emit = defineEmits<{ 'update:modelValue': [string] }>();
                 :disabled="disabled"
                 @click="emit('update:modelValue', item.code)"
             >
-                <span class="pm-icon" :style="{ background: item.bg, color: item.fg }" aria-hidden="true">{{ item.glyph }}</span>
+                <span class="pm-icon" :style="{ background: item.bg, color: item.fg }" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" class="pm-svg" focusable="false">
+                        <path :d="item.svgPath" fill="currentColor" />
+                    </svg>
+                </span>
                 <span class="pm-name">{{ item.label }}</span>
             </button>
         </div>
@@ -66,14 +70,13 @@ const emit = defineEmits<{ 'update:modelValue': [string] }>();
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 24px;
-    height: 24px;
+    width: 26px;
+    height: 26px;
     border-radius: 7px;
-    font-size: 12.5px;
-    font-weight: 800;
     flex-shrink: 0;
-    line-height: 1;
+    padding: 4px;
 }
+.pm-svg { width: 100%; height: 100%; display: block; }
 .pm-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 520px) {
     .pm-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
