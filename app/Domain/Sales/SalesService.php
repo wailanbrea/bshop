@@ -309,12 +309,91 @@ final class SalesService
                 $this->deliver($order, $warehouse, $variants, $balances, $actor, $key, isset($data['item_id']) ? (int) $data['item_id'] : null, $data['quantity'] ?? null);
             } elseif ($action === 'reopen') {
                 abort_unless($invoice, 409, 'Este pedido no tiene una factura activa para devolver a apartados.');
-                abort_if($order->status === 'fulfilled', 409, 'Este pedido ya fue entregado y no puede devolverse a apartados.');
+                abort_if($order->shipped_at !== null, 409, 'Este pedido ya fue marcado como enviado y no puede devolverse a apartados.');
                 abort_if($invoice->weekly_account_id !== null, 409, 'Este pedido pertenece a una cuenta semanal cerrada y no se puede reabrir.');
                 abort_if(DB::table('sales_returns')->where('invoice_id', $invoice->id)->exists(), 409, 'La factura tiene devoluciones registradas y no se puede reabrir.');
                 abort_if(DB::table('refunds')->where('invoice_id', $invoice->id)->exists(), 409, 'La factura tiene reembolsos registrados y no se puede reabrir.');
                 abort_if(DB::table('credit_applications')->where('invoice_id', $invoice->id)->exists(), 409, 'La factura tiene créditos aplicados y no se puede reabrir.');
                 abort_if(DB::table('commission_entries')->where('invoice_id', $invoice->id)->exists(), 409, 'La factura ya tiene comisiones liquidadas y no se puede reabrir.');
+
+                // If stock was fulfilled upon invoicing (or direct sale), restore quantities back to active reservations
+                $orderItems = $order->items()->orderBy('id')->get();
+                $orderItemIds = $orderItems->pluck('id')->all();
+                if ($orderItemIds !== []) {
+                    $existingRes = DB::table('stock_reservations')
+                        ->whereIn('order_item_id', $orderItemIds)
+                        ->orderBy('id')
+                        ->lockForUpdate()
+                        ->get()
+                        ->keyBy('order_item_id');
+
+                    foreach ($orderItems as $oi) {
+                        $res = $existingRes->get($oi->id);
+                        if ($res) {
+                            $fulfilledQty = bcadd((string) $res->fulfilled_quantity, '0', 4);
+                            if (bccomp($fulfilledQty, '0', 4) > 0 && isset($balances[$res->variant_id])) {
+                                $recorded = $this->ledger->record(
+                                    $warehouse,
+                                    (int) $res->variant_id,
+                                    $balances[$res->variant_id],
+                                    $fulfilledQty,
+                                    $fulfilledQty,
+                                    'customer_return',
+                                    'reopen:'.$key.':'.$res->id,
+                                    'Reapertura a apartado pedido #'.$order->id,
+                                    $actor,
+                                    (int) $res->id,
+                                    null,
+                                    null,
+                                    (int) $res->order_item_id,
+                                );
+                                $balances[$res->variant_id]->on_hand = $recorded['on_hand_after'];
+                                $balances[$res->variant_id]->reserved = $recorded['reserved_after'];
+                                $balances[$res->variant_id]->version = $recorded['balance_version'];
+                                DB::table('stock_reservations')->where('id', $res->id)->update([
+                                    'fulfilled_quantity' => '0.0000',
+                                    'status' => 'active',
+                                    'updated_at' => now(),
+                                ]);
+                            }
+                        } elseif ($order->status === 'fulfilled' && isset($balances[$oi->variant_id])) {
+                            $variant = $variants->get($oi->variant_id);
+                            if ($variant && $variant->product && $variant->product->track_stock) {
+                                $qty = bcadd((string) $oi->quantity, '0', 4);
+                                $newResId = DB::table('stock_reservations')->insertGetId([
+                                    'store_id' => $order->store_id,
+                                    'warehouse_id' => $warehouse->id,
+                                    'order_item_id' => $oi->id,
+                                    'variant_id' => $oi->variant_id,
+                                    'quantity' => $qty,
+                                    'fulfilled_quantity' => '0.0000',
+                                    'released_quantity' => '0.0000',
+                                    'status' => 'active',
+                                    'created_at' => now(),
+                                    'updated_at' => now(),
+                                ]);
+                                $recorded = $this->ledger->record(
+                                    $warehouse,
+                                    (int) $oi->variant_id,
+                                    $balances[$oi->variant_id],
+                                    $qty,
+                                    $qty,
+                                    'customer_return',
+                                    'reopen:'.$key.':item:'.$oi->id,
+                                    'Reapertura a apartado pedido #'.$order->id,
+                                    $actor,
+                                    (int) $newResId,
+                                    null,
+                                    null,
+                                    (int) $oi->id,
+                                );
+                                $balances[$oi->variant_id]->on_hand = $recorded['on_hand_after'];
+                                $balances[$oi->variant_id]->reserved = $recorded['reserved_after'];
+                                $balances[$oi->variant_id]->version = $recorded['balance_version'];
+                            }
+                        }
+                    }
+                }
 
                 $oldInvoiceMeta = [
                     'invoice_id' => (int) $invoice->id,
@@ -344,6 +423,7 @@ final class SalesService
                 DB::table('invoices')->where('id', $invoice->id)->delete();
 
                 $order->closed_at = null;
+                $order->fulfilled_at = null;
                 $order->status = 'reserved';
                 $order->order_kind = 'reservation';
 
