@@ -258,8 +258,8 @@ final class SalesService
 
     public function change(StoreContext $context, int $orderId, string $action, array $input, User $actor): array
     {
-        abort_unless(in_array($action, ['cancel', 'invoice', 'deliver', 'payment', 'remove', 'seller'], true), 404);
-        $data = Validator::make($input, ['request_key' => ['required', 'uuid'], 'version' => ['required', 'integer', 'min:0'], 'amount' => ['sometimes', new DecimalAmount], 'payment_method' => ['sometimes', 'string', 'max:30', \App\Domain\Payments\PaymentMethodCatalog::validationRule($context->store()->id)], 'item_id' => ['sometimes', 'integer', 'min:1'], 'quantity' => ['sometimes', new DecimalAmount], 'deliver_now' => ['sometimes', 'boolean'], 'seller_employee_id' => ['nullable', 'integer', 'min:1']])->validate();
+        abort_unless(in_array($action, ['cancel', 'invoice', 'deliver', 'payment', 'remove', 'seller', 'reopen'], true), 404);
+        $data = Validator::make($input, ['request_key' => ['required', 'uuid'], 'version' => ['required', 'integer', 'min:0'], 'amount' => ['sometimes', new DecimalAmount], 'payment_method' => ['sometimes', 'string', 'max:30', \App\Domain\Payments\PaymentMethodCatalog::validationRule($context->store()->id)], 'item_id' => ['sometimes', 'integer', 'min:1'], 'quantity' => ['sometimes', new DecimalAmount], 'deliver_now' => ['sometimes', 'boolean'], 'seller_employee_id' => ['nullable', 'integer', 'min:1'], 'reason' => ['nullable', 'string', 'max:255']])->validate();
         if ($action === 'payment') {
             if (! isset($data['amount'], $data['payment_method'])) {
                 throw ValidationException::withMessages(['amount' => 'Indica el abono y su método.']);
@@ -307,6 +307,63 @@ final class SalesService
             } elseif ($action === 'deliver') {
                 abort_if($order->status === 'fulfilled', 409, 'El pedido ya está entregado.');
                 $this->deliver($order, $warehouse, $variants, $balances, $actor, $key, isset($data['item_id']) ? (int) $data['item_id'] : null, $data['quantity'] ?? null);
+            } elseif ($action === 'reopen') {
+                abort_unless($invoice, 409, 'Este pedido no tiene una factura activa para devolver a apartados.');
+                abort_if($order->status === 'fulfilled', 409, 'Este pedido ya fue entregado y no puede devolverse a apartados.');
+                abort_if($invoice->weekly_account_id !== null, 409, 'Este pedido pertenece a una cuenta semanal cerrada y no se puede reabrir.');
+                abort_if(DB::table('sales_returns')->where('invoice_id', $invoice->id)->exists(), 409, 'La factura tiene devoluciones registradas y no se puede reabrir.');
+                abort_if(DB::table('refunds')->where('invoice_id', $invoice->id)->exists(), 409, 'La factura tiene reembolsos registrados y no se puede reabrir.');
+                abort_if(DB::table('credit_applications')->where('invoice_id', $invoice->id)->exists(), 409, 'La factura tiene créditos aplicados y no se puede reabrir.');
+                abort_if(DB::table('commission_entries')->where('invoice_id', $invoice->id)->exists(), 409, 'La factura ya tiene comisiones liquidadas y no se puede reabrir.');
+
+                $oldInvoiceMeta = [
+                    'invoice_id' => (int) $invoice->id,
+                    'invoice_number' => $invoice->invoice_number,
+                    'grand_total' => (string) $invoice->grand_total,
+                    'status' => $order->status,
+                ];
+                $pdfKeys = DB::table('invoice_documents')
+                    ->where('invoice_id', $invoice->id)
+                    ->whereNotNull('object_key')
+                    ->pluck('object_key')
+                    ->all();
+
+                $allocationIds = DB::table('payment_allocations')
+                    ->where('invoice_id', $invoice->id)
+                    ->pluck('id')
+                    ->all();
+
+                DB::table('invoice_deliveries')->where('invoice_id', $invoice->id)->delete();
+                if ($allocationIds !== []) {
+                    DB::table('customer_credit_movements')->whereIn('payment_allocation_id', $allocationIds)->delete();
+                }
+                DB::table('payment_allocations')->where('invoice_id', $invoice->id)->delete();
+                DB::table('invoice_documents')->where('invoice_id', $invoice->id)->delete();
+                DB::table('invoice_items')->where('invoice_id', $invoice->id)->delete();
+                DB::table('invoice_orders')->where('invoice_id', $invoice->id)->delete();
+                DB::table('invoices')->where('id', $invoice->id)->delete();
+
+                $order->closed_at = null;
+                $order->status = 'reserved';
+                $order->order_kind = 'reservation';
+
+                $reason = isset($data['reason']) ? trim((string) $data['reason']) : null;
+                $this->audit->record('sales.order.reopened', $order, before: $oldInvoiceMeta, after: [
+                    'status' => 'reserved',
+                    'closed_at' => null,
+                    'reason' => $reason ?: 'Reapertura para agregar artículos',
+                ], actor: $actor);
+
+                if ($pdfKeys !== []) {
+                    DB::afterCommit(function () use ($pdfKeys) {
+                        $disk = \Illuminate\Support\Facades\Storage::disk('private_invoices');
+                        foreach ($pdfKeys as $pdfKey) {
+                            if ($disk->exists($pdfKey)) {
+                                $disk->delete($pdfKey);
+                            }
+                        }
+                    });
+                }
             } elseif ($action === 'seller') {
                 abort_if($invoice || $order->closed_at, 409, 'El pedido ya está cerrado o facturado; su atribución histórica no se puede modificar.');
                 $sellerId = $data['seller_employee_id'] ?? null;

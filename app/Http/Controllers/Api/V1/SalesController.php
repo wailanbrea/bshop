@@ -23,7 +23,7 @@ class SalesController extends Controller
 {
     public function requestStatus(Request $request, StoreContext $context, SalesService $service)
     {
-        $data = $request->validate(['action' => ['nullable', 'in:create,invoice,payment,deliver,cancel,remove']]);
+        $data = $request->validate(['action' => ['nullable', 'in:create,invoice,payment,deliver,cancel,remove,reopen']]);
         $record = DB::table('idempotency_requests')->where('operation', 'sales.'.($data['action'] ?? 'create'))->where('request_key', $request->route('key'))->where('status', 'completed')->firstOrFail();
         $result = json_decode($record->response_data, true, flags: JSON_THROW_ON_ERROR);
         abort_unless(($result['_identity'][0] ?? null) === $request->user()->id && ($result['_identity'][1] ?? null) === $context->store()->id, 404);

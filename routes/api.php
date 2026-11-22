@@ -207,7 +207,7 @@ Route::middleware(['auth:sanctum', 'active', 'auth.session'])->group(function ()
                 Route::post('sales/quote', [SalesController::class, 'quote']);
                 Route::post('sales/orders', [SalesController::class, 'create'])->middleware('throttle:30,1');
             });
-            Route::post('sales/orders/{order}/{action}', [SalesController::class, 'change'])->whereNumber('order')->where('action', 'cancel|invoice|deliver|payment|remove|seller')->middleware('throttle:60,1');
+            Route::post('sales/orders/{order}/{action}', [SalesController::class, 'change'])->whereNumber('order')->where('action', 'cancel|invoice|deliver|payment|remove|seller|reopen')->middleware('throttle:60,1');
             Route::middleware('can:inventory.view')->group(function () {
                 Route::get('warehouses/{warehouse}/reconciliation', [InventoryController::class, 'reconciliation'])->whereNumber('warehouse')->middleware('throttle:20,1');
                 Route::get('warehouses/{warehouse}/stock', [InventoryController::class, 'index'])->whereNumber('warehouse');

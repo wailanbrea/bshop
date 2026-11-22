@@ -68,6 +68,7 @@ const number = ref('');
 const amount = ref('');
 const paymentMethod = ref('cash');
 const deliverNow = ref(false);
+const reopenReason = ref('');
 const contact = ref({ full_name: '', phone: '', email: '', address: '', notes: '', version: 0 });
 const filters = [
     ['without_deposit', 'Sin depósito'],
@@ -298,6 +299,7 @@ function dialog(kind: string) {
         amount.value = '';
     }
     deliverNow.value = false;
+    reopenReason.value = '';
     const c = selected.value.customer_live || selected.value.customer_snapshot;
     contact.value = {
         full_name: c.full_name,
@@ -390,6 +392,7 @@ async function confirm() {
         version: selected.value.lock_version,
         ...(kind === 'payment' ? { amount: amount.value, payment_method: paymentMethod.value } : {}),
         ...(kind === 'close' ? { deliver_now: deliverNow.value } : {}),
+        ...(kind === 'reopen' && reopenReason.value.trim() ? { reason: reopenReason.value.trim() } : {}),
     };
     const ok = await commit({
         path,
@@ -399,6 +402,10 @@ async function confirm() {
         payload: data,
     });
     if (ok && kind === 'close' && whatsapp.value.ready) await send();
+    if (ok && kind === 'reopen') {
+        filter.value = 'open';
+        notice.value = 'Pedido devuelto a apartados. Ya puedes agregar más artículos y volver a facturar.';
+    }
 }
 async function create() {
     if (!newCustomer.value || !warehouse.value) return;
@@ -643,6 +650,7 @@ onUnmounted(() => {
                     number: 'Cambiar número de apartado',
                     payment: 'Registrar depósito',
                     close: 'Cerrar pedido y generar factura',
+                    reopen: 'Devolver pedido a apartados',
                     cancel: 'Cancelar apartado',
                     deliver: 'Registrar entrega',
                     dispatch: 'Marcar mercancía enviada',
@@ -697,6 +705,25 @@ onUnmounted(() => {
                 </p>
                 <p v-if="modal === 'deliver'">Se entregará todo lo reservado pendiente, sin descontarlo dos veces.</p>
                 <p v-if="modal === 'dispatch'">Confirma que la mercancía ya fue enviada o entregada a la clienta.</p>
+                <template v-if="modal === 'reopen'">
+                    <p>
+                        Este pedido saldrá de <strong>Facturados</strong> y volverá a <strong>Apartados</strong> para
+                        que puedas agregar o ajustar artículos y volver a facturar.
+                    </p>
+                    <p class="muted">
+                        Todos los abonos y reservas de inventario se conservan intactos. Quedará registrado en la
+                        auditoría del pedido.
+                    </p>
+                    <label>
+                        Motivo de reapertura (opcional)
+                        <input
+                            v-model="reopenReason"
+                            type="text"
+                            maxlength="255"
+                            placeholder="Ej. Clienta solicitó agregar más artículos"
+                        />
+                    </label>
+                </template>
             </fieldset>
         </form>
         <template #footer

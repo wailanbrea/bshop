@@ -353,6 +353,14 @@ onUnmounted(() => {
                         : 'Enviar factura por WhatsApp'
                 }}</button
             ><button
+                v-if="order.invoice && !['cancelled', 'fulfilled'].includes(order.status) && !order.return_pending && permissions.includes('sales.create')"
+                type="button"
+                class="button secondary"
+                :disabled="busy"
+                @click="emit('action', 'reopen')"
+            >
+                Devolver a apartados</button
+            ><button
                 v-if="['reserved', 'confirmed'].includes(order.status) && permissions.includes('sales.create')"
                 type="button"
                 class="button secondary"
