@@ -20,6 +20,7 @@ use App\Http\Controllers\Api\V1\OrderRequestLinkController;
 use App\Http\Controllers\Api\V1\OrderViewLinkController;
 use App\Http\Controllers\Api\V1\PaymentMethodSettingsController;
 use App\Http\Controllers\Api\V1\PaymentReversalController;
+use App\Http\Controllers\Api\V1\ProductBuyersController;
 use App\Http\Controllers\Api\V1\ReceivablesController;
 use App\Http\Controllers\Api\V1\ReservationSettingsController;
 use App\Http\Controllers\Api\V1\ReturnSettlementController;
@@ -110,6 +111,8 @@ Route::middleware(['auth:sanctum', 'active', 'auth.session'])->group(function ()
             Route::post('payment-methods/custom', [PaymentMethodSettingsController::class, 'storeCustom'])->middleware('can:business.manage');
             Route::patch('payment-methods/custom/{method}', [PaymentMethodSettingsController::class, 'updateCustom'])->whereNumber('method')->middleware('can:business.manage');
             Route::delete('payment-methods/custom/{method}', [PaymentMethodSettingsController::class, 'destroyCustom'])->whereNumber('method')->middleware('can:business.manage');
+            Route::get('products/buyers/search', [ProductBuyersController::class, 'searchProducts'])->middleware(['can:sales.view', 'can:customers.view']);
+            Route::get('products/{product}/buyers', [ProductBuyersController::class, 'buyers'])->whereNumber('product')->middleware(['can:sales.view', 'can:customers.view']);
             Route::get('employees', [EmployeeController::class, 'index'])->middleware('can:members.manage');
             Route::get('employees/export', [EmployeeController::class, 'export'])->middleware('can:members.manage');
             Route::post('employees', [EmployeeController::class, 'create'])->middleware('can:members.manage');

@@ -11,6 +11,7 @@ import VariantEditor from './VariantEditor.vue';
 import CatalogOptionsManager from './CatalogOptionsManager.vue';
 import CatalogImportView from './CatalogImportView.vue';
 import ProductGallery from './ProductGallery.vue';
+import ProductBuyersModal from './ProductBuyersModal.vue';
 import AppDialog from './AppDialog.vue';
 import { forgetPhotos, photoRecoveries } from '../lib/productPhotoRecovery';
 
@@ -23,6 +24,7 @@ const query = ref(''); const category = ref<number | ''>(''); const brand = ref<
 const loading = ref(true); const error = ref(''); const notice = ref(''); const organizing = ref(false);
 const importing = ref(false);
 const filtersOpen = ref(false);
+const buyersOpen = ref(false);
 const photosOpen = ref(false); const photoOpener = ref<HTMLElement | null>(null);
 const photoReminders=ref(photoRecoveries(props.actorId));
 function refreshPhotoReminders(){photoReminders.value=photoRecoveries(props.actorId);}
@@ -316,9 +318,17 @@ onUnmounted(() => { ++request; ++detailRequest; controller?.abort(); clearTimeou
                                 <span class="eyebrow">{{ selected.category?.name || 'SIN CATEGORÍA' }} <span v-if="selected.brand">· {{ selected.brand.name }}</span></span>
                                 <h2>{{ selected.name }}</h2>
                             </div>
-                            <div v-if="manage" class="detail-actions">
-                                <button type="button" class="button secondary" @click="editProduct(selected, $event)">Editar producto</button>
-                                <button type="button" class="button danger-outline" @click="askDeleteProduct(selected, $event)">Eliminar</button>
+                            <div class="detail-actions">
+                                <button
+                                    v-if="store && permissions.includes('sales.view') && permissions.includes('customers.view')"
+                                    type="button"
+                                    class="button secondary"
+                                    @click="buyersOpen = true"
+                                >
+                                    Ver compradores
+                                </button>
+                                <button v-if="manage" type="button" class="button secondary" @click="editProduct(selected, $event)">Editar producto</button>
+                                <button v-if="manage" type="button" class="button danger-outline" @click="askDeleteProduct(selected, $event)">Eliminar</button>
                             </div>
                         </div>
                         <p v-if="selected.description" class="muted">{{ selected.description }}</p>
@@ -500,6 +510,14 @@ onUnmounted(() => { ++request; ++detailRequest; controller?.abort(); clearTimeou
             >{{ deleteBusy ? 'Eliminando…' : 'Confirmar eliminación definitiva' }}</button>
         </template>
     </AppDialog>
+    <ProductBuyersModal
+        v-if="store && selected"
+        :open="buyersOpen"
+        :store-id="store.id"
+        :initial-product="{ id: selected.id, name: selected.name }"
+        :currency="business.default_currency"
+        @close="buyersOpen = false"
+    />
 </template>
 
 <style scoped>
