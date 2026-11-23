@@ -108,14 +108,48 @@ async function save() {
                     encabezado de documento PDF y las variables configuradas.
                 </p>
                 <label
-                    >Token de acceso {{ status?.has_access_token ? '(guardado; dejar vacío para conservar)' : ''
-                    }}<input v-model="form.access_token" type="password" autocomplete="new-password" /></label
+                    ><span class="wa-secret-head"
+                        ><span>Token de acceso</span>
+                        <span v-if="status?.has_access_token" class="badge wa-secret-saved">✓ Guardado (oculto)</span>
+                        <span v-else class="badge inactive">Sin configurar</span></span
+                    ><input
+                        v-model="form.access_token"
+                        type="password"
+                        :placeholder="
+                            status?.has_access_token
+                                ? '•••••••••••••••••••••••••••• (guardado · dejar vacío para conservar)'
+                                : 'Pega aquí el token permanente de Meta'
+                        "
+                        autocomplete="new-password" /></label
                 ><label
-                    >App Secret {{ status?.has_app_secret ? '(guardado)' : ''
-                    }}<input v-model="form.app_secret" type="password" autocomplete="new-password" /></label
+                    ><span class="wa-secret-head"
+                        ><span>App Secret</span>
+                        <span v-if="status?.has_app_secret" class="badge wa-secret-saved">✓ Guardado (oculto)</span>
+                        <span v-else class="badge inactive">Sin configurar</span></span
+                    ><input
+                        v-model="form.app_secret"
+                        type="password"
+                        :placeholder="
+                            status?.has_app_secret
+                                ? '•••••••••••••••••••••••••••• (guardado · dejar vacío para conservar)'
+                                : 'Pega aquí el App Secret de Meta'
+                        "
+                        autocomplete="new-password" /></label
                 ><label
-                    >Token de verificación de webhook {{ status?.has_verify_token ? '(guardado)' : ''
-                    }}<input v-model="form.verify_token" type="password" minlength="16" autocomplete="new-password"
+                    ><span class="wa-secret-head"
+                        ><span>Token de verificación de webhook</span>
+                        <span v-if="status?.has_verify_token" class="badge wa-secret-saved">✓ Guardado (oculto)</span>
+                        <span v-else class="badge inactive">Sin configurar</span></span
+                    ><input
+                        v-model="form.verify_token"
+                        type="password"
+                        minlength="16"
+                        :placeholder="
+                            status?.has_verify_token
+                                ? '•••••••••••••••••••••••••••• (guardado · dejar vacío para conservar)'
+                                : 'Mínimo 16 caracteres (ej. keyla_wh_2026_seguro_01)'
+                        "
+                        autocomplete="new-password"
                 /></label>
                 <p v-if="status?.webhook_url" class="muted">Webhook: {{ status.webhook_url }}</p>
                 <p class="muted">
@@ -127,3 +161,18 @@ async function save() {
         </form>
     </section>
 </template>
+<style scoped>
+.wa-secret-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+.wa-secret-saved {
+    background: #dcfce7;
+    color: #166534;
+    border: 1px solid #86efac;
+    white-space: nowrap;
+}
+</style>
