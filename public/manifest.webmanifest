@@ -1,14 +1,19 @@
 {
-  "id": "/app/",
+  "id": "/",
   "name": "KeylaShop · Gestión de tienda",
   "short_name": "KeylaShop",
-  "description": "Gestión de la tienda y sus sucursales.",
-  "start_url": "/app/",
+  "description": "Gestión de tienda, inventario, apartados y facturación.",
+  "lang": "es",
+  "start_url": "/",
   "scope": "/",
   "display": "standalone",
+  "orientation": "any",
   "background_color": "#f7f5fc",
   "theme_color": "#17152c",
   "icons": [
+    { "src": "/pwa-192x192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/pwa-512x512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/pwa-maskable-512x512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
     { "src": "/pwa-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
   ]
 }
