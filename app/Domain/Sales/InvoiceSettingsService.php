@@ -158,85 +158,177 @@ final class InvoiceSettingsService
     /**
      * Resolves local PNG data URIs keyed by invoice_item id (or index fallback) for DomPDF.
      *
+     * Priority:
+     *  1. Exact historical `order_items.image_url_snapshot` (100% parity with Apartados UI).
+     *  2. `VariantPhoto` resolution (exact variant -> sibling variant with same color -> product primary).
+     *  3. Unattached product image (`variant_id IS NULL`) fallback, never another variant's photo.
+     *
      * @param  iterable<int, object>  $items
      * @return array<int|string, string>
      */
     public function productImagesForInvoice(iterable $items, int $storeId): array
     {
+        $itemsList = [];
+        $orderItemIds = [];
         $variantIds = [];
-        foreach ($items as $item) {
+
+        foreach ($items as $idx => $item) {
+            $itemsList[$idx] = $item;
+            if (! empty($item->order_item_id)) {
+                $orderItemIds[] = (int) $item->order_item_id;
+            }
             if (! empty($item->variant_id)) {
                 $variantIds[] = (int) $item->variant_id;
             }
         }
-        $variantIds = array_values(array_unique($variantIds));
-        if ($variantIds === []) {
+
+        if ($itemsList === []) {
             return [];
-        }
-
-        // Map variant_id -> product_id (scoped to store)
-        $variantProducts = DB::table('product_variants as pv')
-            ->join('products as p', 'p.id', '=', 'pv.product_id')
-            ->whereIn('pv.id', $variantIds)
-            ->where('p.store_id', $storeId)
-            ->pluck('p.id', 'pv.id')
-            ->all();
-
-        if ($variantProducts === []) {
-            return [];
-        }
-
-        $productIds = array_values(array_unique(array_map('intval', array_values($variantProducts))));
-
-        $imageRows = DB::table('product_images as pi')
-            ->join('media_assets as ma', 'ma.id', '=', 'pi.media_asset_id')
-            ->join('media_renditions as mr', function ($join) {
-                $join->on('mr.media_asset_id', '=', 'ma.id')
-                    ->where('mr.rendition', '=', 'thumb');
-            })
-            ->whereIn('pi.product_id', $productIds)
-            ->whereNull('pi.deleted_at')
-            ->where('ma.status', 'ready')
-            ->orderByDesc('pi.is_primary')
-            ->orderBy('pi.sort_order')
-            ->orderBy('pi.id')
-            ->select('pi.product_id', 'pi.variant_id', 'mr.provider', 'mr.object_key')
-            ->get();
-
-        $byVariant = [];
-        $byProduct = [];
-        foreach ($imageRows as $row) {
-            if ($row->variant_id && ! isset($byVariant[(int) $row->variant_id])) {
-                $byVariant[(int) $row->variant_id] = $row;
-            }
-            if (! isset($byProduct[(int) $row->product_id])) {
-                $byProduct[(int) $row->product_id] = $row;
-            }
         }
 
         $cache = [];
         $result = [];
-        foreach ($items as $item) {
+
+        // 1) Resolve from order_items.image_url_snapshot so PDF matches Apartados pixel-for-pixel
+        $snapshotAssetByOrderItem = [];
+        if ($orderItemIds !== [] && Schema::hasTable('order_items')) {
+            $snapshots = DB::table('order_items')
+                ->whereIn('id', array_values(array_unique($orderItemIds)))
+                ->where('store_id', $storeId)
+                ->whereNotNull('image_url_snapshot')
+                ->pluck('image_url_snapshot', 'id')
+                ->all();
+
+            foreach ($snapshots as $orderItemId => $snapUrl) {
+                $assetId = $this->extractCatalogAssetId((string) $snapUrl);
+                if ($assetId !== null) {
+                    $snapshotAssetByOrderItem[(int) $orderItemId] = $assetId;
+                }
+            }
+        }
+
+        $renditionsByAsset = [];
+        if ($snapshotAssetByOrderItem !== [] && Schema::hasTable('media_renditions')) {
+            $renditionRows = DB::table('media_renditions')
+                ->whereIn('media_asset_id', array_values(array_unique(array_values($snapshotAssetByOrderItem))))
+                ->where('rendition', 'thumb')
+                ->where('provider', 'local')
+                ->get(['media_asset_id', 'provider', 'object_key']);
+
+            foreach ($renditionRows as $rRow) {
+                $renditionsByAsset[(int) $rRow->media_asset_id] = $rRow;
+            }
+        }
+
+        $unresolvedIndexes = [];
+        foreach ($itemsList as $idx => $item) {
+            $key = $item->id ?? ($item->variant_id ?? $idx);
+            $oid = (int) ($item->order_item_id ?? 0);
+            $assetId = $oid > 0 ? ($snapshotAssetByOrderItem[$oid] ?? null) : null;
+            $rendition = $assetId !== null ? ($renditionsByAsset[$assetId] ?? null) : null;
+
+            if ($rendition) {
+                $objectKey = (string) $rendition->object_key;
+                if (! array_key_exists($objectKey, $cache)) {
+                    $cache[$objectKey] = $this->readRenditionAsPngDataUri((string) $rendition->provider, $objectKey, 96);
+                }
+                if ($cache[$objectKey] !== null) {
+                    $result[$key] = $cache[$objectKey];
+
+                    continue;
+                }
+            }
+
+            $unresolvedIndexes[] = $idx;
+        }
+
+        if ($unresolvedIndexes === [] || $variantIds === []) {
+            return $result;
+        }
+
+        // 2) Fallback: exact VariantPhoto logic (exact variant -> same color variant -> product primary)
+        $fallbackVariantIds = [];
+        foreach ($unresolvedIndexes as $idx) {
+            $vid = (int) ($itemsList[$idx]->variant_id ?? 0);
+            if ($vid > 0) {
+                $fallbackVariantIds[] = $vid;
+            }
+        }
+        $fallbackVariantIds = array_values(array_unique($fallbackVariantIds));
+        if ($fallbackVariantIds === []) {
+            return $result;
+        }
+
+        $variants = \App\Models\ProductVariant::withTrashed()
+            ->with([
+                'product' => fn ($q) => $q->withTrashed()
+                    ->where('store_id', $storeId)
+                    ->with([
+                        'images' => fn ($iq) => $iq->orderByDesc('is_primary')->orderBy('sort_order')->orderBy('id'),
+                        'images.asset.renditions',
+                        'variants' => fn ($vq) => $vq->withTrashed()->with('attributeValues.attribute'),
+                    ]),
+                'attributeValues.attribute',
+            ])
+            ->whereIn('id', $fallbackVariantIds)
+            ->get()
+            ->keyBy('id');
+
+        $variantPhoto = app(\App\Domain\Media\VariantPhoto::class);
+
+        foreach ($unresolvedIndexes as $idx) {
+            $item = $itemsList[$idx];
             $vid = (int) ($item->variant_id ?? 0);
-            if ($vid <= 0 || ! isset($variantProducts[$vid])) {
+            $variant = $vid > 0 ? $variants->get($vid) : null;
+            $product = $variant?->product;
+            if (! $variant || ! $product) {
                 continue;
             }
-            $pid = (int) $variantProducts[$vid];
-            $chosen = $byVariant[$vid] ?? $byProduct[$pid] ?? null;
-            if (! $chosen) {
+
+            $chosenRendition = null;
+            $photoUrl = $variantPhoto->url($product, $variant, 'thumb');
+            $assetId = $photoUrl ? $this->extractCatalogAssetId($photoUrl) : null;
+            if ($assetId !== null) {
+                $chosenRendition = DB::table('media_renditions')
+                    ->where('media_asset_id', $assetId)
+                    ->where('rendition', 'thumb')
+                    ->where('provider', 'local')
+                    ->first(['provider', 'object_key']);
+            }
+
+            // Generic product-level fallback ONLY if image is not bound to a different variant
+            if (! $chosenRendition) {
+                $genericImg = $product->images->first(fn ($img) => $img->variant_id === null && $img->asset?->status === 'ready');
+                $rend = $genericImg?->asset?->renditions?->firstWhere('rendition', 'thumb');
+                if ($rend && $rend->provider === 'local') {
+                    $chosenRendition = (object) ['provider' => $rend->provider, 'object_key' => $rend->object_key];
+                }
+            }
+
+            if (! $chosenRendition) {
                 continue;
             }
-            $objectKey = (string) $chosen->object_key;
-            if (! isset($cache[$objectKey])) {
-                $cache[$objectKey] = $this->readRenditionAsPngDataUri((string) $chosen->provider, $objectKey, 96);
+
+            $objectKey = (string) $chosenRendition->object_key;
+            if (! array_key_exists($objectKey, $cache)) {
+                $cache[$objectKey] = $this->readRenditionAsPngDataUri((string) $chosenRendition->provider, $objectKey, 96);
             }
             if ($cache[$objectKey] !== null) {
-                $key = $item->id ?? $vid;
+                $key = $item->id ?? ($vid ?: $idx);
                 $result[$key] = $cache[$objectKey];
             }
         }
 
         return $result;
+    }
+
+    private function extractCatalogAssetId(string $url): ?int
+    {
+        if (preg_match('#/media/catalog/([1-9][0-9]*)/(?:thumb|card|detail)/[a-f0-9]{64}\.webp(?:\?.*)?$#i', trim($url), $m)) {
+            return (int) $m[1];
+        }
+
+        return null;
     }
 
     public function sampleProductImageDataUri(int $storeId): ?string

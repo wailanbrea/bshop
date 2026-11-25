@@ -402,5 +402,6 @@ onUnmounted(() => {
 .basket-paid-pill { display: inline-flex; align-items: center; padding: 8px 14px; border-radius: 999px; background: #dcfce7; color: #166534; font-weight: 750; font-size: 13px; white-space: nowrap; }
 @media (max-width: 600px) {
     .basket-add-bar .button, .basket-add-search { width: 100%; }
+    .basket-pay-full-btn { grid-column: 1 / -1; width: 100%; }
 }
 </style>
