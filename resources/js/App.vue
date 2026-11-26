@@ -151,12 +151,19 @@ function openWhatsAppConversation(conversationId?: number) {
 }
 async function openWhatsAppSettings() {
     navigate('settings');
-    for (let i = 0; i < 15; i++) {
-        await nextTick();
+    const scrollTarget = () => {
         const el = document.getElementById('whatsapp-app-secret-input') || document.getElementById('whatsapp-settings');
-        if (el) {
-            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            if (el instanceof HTMLInputElement) el.focus({ preventScroll: true });
+        if (!el) return false;
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        if (el instanceof HTMLInputElement) el.focus({ preventScroll: true });
+        return true;
+    };
+    for (let i = 0; i < 20; i++) {
+        await nextTick();
+        if (scrollTarget()) {
+            // Re-center after async panels above (PaymentMethodSettings / InvoiceSettings) finish loading & expanding
+            setTimeout(scrollTarget, 450);
+            setTimeout(scrollTarget, 1000);
             return;
         }
         await new Promise((r) => setTimeout(r, 120));
