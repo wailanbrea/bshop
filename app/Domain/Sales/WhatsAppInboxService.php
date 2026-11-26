@@ -447,6 +447,58 @@ final class WhatsAppInboxService
         ];
     }
 
+    public const CRM_STAGES = [
+        ['key' => 'new', 'label' => 'Nuevo lead', 'color' => '#6366f1'],
+        ['key' => 'quoting', 'label' => 'Cotizando', 'color' => '#0ea5e9'],
+        ['key' => 'reserved', 'label' => 'Apartado', 'color' => '#8b5cf6'],
+        ['key' => 'payment_pending', 'label' => 'Por pagar', 'color' => '#f59e0b'],
+        ['key' => 'closed_won', 'label' => 'Cerrado', 'color' => '#16a34a'],
+    ];
+
+    public const CRM_STAGE_KEYS = ['new', 'quoting', 'reserved', 'payment_pending', 'closed_won'];
+
+    private function ensureDefaultCrmSeeds(int $storeId): void
+    {
+        if (Schema::hasTable('whatsapp_tags') && ! DB::table('whatsapp_tags')->where('store_id', $storeId)->exists()) {
+            $now = now();
+            DB::table('whatsapp_tags')->insert([
+                ['store_id' => $storeId, 'name' => 'VIP', 'color' => '#d97706', 'created_at' => $now, 'updated_at' => $now],
+                ['store_id' => $storeId, 'name' => 'Mayorista', 'color' => '#2563eb', 'created_at' => $now, 'updated_at' => $now],
+                ['store_id' => $storeId, 'name' => 'Por despachar', 'color' => '#16a34a', 'created_at' => $now, 'updated_at' => $now],
+            ]);
+        }
+
+        if (Schema::hasTable('whatsapp_quick_replies') && ! DB::table('whatsapp_quick_replies')->where('store_id', $storeId)->exists()) {
+            $now = now();
+            DB::table('whatsapp_quick_replies')->insert([
+                [
+                    'store_id' => $storeId,
+                    'shortcut' => 'envio',
+                    'title' => 'Información de envío',
+                    'body' => 'Hacemos envíos rápidos y seguros. En cuanto confirmes tu dirección y el pago, coordinamos tu despacho enseguida 📦✨',
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ],
+                [
+                    'store_id' => $storeId,
+                    'shortcut' => 'zelle',
+                    'title' => 'Datos de pago Zelle',
+                    'body' => 'Puedes realizar tu abono o pago por Zelle y enviarnos la captura por aquí mismo para acreditarlo de inmediato a tu apartado 💳✅',
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ],
+                [
+                    'store_id' => $storeId,
+                    'shortcut' => 'horario',
+                    'title' => 'Horario de atención',
+                    'body' => 'Nuestro horario de atención es de lunes a sábado de 9:00 a. m. a 7:00 p. m. ¡Con gusto te ayudamos! 🛍️💜',
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ],
+            ]);
+        }
+    }
+
     public function listConversations(int $storeId, string $search = ''): array
     {
         if (! Schema::hasTable('whatsapp_conversations')) {
@@ -454,24 +506,40 @@ final class WhatsAppInboxService
                 'whatsapp_ready' => false,
                 'needs_app_secret' => true,
                 'conversations' => [],
+                'crm_stages' => self::CRM_STAGES,
+                'tags' => [],
+                'agents' => [],
+                'quick_replies' => [],
             ];
         }
 
+        $this->ensureDefaultCrmSeeds($storeId);
+        $hasCrmCols = Schema::hasColumn('whatsapp_conversations', 'crm_stage');
+
+        $select = [
+            'c.id',
+            'c.customer_id',
+            'c.wa_phone',
+            'c.contact_name',
+            'c.unread_count',
+            'c.last_inbound_at',
+            'c.last_message_at',
+            'c.last_message_preview',
+            'c.last_message_direction',
+            'cu.full_name as customer_name',
+        ];
         $q = DB::table('whatsapp_conversations as c')
-            ->leftJoin('customers as cu', 'cu.id', '=', 'c.customer_id')
-            ->where('c.store_id', $storeId)
-            ->select([
-                'c.id',
-                'c.customer_id',
-                'c.wa_phone',
-                'c.contact_name',
-                'c.unread_count',
-                'c.last_inbound_at',
-                'c.last_message_at',
-                'c.last_message_preview',
-                'c.last_message_direction',
-                'cu.full_name as customer_name',
-            ])
+            ->leftJoin('customers as cu', 'cu.id', '=', 'c.customer_id');
+
+        if ($hasCrmCols) {
+            $q->leftJoin('users as au', 'au.id', '=', 'c.assigned_user_id');
+            $select[] = 'c.assigned_user_id';
+            $select[] = 'c.crm_stage';
+            $select[] = 'au.name as assigned_user_name';
+        }
+
+        $q->where('c.store_id', $storeId)
+            ->select($select)
             ->orderByDesc('c.last_message_at')
             ->orderByDesc('c.id')
             ->limit(150);
@@ -487,14 +555,54 @@ final class WhatsAppInboxService
             });
         }
 
+        $rawRows = $q->get();
+        $convIds = $rawRows->pluck('id')->all();
+        $custIds = $rawRows->pluck('customer_id')->filter()->unique()->values()->all();
+
+        $tagsByConv = [];
+        if ($convIds && Schema::hasTable('whatsapp_conversation_tags') && Schema::hasTable('whatsapp_tags')) {
+            $tagRows = DB::table('whatsapp_conversation_tags as ct')
+                ->join('whatsapp_tags as t', 't.id', '=', 'ct.tag_id')
+                ->where('ct.store_id', $storeId)
+                ->whereIn('ct.conversation_id', $convIds)
+                ->orderBy('t.name')
+                ->get(['ct.conversation_id', 't.id', 't.name', 't.color']);
+            foreach ($tagRows as $tr) {
+                $tagsByConv[(int) $tr->conversation_id][] = [
+                    'id' => (int) $tr->id,
+                    'name' => $tr->name,
+                    'color' => $tr->color,
+                ];
+            }
+        }
+
+        $openTotalsByCust = [];
+        if ($custIds) {
+            $orderSums = DB::table('orders')
+                ->where('store_id', $storeId)
+                ->whereIn('customer_id', $custIds)
+                ->whereIn('status', ['draft', 'reserved', 'confirmed', 'invoiced'])
+                ->groupBy('customer_id')
+                ->selectRaw('customer_id, COALESCE(SUM(grand_total), 0) as total, COUNT(*) as cnt')
+                ->get();
+            foreach ($orderSums as $os) {
+                $openTotalsByCust[(int) $os->customer_id] = [
+                    'total' => bcadd((string) $os->total, '0', 2),
+                    'count' => (int) $os->cnt,
+                ];
+            }
+        }
+
         $now = CarbonImmutable::now('UTC');
-        $rows = $q->get()->map(function ($row) use ($now) {
+        $rows = $rawRows->map(function ($row) use ($now, $hasCrmCols, $tagsByConv, $openTotalsByCust) {
             $lastIn = $row->last_inbound_at ? CarbonImmutable::parse($row->last_inbound_at, 'UTC') : null;
             $windowOpen = $lastIn !== null && $lastIn->greaterThan($now->subHours(24));
+            $cid = $row->customer_id ? (int) $row->customer_id : null;
+            $orderMeta = $cid ? ($openTotalsByCust[$cid] ?? null) : null;
 
             return [
                 'id' => (int) $row->id,
-                'customer_id' => $row->customer_id ? (int) $row->customer_id : null,
+                'customer_id' => $cid,
                 'display_name' => $row->customer_name ?: ($row->contact_name ?: $row->wa_phone),
                 'customer_name' => $row->customer_name,
                 'contact_name' => $row->contact_name,
@@ -505,28 +613,59 @@ final class WhatsAppInboxService
                 'last_message_at' => $row->last_message_at ? CarbonImmutable::parse($row->last_message_at, 'UTC')->toIso8601String() : null,
                 'last_message_preview' => $row->last_message_preview,
                 'last_message_direction' => $row->last_message_direction,
+                'assigned_user_id' => ($hasCrmCols && $row->assigned_user_id) ? (int) $row->assigned_user_id : null,
+                'assigned_user_name' => $hasCrmCols ? ($row->assigned_user_name ?? null) : null,
+                'crm_stage' => $hasCrmCols ? ($row->crm_stage ?: 'new') : 'new',
+                'tags' => $tagsByConv[(int) $row->id] ?? [],
+                'open_orders_total' => $orderMeta['total'] ?? null,
+                'open_orders_count' => $orderMeta['count'] ?? 0,
             ];
         })->all();
 
         $waStatus = $this->configuration->status(false, $storeId);
+        $tags = Schema::hasTable('whatsapp_tags')
+            ? DB::table('whatsapp_tags')->where('store_id', $storeId)->orderBy('name')->get(['id', 'name', 'color'])
+                ->map(fn ($t) => ['id' => (int) $t->id, 'name' => $t->name, 'color' => $t->color])->all()
+            : [];
+        $agents = DB::table('store_user as su')
+            ->join('users as u', 'u.id', '=', 'su.user_id')
+            ->where('su.store_id', $storeId)
+            ->where('u.is_active', true)
+            ->orderBy('u.name')
+            ->get(['u.id', 'u.name'])
+            ->map(fn ($u) => ['id' => (int) $u->id, 'name' => $u->name])
+            ->all();
+        $quickReplies = Schema::hasTable('whatsapp_quick_replies')
+            ? DB::table('whatsapp_quick_replies')->where('store_id', $storeId)->orderBy('shortcut')->get(['id', 'shortcut', 'title', 'body'])
+                ->map(fn ($q) => ['id' => (int) $q->id, 'shortcut' => $q->shortcut, 'title' => $q->title, 'body' => $q->body])->all()
+            : [];
 
         return [
             'whatsapp_ready' => (bool) ($waStatus['ready'] ?? false),
             'needs_app_secret' => $this->hasPlaceholderAppSecret($storeId),
             'conversations' => $rows,
+            'crm_stages' => self::CRM_STAGES,
+            'tags' => $tags,
+            'agents' => $agents,
+            'quick_replies' => $quickReplies,
         ];
     }
 
     public function getThread(int $storeId, int $conversationId): array
     {
-        $conv = DB::table('whatsapp_conversations as c')
-            ->leftJoin('customers as cu', 'cu.id', '=', 'c.customer_id')
-            ->where('c.store_id', $storeId)
+        $hasCrmCols = Schema::hasColumn('whatsapp_conversations', 'crm_stage');
+        $hasInternalCol = Schema::hasColumn('whatsapp_messages', 'is_internal');
+
+        $convQ = DB::table('whatsapp_conversations as c')
+            ->leftJoin('customers as cu', 'cu.id', '=', 'c.customer_id');
+        $select = ['c.*', 'cu.full_name as customer_name'];
+        if ($hasCrmCols) {
+            $convQ->leftJoin('users as au', 'au.id', '=', 'c.assigned_user_id');
+            $select[] = 'au.name as assigned_user_name';
+        }
+        $conv = $convQ->where('c.store_id', $storeId)
             ->where('c.id', $conversationId)
-            ->select([
-                'c.*',
-                'cu.full_name as customer_name',
-            ])
+            ->select($select)
             ->first();
 
         abort_unless($conv !== null, 404);
@@ -549,6 +688,24 @@ final class WhatsAppInboxService
             $conv->unread_count = 0;
         }
 
+        $msgSelect = [
+            'm.id',
+            'm.direction',
+            'm.message_type',
+            'm.body',
+            'm.media_id',
+            'm.media_mime',
+            'm.media_filename',
+            'm.template_name',
+            'm.status',
+            'm.error_code',
+            'm.occurred_at',
+            'u.name as sender_user_name',
+        ];
+        if ($hasInternalCol) {
+            $msgSelect[] = 'm.is_internal';
+        }
+
         $messages = DB::table('whatsapp_messages as m')
             ->leftJoin('users as u', 'u.id', '=', 'm.sent_by_user_id')
             ->where('m.conversation_id', $conversationId)
@@ -556,25 +713,13 @@ final class WhatsAppInboxService
             ->orderByDesc('m.occurred_at')
             ->orderByDesc('m.id')
             ->limit(150)
-            ->get([
-                'm.id',
-                'm.direction',
-                'm.message_type',
-                'm.body',
-                'm.media_id',
-                'm.media_mime',
-                'm.media_filename',
-                'm.template_name',
-                'm.status',
-                'm.error_code',
-                'm.occurred_at',
-                'u.name as sender_user_name',
-            ])
+            ->get($msgSelect)
             ->reverse()
             ->values()
             ->map(fn ($m) => [
                 'id' => (int) $m->id,
                 'direction' => $m->direction,
+                'is_internal' => $hasInternalCol ? (bool) ($m->is_internal ?? false) : false,
                 'message_type' => $m->message_type,
                 'body' => $m->body,
                 'has_media' => filled($m->media_id),
@@ -587,6 +732,18 @@ final class WhatsAppInboxService
                 'occurred_at' => CarbonImmutable::parse($m->occurred_at, 'UTC')->toIso8601String(),
             ])
             ->all();
+
+        $convTags = [];
+        if (Schema::hasTable('whatsapp_conversation_tags') && Schema::hasTable('whatsapp_tags')) {
+            $convTags = DB::table('whatsapp_conversation_tags as ct')
+                ->join('whatsapp_tags as t', 't.id', '=', 'ct.tag_id')
+                ->where('ct.store_id', $storeId)
+                ->where('ct.conversation_id', $conversationId)
+                ->orderBy('t.name')
+                ->get(['t.id', 't.name', 't.color'])
+                ->map(fn ($t) => ['id' => (int) $t->id, 'name' => $t->name, 'color' => $t->color])
+                ->all();
+        }
 
         $customerContext = null;
         if ($conv->customer_id) {
@@ -624,10 +781,203 @@ final class WhatsAppInboxService
                 'unread_count' => 0,
                 'window_open' => $windowOpen,
                 'window_expires_at' => $windowOpen ? $lastIn->addHours(24)->toIso8601String() : null,
+                'assigned_user_id' => ($hasCrmCols && $conv->assigned_user_id) ? (int) $conv->assigned_user_id : null,
+                'assigned_user_name' => $hasCrmCols ? ($conv->assigned_user_name ?? null) : null,
+                'crm_stage' => $hasCrmCols ? ($conv->crm_stage ?: 'new') : 'new',
+                'tags' => $convTags,
             ],
             'customer_context' => $customerContext,
             'messages' => $messages,
         ];
+    }
+
+    public function updateConversationCrm(int $storeId, int $conversationId, array $data): array
+    {
+        return DB::transaction(function () use ($storeId, $conversationId, $data) {
+            $conv = DB::table('whatsapp_conversations')
+                ->where('store_id', $storeId)
+                ->where('id', $conversationId)
+                ->lockForUpdate()
+                ->first();
+            abort_unless($conv !== null, 404);
+
+            $update = ['updated_at' => now()];
+            if (array_key_exists('assigned_user_id', $data)) {
+                $uid = $data['assigned_user_id'] !== null ? (int) $data['assigned_user_id'] : null;
+                if ($uid !== null) {
+                    $belongs = DB::table('store_user')->where('store_id', $storeId)->where('user_id', $uid)->exists();
+                    abort_unless($belongs, 422, 'El usuario no pertenece a esta sucursal.');
+                }
+                $update['assigned_user_id'] = $uid;
+            }
+            if (array_key_exists('crm_stage', $data) && in_array($data['crm_stage'], self::CRM_STAGE_KEYS, true)) {
+                $update['crm_stage'] = $data['crm_stage'];
+            }
+            if (count($update) > 1) {
+                DB::table('whatsapp_conversations')->where('id', $conversationId)->update($update);
+            }
+
+            if (array_key_exists('tag_ids', $data) && is_array($data['tag_ids'])) {
+                $validIds = DB::table('whatsapp_tags')
+                    ->where('store_id', $storeId)
+                    ->whereIn('id', array_map('intval', $data['tag_ids']))
+                    ->pluck('id')
+                    ->all();
+
+                DB::table('whatsapp_conversation_tags')
+                    ->where('store_id', $storeId)
+                    ->where('conversation_id', $conversationId)
+                    ->delete();
+
+                $now = now();
+                foreach (array_unique($validIds) as $tid) {
+                    DB::table('whatsapp_conversation_tags')->insert([
+                        'conversation_id' => $conversationId,
+                        'tag_id' => (int) $tid,
+                        'store_id' => $storeId,
+                        'created_at' => $now,
+                    ]);
+                }
+            }
+
+            $fresh = DB::table('whatsapp_conversations as c')
+                ->leftJoin('users as au', 'au.id', '=', 'c.assigned_user_id')
+                ->where('c.id', $conversationId)
+                ->first(['c.id', 'c.assigned_user_id', 'c.crm_stage', 'au.name as assigned_user_name']);
+            $tags = DB::table('whatsapp_conversation_tags as ct')
+                ->join('whatsapp_tags as t', 't.id', '=', 'ct.tag_id')
+                ->where('ct.store_id', $storeId)
+                ->where('ct.conversation_id', $conversationId)
+                ->orderBy('t.name')
+                ->get(['t.id', 't.name', 't.color'])
+                ->map(fn ($t) => ['id' => (int) $t->id, 'name' => $t->name, 'color' => $t->color])
+                ->all();
+
+            return [
+                'id' => (int) $fresh->id,
+                'assigned_user_id' => $fresh->assigned_user_id ? (int) $fresh->assigned_user_id : null,
+                'assigned_user_name' => $fresh->assigned_user_name,
+                'crm_stage' => $fresh->crm_stage ?: 'new',
+                'tags' => $tags,
+            ];
+        });
+    }
+
+    public function addInternalNote(int $storeId, int $conversationId, string $body, User $actor): array
+    {
+        $clean = trim($body);
+        if ($clean === '') {
+            throw ValidationException::withMessages(['body' => 'Escribe el texto de la nota interna.']);
+        }
+
+        $conv = DB::table('whatsapp_conversations')
+            ->where('store_id', $storeId)
+            ->where('id', $conversationId)
+            ->first(['id']);
+        abort_unless($conv !== null, 404);
+
+        $now = CarbonImmutable::now('UTC');
+        $msgId = DB::table('whatsapp_messages')->insertGetId([
+            'conversation_id' => $conversationId,
+            'store_id' => $storeId,
+            'direction' => 'outbound',
+            'is_internal' => true,
+            'message_type' => 'text',
+            'body' => $clean,
+            'status' => 'internal',
+            'sent_by_user_id' => $actor->id,
+            'occurred_at' => $now,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        return [
+            'id' => (int) $msgId,
+            'direction' => 'outbound',
+            'is_internal' => true,
+            'message_type' => 'text',
+            'body' => $clean,
+            'has_media' => false,
+            'media_mime' => null,
+            'media_filename' => null,
+            'template_name' => null,
+            'status' => 'internal',
+            'error_code' => null,
+            'sender_user_name' => $actor->name,
+            'occurred_at' => $now->toIso8601String(),
+        ];
+    }
+
+    public function createTag(int $storeId, string $name, string $color): array
+    {
+        $cleanName = Str::limit(trim($name), 40, '');
+        $cleanColor = preg_match('/^#[0-9a-fA-F]{6}$/', $color) ? strtolower($color) : '#6d28d9';
+
+        $existing = DB::table('whatsapp_tags')
+            ->where('store_id', $storeId)
+            ->whereRaw('LOWER(name) = ?', [mb_strtolower($cleanName)])
+            ->first(['id', 'name', 'color']);
+        if ($existing) {
+            return ['id' => (int) $existing->id, 'name' => $existing->name, 'color' => $existing->color];
+        }
+
+        $id = DB::table('whatsapp_tags')->insertGetId([
+            'store_id' => $storeId,
+            'name' => $cleanName,
+            'color' => $cleanColor,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        return ['id' => (int) $id, 'name' => $cleanName, 'color' => $cleanColor];
+    }
+
+    public function deleteTag(int $storeId, int $tagId): void
+    {
+        $deleted = DB::table('whatsapp_tags')->where('store_id', $storeId)->where('id', $tagId)->delete();
+        abort_unless($deleted > 0, 404);
+    }
+
+    public function upsertQuickReply(int $storeId, string $shortcut, string $title, string $body, User $actor): array
+    {
+        $cleanShortcut = strtolower(preg_replace('/[^a-zA-Z0-9_-]+/', '', ltrim(trim($shortcut), '/')));
+        if ($cleanShortcut === '') {
+            throw ValidationException::withMessages(['shortcut' => 'Usa un atajo válido (ej. envio, zelle, horario).']);
+        }
+        $cleanTitle = Str::limit(trim($title) ?: $cleanShortcut, 80, '');
+        $cleanBody = trim($body);
+
+        $existing = DB::table('whatsapp_quick_replies')
+            ->where('store_id', $storeId)
+            ->where('shortcut', $cleanShortcut)
+            ->first(['id']);
+
+        if ($existing) {
+            DB::table('whatsapp_quick_replies')->where('id', $existing->id)->update([
+                'title' => $cleanTitle,
+                'body' => $cleanBody,
+                'updated_at' => now(),
+            ]);
+            $id = (int) $existing->id;
+        } else {
+            $id = (int) DB::table('whatsapp_quick_replies')->insertGetId([
+                'store_id' => $storeId,
+                'shortcut' => $cleanShortcut,
+                'title' => $cleanTitle,
+                'body' => $cleanBody,
+                'created_by_user_id' => $actor->id,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
+
+        return ['id' => $id, 'shortcut' => $cleanShortcut, 'title' => $cleanTitle, 'body' => $cleanBody];
+    }
+
+    public function deleteQuickReply(int $storeId, int $quickReplyId): void
+    {
+        $deleted = DB::table('whatsapp_quick_replies')->where('store_id', $storeId)->where('id', $quickReplyId)->delete();
+        abort_unless($deleted > 0, 404);
     }
 
     public function deleteConversation(int $storeId, int $conversationId): void

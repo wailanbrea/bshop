@@ -336,6 +336,14 @@ final class WhatsAppAutoApartadoService
             .'Si deseas agregar otra prenda, solo envía su código.';
 
         $this->inbox->sendAutomatedReply($storeId, $conversationId, $waPhone, $confirm);
+
+        // Auto-advance CRM pipeline stage to 'reserved' when an item is auto-added
+        if (\Illuminate\Support\Facades\Schema::hasColumn('whatsapp_conversations', 'crm_stage')) {
+            DB::table('whatsapp_conversations')
+                ->where('id', $conversationId)
+                ->whereIn('crm_stage', ['new', 'quoting'])
+                ->update(['crm_stage' => 'reserved', 'updated_at' => now()]);
+        }
     }
 
     /**

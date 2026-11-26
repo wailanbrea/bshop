@@ -205,4 +205,57 @@ class WhatsAppInboxTest extends TestCase
         $this->assertDatabaseMissing('whatsapp_messages', ['id' => $imgMsgId]);
         $this->assertSame(1, DB::table('whatsapp_conversations')->count());
     }
+
+    public function test_crm_tags_assignment_pipeline_stage_internal_notes_and_quick_replies(): void
+    {
+        $this->postWebhook($this->inboundPayload('wamid.CRM_1', 'Hola, precio al por mayor'))->assertOk();
+        $root = "/api/v1/business/stores/{$this->store->id}/whatsapp/inbox";
+
+        // Opening list auto-seeds default tags (VIP, Mayorista, Por despachar) and quick replies (/envio, /zelle, /horario)
+        $list = $this->actingAs($this->owner)->getJson("{$root}/conversations")->assertOk();
+        $this->assertGreaterThanOrEqual(3, count($list->json('data.tags')));
+        $this->assertGreaterThanOrEqual(3, count($list->json('data.quick_replies')));
+        $convId = $list->json('data.conversations.0.id');
+
+        // Create custom tag + quick reply
+        $customTag = $this->actingAs($this->owner)->postJson("{$root}/tags", [
+            'name' => 'Urgente',
+            'color' => '#dc2626',
+        ])->assertCreated()->json('data');
+
+        $customQr = $this->actingAs($this->owner)->postJson("{$root}/quick-replies", [
+            'shortcut' => '/catalogo',
+            'title' => 'Catálogo nuevo',
+            'body' => 'Aquí tienes las novedades de esta semana.',
+        ])->assertCreated()->json('data');
+        $this->assertSame('catalogo', $customQr['shortcut']);
+
+        // Update CRM stage, assign owner, and attach tag
+        $this->actingAs($this->owner)->patchJson("{$root}/conversations/{$convId}/crm", [
+            'assigned_user_id' => $this->owner->id,
+            'crm_stage' => 'quoting',
+            'tag_ids' => [$customTag['id']],
+        ])->assertOk()
+            ->assertJsonPath('data.crm_stage', 'quoting')
+            ->assertJsonPath('data.assigned_user_id', $this->owner->id)
+            ->assertJsonPath('data.tags.0.name', 'Urgente');
+
+        // Add internal note (invisible to customer, never touches Meta)
+        $this->actingAs($this->owner)->postJson("{$root}/conversations/{$convId}/notes", [
+            'body' => 'Clienta frecuente, ofrecer 5% en compra mayorista.',
+        ])->assertCreated()
+            ->assertJsonPath('data.is_internal', true)
+            ->assertJsonPath('data.status', 'internal');
+
+        // Verify thread returns CRM fields + internal note
+        $this->actingAs($this->owner)->getJson("{$root}/conversations/{$convId}")
+            ->assertOk()
+            ->assertJsonPath('data.conversation.crm_stage', 'quoting')
+            ->assertJsonPath('data.conversation.tags.0.name', 'Urgente')
+            ->assertJsonPath('data.messages.1.is_internal', true);
+
+        // Delete custom tag & quick reply
+        $this->actingAs($this->owner)->deleteJson("{$root}/tags/{$customTag['id']}")->assertOk();
+        $this->actingAs($this->owner)->deleteJson("{$root}/quick-replies/{$customQr['id']}")->assertOk();
+    }
 }

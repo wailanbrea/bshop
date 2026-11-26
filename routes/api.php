@@ -176,9 +176,15 @@ Route::middleware(['auth:sanctum', 'active', 'auth.session'])->group(function ()
             Route::get('whatsapp/inbox/unread', [WhatsAppInboxController::class, 'unreadSummary'])->middleware('can:sales.view');
             Route::get('whatsapp/inbox/conversations', [WhatsAppInboxController::class, 'index'])->middleware('can:sales.view');
             Route::get('whatsapp/inbox/conversations/{conversation}', [WhatsAppInboxController::class, 'show'])->whereNumber('conversation')->middleware('can:sales.view');
+            Route::patch('whatsapp/inbox/conversations/{conversation}/crm', [WhatsAppInboxController::class, 'updateCrm'])->whereNumber('conversation')->middleware('can:sales.create');
+            Route::post('whatsapp/inbox/conversations/{conversation}/notes', [WhatsAppInboxController::class, 'addNote'])->whereNumber('conversation')->middleware('can:sales.create');
             Route::delete('whatsapp/inbox/conversations/{conversation}', [WhatsAppInboxController::class, 'destroy'])->whereNumber('conversation')->middleware('can:sales.create');
             Route::post('whatsapp/inbox/conversations/{conversation}/messages', [WhatsAppInboxController::class, 'send'])->whereNumber('conversation')->middleware(['can:sales.create', 'throttle:30,1']);
             Route::get('whatsapp/inbox/messages/{message}/media', [WhatsAppInboxController::class, 'media'])->whereNumber('message')->middleware('can:sales.view');
+            Route::post('whatsapp/inbox/tags', [WhatsAppInboxController::class, 'createTag'])->middleware('can:sales.create');
+            Route::delete('whatsapp/inbox/tags/{tag}', [WhatsAppInboxController::class, 'deleteTag'])->whereNumber('tag')->middleware('can:sales.create');
+            Route::post('whatsapp/inbox/quick-replies', [WhatsAppInboxController::class, 'upsertQuickReply'])->middleware('can:sales.create');
+            Route::delete('whatsapp/inbox/quick-replies/{quickReply}', [WhatsAppInboxController::class, 'deleteQuickReply'])->whereNumber('quickReply')->middleware('can:sales.create');
             Route::get('baskets', [BasketController::class, 'index'])->middleware('can:sales.view');
             Route::get('baskets/whatsapp-dispatch', [BasketWhatsAppDispatchController::class, 'overview'])->middleware('can:sales.view');
             Route::patch('baskets/whatsapp-dispatch/schedule', [BasketWhatsAppDispatchController::class, 'saveSchedule'])->middleware('can:sales.create');
