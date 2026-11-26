@@ -151,11 +151,11 @@
     .item-title { font-weight: bold; color: #18192b; font-size: 10.5px; }
     .item-sku { font-size: 8.8px; color: #646982; margin-top: 2px; }
 
-    /* Bottom summary (Payment + Totals) */
+    /* Bottom summary (Notes + Unified Totals/Payments) */
     .summary-table { width: 100%; border-collapse: collapse; margin-top: 4px; }
     .summary-table > tbody > tr > td { vertical-align: top; }
-    .payment-box-wrap { width: 48%; padding-right: 12px; }
-    .totals-box-wrap { width: 52%; padding-left: 12px; }
+    .payment-box-wrap { width: 42%; padding-right: 12px; }
+    .totals-box-wrap { width: 58%; padding-left: 12px; }
 
     .payment-card {
         background: #f8f8fc;
@@ -168,6 +168,15 @@
         padding: 6px 10px;
         border-bottom: 1px solid #eceef6;
         font-size: 10.5px;
+    }
+    .totals-table tr.subtotal-strong td {
+        font-weight: bold;
+        color: #18192b;
+        background: #f8f8fc;
+    }
+    .totals-table tr.deposit-row td {
+        color: #166534;
+        font-weight: bold;
     }
     .totals-table tr.grand-total td {
         background: #4f46e5;
@@ -418,36 +427,27 @@
     </tbody>
 </table>
 
+@php
+    $hasPaid = bccomp((string) $paidTotal, '0', 4) > 0;
+    $showUnifiedPaymentRows = $showPaymentSummary && $hasPaid;
+    $finalBarBg = $isPaid && $showPaymentSummary ? '#166534' : $accent;
+    $finalBarLabel = $showUnifiedPaymentRows
+        ? ($isPaid ? 'SALDO PENDIENTE (PAGADA)' : 'TOTAL PENDIENTE')
+        : 'TOTAL A PAGAR';
+    $finalBarAmount = $showUnifiedPaymentRows ? $pendingTotal : $invoice->grand_total;
+@endphp
+
 <table class="summary-table">
     <tr>
         <td class="payment-box-wrap">
-            @if($showPaymentSummary)
+            @if($showPaymentMethods && $formattedMethods !== '')
                 <div class="payment-card">
-                    <div class="card-title" style="color: {{ $accent }};">Resumen de pago</div>
-                    <table class="kv-table">
-                        <tr>
-                            <td class="kv-label">Estado:</td>
-                            <td class="kv-value"><strong>{{ $statusLabel }}</strong></td>
-                        </tr>
-                        <tr>
-                            <td class="kv-label">Abonado:</td>
-                            <td class="kv-value nowrap">{{ $money($paidTotal) }}</td>
-                        </tr>
-                        <tr>
-                            <td class="kv-label">Pendiente:</td>
-                            <td class="kv-value nowrap {{ $isPaid ? 'balance-ok' : 'balance-due' }}">{{ $money($pendingTotal) }}</td>
-                        </tr>
-                        @if($showPaymentMethods && $formattedMethods !== '')
-                            <tr>
-                                <td class="kv-label">Método:</td>
-                                <td class="kv-value">{{ $formattedMethods }}</td>
-                            </tr>
-                        @endif
-                    </table>
+                    <div class="card-title" style="color: {{ $accent }};">Método de pago</div>
+                    <div class="small" style="color: #18192b;"><strong>{{ $formattedMethods }}</strong></div>
                 </div>
             @endif
             @if($showNotes)
-                <div class="payment-card" style="margin-top: {{ $showPaymentSummary ? '10px' : '0' }};">
+                <div class="payment-card" style="margin-top: {{ ($showPaymentMethods && $formattedMethods !== '') ? '10px' : '0' }};">
                     <div class="card-title" style="color: {{ $accent }};">Notas</div>
                     <div class="small" style="color: #334155;">{{ $invoice->notes }}</div>
                 </div>
@@ -477,9 +477,19 @@
                         <td class="right nowrap">{{ $money($invoice->shipping_total) }}</td>
                     </tr>
                 @endif
+                @if($showUnifiedPaymentRows)
+                    <tr class="subtotal-strong">
+                        <td>Total factura</td>
+                        <td class="right nowrap">{{ $money($invoice->grand_total) }}</td>
+                    </tr>
+                    <tr class="deposit-row">
+                        <td>Abonado</td>
+                        <td class="right nowrap">- {{ $money($paidTotal) }}</td>
+                    </tr>
+                @endif
                 <tr class="grand-total">
-                    <td style="background: {{ $accent }};">TOTAL</td>
-                    <td class="right nowrap" style="background: {{ $accent }};">{{ $money($invoice->grand_total) }}</td>
+                    <td style="background: {{ $finalBarBg }};">{{ $finalBarLabel }}</td>
+                    <td class="right nowrap" style="background: {{ $finalBarBg }};">{{ $money($finalBarAmount) }}</td>
                 </tr>
             </table>
         </td>

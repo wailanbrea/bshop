@@ -401,14 +401,23 @@ function openPdfPreview() {
                     </div>
 
                     <div class="inv-pv-bottom">
-                        <div v-if="form.show_payment_summary" class="inv-pv-pay">
-                            <span :style="{ color: form.accent_color }">RESUMEN</span>
-                            <small>Abonado: US$ 125.00</small>
-                            <small v-if="form.show_payment_methods">Método: Zelle</small>
+                        <div v-if="form.show_payment_methods" class="inv-pv-pay">
+                            <span :style="{ color: form.accent_color }">MÉTODO</span>
+                            <small>Zelle</small>
                         </div>
-                        <div class="inv-pv-total" :style="{ background: form.accent_color }">
-                            <span>TOTAL</span>
-                            <strong>US$ 125.00</strong>
+                        <div class="inv-pv-totals-col">
+                            <div v-if="form.show_payment_summary" class="inv-pv-subrow">
+                                <span>Total factura</span>
+                                <strong>US$ 125.00</strong>
+                            </div>
+                            <div v-if="form.show_payment_summary" class="inv-pv-subrow inv-pv-paid">
+                                <span>Abonado</span>
+                                <strong>- US$ 50.00</strong>
+                            </div>
+                            <div class="inv-pv-total" :style="{ background: form.accent_color }">
+                                <span>{{ form.show_payment_summary ? 'TOTAL PENDIENTE' : 'TOTAL A PAGAR' }}</span>
+                                <strong>{{ form.show_payment_summary ? 'US$ 75.00' : 'US$ 125.00' }}</strong>
+                            </div>
                         </div>
                     </div>
 
@@ -571,10 +580,13 @@ function openPdfPreview() {
 }
 .inv-pv-price { white-space: nowrap; }
 
-.inv-pv-bottom { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.inv-pv-bottom { display: flex; justify-content: flex-end; align-items: flex-start; gap: 8px; }
 .inv-pv-pay { background: #f8f8fc; border: 1px solid #e5e7f0; border-radius: 8px; padding: 7px 9px; display: grid; gap: 2px; flex: 1; }
 .inv-pv-pay span { font-size: 8.5px; font-weight: 700; }
 .inv-pv-pay small { font-size: 9.5px; color: #475569; }
+.inv-pv-totals-col { display: grid; gap: 4px; min-width: 175px; }
+.inv-pv-subrow { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 9.5px; padding: 2px 6px; color: #334155; white-space: nowrap; }
+.inv-pv-subrow.inv-pv-paid { color: #166534; }
 .inv-pv-total {
     color: #fff;
     border-radius: 8px;
