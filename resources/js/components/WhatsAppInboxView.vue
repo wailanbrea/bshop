@@ -63,9 +63,22 @@ const sending = ref(false);
 const error = ref('');
 const sendError = ref('');
 const search = ref('');
+const filterMode = ref<'all' | 'unread' | 'read' | 'window'>('all');
 const whatsappReady = ref(false);
 const needsAppSecret = ref(false);
 const conversations = ref<ConversationSummary[]>([]);
+const filteredConversations = computed(() => {
+    if (filterMode.value === 'unread') return conversations.value.filter((c) => c.unread_count > 0);
+    if (filterMode.value === 'read') return conversations.value.filter((c) => c.unread_count === 0);
+    if (filterMode.value === 'window') return conversations.value.filter((c) => c.window_open);
+    return conversations.value;
+});
+const filterCounts = computed(() => ({
+    all: conversations.value.length,
+    unread: conversations.value.filter((c) => c.unread_count > 0).length,
+    read: conversations.value.filter((c) => c.unread_count === 0).length,
+    window: conversations.value.filter((c) => c.window_open).length,
+}));
 const selectedId = ref<number | null>(props.initialConversationId || null);
 const activeConversation = ref<any>(null);
 const customerContext = ref<CustomerContext | null>(null);
@@ -287,6 +300,48 @@ defineExpose({ openConversation, reload: loadConversations });
                         placeholder="Buscar clienta, teléfono o mensaje…"
                         aria-label="Buscar conversación"
                     />
+                    <div class="wa-filter-pills" role="tablist" aria-label="Filtrar conversaciones">
+                        <button
+                            type="button"
+                            role="tab"
+                            class="wa-filter-pill"
+                            :class="{ active: filterMode === 'all' }"
+                            :aria-selected="filterMode === 'all'"
+                            @click="filterMode = 'all'"
+                        >
+                            Todos <span class="wa-filter-count">{{ filterCounts.all }}</span>
+                        </button>
+                        <button
+                            type="button"
+                            role="tab"
+                            class="wa-filter-pill"
+                            :class="{ active: filterMode === 'unread' }"
+                            :aria-selected="filterMode === 'unread'"
+                            @click="filterMode = 'unread'"
+                        >
+                            No leídos <span class="wa-filter-count" :class="{ highlight: filterCounts.unread > 0 }">{{ filterCounts.unread }}</span>
+                        </button>
+                        <button
+                            type="button"
+                            role="tab"
+                            class="wa-filter-pill"
+                            :class="{ active: filterMode === 'read' }"
+                            :aria-selected="filterMode === 'read'"
+                            @click="filterMode = 'read'"
+                        >
+                            Leídos <span class="wa-filter-count">{{ filterCounts.read }}</span>
+                        </button>
+                        <button
+                            type="button"
+                            role="tab"
+                            class="wa-filter-pill"
+                            :class="{ active: filterMode === 'window' }"
+                            :aria-selected="filterMode === 'window'"
+                            @click="filterMode = 'window'"
+                        >
+                            24h gratis <span class="wa-filter-count">{{ filterCounts.window }}</span>
+                        </button>
+                    </div>
                 </div>
 
                 <p v-if="loadingList && !conversations.length" class="muted wa-empty-state">Cargando conversaciones…</p>
@@ -296,10 +351,17 @@ defineExpose({ openConversation, reload: loadConversations });
                         Cuando envíes una factura/aviso o una clienta escriba al WhatsApp oficial de la tienda, su chat aparecerá aquí automáticamente.
                     </p>
                 </div>
+                <div v-else-if="!filteredConversations.length" class="wa-empty-state">
+                    <strong>Sin chats en este filtro</strong>
+                    <p class="muted">
+                        {{ filterMode === 'unread' ? 'No tienes mensajes sin leer.' : filterMode === 'read' ? 'No hay chats leídos todavía.' : 'No hay conversaciones dentro de la ventana de 24 h.' }}
+                    </p>
+                    <button type="button" class="button secondary" @click="filterMode = 'all'">Ver todos</button>
+                </div>
 
                 <div v-else class="wa-conv-items">
                     <button
-                        v-for="conv in conversations"
+                        v-for="conv in filteredConversations"
                         :key="conv.id"
                         type="button"
                         class="wa-conv-item"
@@ -523,9 +585,56 @@ defineExpose({ openConversation, reload: loadConversations });
 .wa-conv-search {
     padding: 10px 14px;
     border-bottom: 1px solid #eceaf6;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
 }
 .wa-conv-search input {
     width: 100%;
+}
+.wa-filter-pills {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+.wa-filter-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 10px;
+    border-radius: 999px;
+    border: 1px solid #e2dff2;
+    background: #f8f7fc;
+    color: #4b5563;
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.wa-filter-pill:hover {
+    background: #efeaff;
+    color: #4c1d95;
+}
+.wa-filter-pill.active {
+    background: #6d28d9;
+    border-color: #6d28d9;
+    color: #fff;
+}
+.wa-filter-count {
+    font-size: 0.72rem;
+    padding: 1px 6px;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.08);
+}
+.wa-filter-pill.active .wa-filter-count {
+    background: rgba(255, 255, 255, 0.22);
+    color: #fff;
+}
+.wa-filter-count.highlight {
+    background: #16a34a;
+    color: #fff;
 }
 .wa-conv-items {
     flex: 1;
