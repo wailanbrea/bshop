@@ -50,6 +50,13 @@ class WhatsAppInboxController extends Controller
         return response()->json(['data' => $msg], 201);
     }
 
+    public function destroy(Request $request, StoreContext $context, WhatsAppInboxService $inbox)
+    {
+        $inbox->deleteConversation($context->store()->id, (int) $request->route('conversation'));
+
+        return response()->json(['data' => ['deleted' => true]]);
+    }
+
     public function media(Request $request, StoreContext $context, WhatsAppInboxService $inbox)
     {
         $file = $inbox->fetchMessageMedia($context->store()->id, (int) $request->route('message'));

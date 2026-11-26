@@ -60,6 +60,8 @@ const emit = defineEmits<{
 const loadingList = ref(false);
 const loadingThread = ref(false);
 const sending = ref(false);
+const deletingChat = ref(false);
+const confirmDeleteChat = ref(false);
 const error = ref('');
 const sendError = ref('');
 const search = ref('');
@@ -147,6 +149,7 @@ async function loadConversations(silent = false) {
 
 async function openConversation(id: number, silent = false) {
     if (!root.value) return;
+    if (!silent) confirmDeleteChat.value = false;
     selectedId.value = id;
     sendError.value = '';
     if (!silent) loadingThread.value = true;
@@ -169,6 +172,27 @@ async function openConversation(id: number, silent = false) {
         if (!silent) error.value = errorMessage(e);
     } finally {
         if (!silent) loadingThread.value = false;
+    }
+}
+
+async function deleteActiveConversation() {
+    if (!root.value || !selectedId.value || deletingChat.value || !canSend.value) return;
+    deletingChat.value = true;
+    error.value = '';
+    const targetId = selectedId.value;
+    try {
+        await api.delete(`${root.value}/conversations/${targetId}`);
+        conversations.value = conversations.value.filter((c) => c.id !== targetId);
+        selectedId.value = null;
+        activeConversation.value = null;
+        customerContext.value = null;
+        messages.value = [];
+        confirmDeleteChat.value = false;
+        emit('read-updated');
+    } catch (e) {
+        error.value = errorMessage(e);
+    } finally {
+        deletingChat.value = false;
     }
 }
 
@@ -402,6 +426,35 @@ defineExpose({ openConversation, reload: loadConversations });
                             <span class="badge" :class="activeConversation.window_open ? 'wa-window-open' : 'inactive'">
                                 {{ activeConversation.window_open ? '✓ Ventana 24h gratis' : 'Fuera de ventana 24h' }}
                             </span>
+                            <template v-if="canSend">
+                                <button
+                                    v-if="!confirmDeleteChat"
+                                    type="button"
+                                    class="button secondary wa-delete-chat-btn"
+                                    title="Eliminar conversación de la bandeja"
+                                    @click="confirmDeleteChat = true"
+                                >
+                                    Eliminar chat
+                                </button>
+                                <div v-else class="wa-delete-confirm-group">
+                                    <button
+                                        type="button"
+                                        class="button wa-delete-confirm-yes"
+                                        :disabled="deletingChat"
+                                        @click="deleteActiveConversation"
+                                    >
+                                        {{ deletingChat ? 'Eliminando…' : 'Sí, eliminar' }}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        class="button secondary wa-delete-chat-btn"
+                                        :disabled="deletingChat"
+                                        @click="confirmDeleteChat = false"
+                                    >
+                                        Cancelar
+                                    </button>
+                                </div>
+                            </template>
                         </div>
                     </header>
 
@@ -761,6 +814,32 @@ defineExpose({ openConversation, reload: loadConversations });
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+.wa-thread-badges {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+.wa-delete-confirm-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+.wa-delete-chat-btn {
+    padding: 5px 10px;
+    min-height: 32px;
+    font-size: 0.78rem;
+    white-space: nowrap;
+}
+.wa-delete-confirm-yes {
+    padding: 5px 10px;
+    min-height: 32px;
+    font-size: 0.78rem;
+    white-space: nowrap;
+    background: #dc2626;
+    border-color: #dc2626;
+    color: #fff;
 }
 .wa-window-open {
     background: #dcfce7;

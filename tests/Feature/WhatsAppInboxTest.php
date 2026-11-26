@@ -195,5 +195,14 @@ class WhatsAppInboxTest extends TestCase
             ->assertHeader('Content-Type', 'image/jpeg');
 
         $this->assertSame("\xFF\xD8\xFF\xE0FAKEJPEG", $res->getContent());
+
+        // Delete conversation #2: removes messages & conversation, preserves other conversation
+        $this->actingAs($this->owner)
+            ->deleteJson("{$root}/conversations/{$conv2Id}")
+            ->assertOk()
+            ->assertJsonPath('data.deleted', true);
+        $this->assertDatabaseMissing('whatsapp_conversations', ['id' => $conv2Id]);
+        $this->assertDatabaseMissing('whatsapp_messages', ['id' => $imgMsgId]);
+        $this->assertSame(1, DB::table('whatsapp_conversations')->count());
     }
 }

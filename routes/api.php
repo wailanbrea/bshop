@@ -176,6 +176,7 @@ Route::middleware(['auth:sanctum', 'active', 'auth.session'])->group(function ()
             Route::get('whatsapp/inbox/unread', [WhatsAppInboxController::class, 'unreadSummary'])->middleware('can:sales.view');
             Route::get('whatsapp/inbox/conversations', [WhatsAppInboxController::class, 'index'])->middleware('can:sales.view');
             Route::get('whatsapp/inbox/conversations/{conversation}', [WhatsAppInboxController::class, 'show'])->whereNumber('conversation')->middleware('can:sales.view');
+            Route::delete('whatsapp/inbox/conversations/{conversation}', [WhatsAppInboxController::class, 'destroy'])->whereNumber('conversation')->middleware('can:sales.create');
             Route::post('whatsapp/inbox/conversations/{conversation}/messages', [WhatsAppInboxController::class, 'send'])->whereNumber('conversation')->middleware(['can:sales.create', 'throttle:30,1']);
             Route::get('whatsapp/inbox/messages/{message}/media', [WhatsAppInboxController::class, 'media'])->whereNumber('message')->middleware('can:sales.view');
             Route::get('baskets', [BasketController::class, 'index'])->middleware('can:sales.view');

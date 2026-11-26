@@ -630,6 +630,27 @@ final class WhatsAppInboxService
         ];
     }
 
+    public function deleteConversation(int $storeId, int $conversationId): void
+    {
+        DB::transaction(function () use ($storeId, $conversationId) {
+            $exists = DB::table('whatsapp_conversations')
+                ->where('store_id', $storeId)
+                ->where('id', $conversationId)
+                ->lockForUpdate()
+                ->exists();
+            abort_unless($exists, 404);
+
+            DB::table('whatsapp_messages')
+                ->where('store_id', $storeId)
+                ->where('conversation_id', $conversationId)
+                ->delete();
+            DB::table('whatsapp_conversations')
+                ->where('store_id', $storeId)
+                ->where('id', $conversationId)
+                ->delete();
+        });
+    }
+
     public function sendReply(int $storeId, int $conversationId, ?string $text, ?UploadedFile $attachment, User $actor): array
     {
         $conv = DB::table('whatsapp_conversations')
