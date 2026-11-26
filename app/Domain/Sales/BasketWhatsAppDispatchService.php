@@ -127,9 +127,9 @@ final class BasketWhatsAppDispatchService
                 $customerRow = DB::table('customers')->where('id', $cid)->first();
                 $snap = is_array($order->customer_snapshot) ? $order->customer_snapshot : [];
                 $rawPhone = $customerRow->phone ?? ($snap['phone'] ?? '');
-                $cleanPhone = preg_replace('/[\s().-]+/', '', (string) $rawPhone);
-                $validMetaPhone = (bool) preg_match('/^\+[1-9][0-9]{7,14}$/D', $cleanPhone);
-                $waDigits = preg_replace('/\D+/', '', (string) $rawPhone);
+                $cleanPhone = WhatsAppInboxService::normalizePhone((string) $rawPhone) ?? '';
+                $validMetaPhone = $cleanPhone !== '';
+                $waDigits = $validMetaPhone ? ltrim($cleanPhone, '+') : preg_replace('/\D+/', '', (string) $rawPhone);
 
                 $grouped[$cid] = [
                     'customer_id' => $cid,
