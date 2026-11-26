@@ -705,19 +705,30 @@ final class WhatsAppInboxService
         $c = $this->configuration->resolve($storeId);
         abort_unless(filled($c['access_token'] ?? null), 409, 'Token de WhatsApp no disponible.');
 
-        $http = Http::withToken($c['access_token'])->connectTimeout(5)->timeout(25);
-        $meta = $http->acceptJson()->get('https://graph.facebook.com/'.($c['graph_version'] ?: 'v25.0').'/'.urlencode((string) $msg->media_id));
+        $meta = Http::withToken($c['access_token'])
+            ->acceptJson()
+            ->connectTimeout(5)
+            ->timeout(25)
+            ->get('https://graph.facebook.com/'.($c['graph_version'] ?: 'v25.0').'/'.urlencode((string) $msg->media_id));
         abort_unless($meta->successful() && is_string($meta->json('url')), 404, 'El archivo multimedia ya expiró en Meta.');
 
         $mediaUrl = $meta->json('url');
         $host = strtolower((string) parse_url($mediaUrl, PHP_URL_HOST));
         abort_unless(
-            str_ends_with($host, '.fbsbx.com') || str_ends_with($host, '.facebook.com') || str_ends_with($host, '.whatsapp.net'),
+            str_ends_with($host, '.fbsbx.com')
+                || str_ends_with($host, '.fbcdn.net')
+                || str_ends_with($host, '.facebook.com')
+                || str_ends_with($host, '.whatsapp.net'),
             403,
             'Origen multimedia no permitido.'
         );
 
-        $dl = $http->get($mediaUrl);
+        // Fresh client without Accept: application/json and with explicit User-Agent required by lookaside.fbsbx.com
+        $dl = Http::withToken($c['access_token'])
+            ->withHeaders(['User-Agent' => 'KeylaShop-WhatsApp/1.0'])
+            ->connectTimeout(5)
+            ->timeout(25)
+            ->get($mediaUrl);
         abort_unless($dl->successful(), 502, 'No se pudo descargar el archivo desde Meta.');
 
         return [

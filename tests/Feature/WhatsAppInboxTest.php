@@ -9,6 +9,7 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 class WhatsAppInboxTest extends TestCase
@@ -141,5 +142,58 @@ class WhatsAppInboxTest extends TestCase
             ->getJson("/api/v1/business/stores/{$other->id}/whatsapp/inbox/conversations")
             ->assertOk()
             ->assertJsonCount(0, 'data.conversations');
+    }
+
+    public function test_second_conversation_and_inbound_image_media_resolve_correct_route_ids(): void
+    {
+        // Conversation #1 (same numeric ID as store #1)
+        $this->postWebhook($this->inboundPayload('wamid.C1_M1', 'Primer chat'))->assertOk();
+
+        // Conversation #2 (ID 2 != store ID 1) + image message (ID 2 != store ID 1)
+        $imgPayload = ['entry' => [['changes' => [['value' => [
+            'metadata' => ['phone_number_id' => '1419120884625599'],
+            'contacts' => [['wa_id' => '18095550199', 'profile' => ['name' => 'Maria Perez']]],
+            'messages' => [[
+                'id' => 'wamid.C2_IMG',
+                'from' => '18095550199',
+                'timestamp' => (string) now()->timestamp,
+                'type' => 'image',
+                'image' => [
+                    'id' => 'MEDIA_998877',
+                    'mime_type' => 'image/jpeg',
+                ],
+            ]],
+        ]]]]]];
+        $this->postWebhook($imgPayload)->assertOk();
+
+        $conv2Id = (int) DB::table('whatsapp_conversations')->where('wa_phone', '+18095550199')->value('id');
+        $imgMsgId = (int) DB::table('whatsapp_messages')->where('provider_message_id', 'wamid.C2_IMG')->value('id');
+        $this->assertNotSame($this->store->id, $conv2Id);
+        $this->assertNotSame($this->store->id, $imgMsgId);
+
+        $root = "/api/v1/business/stores/{$this->store->id}/whatsapp/inbox";
+
+        $this->actingAs($this->owner)
+            ->getJson("{$root}/conversations/{$conv2Id}")
+            ->assertOk()
+            ->assertJsonPath('data.conversation.id', $conv2Id)
+            ->assertJsonPath('data.conversation.wa_phone', '+18095550199')
+            ->assertJsonPath('data.messages.0.id', $imgMsgId)
+            ->assertJsonPath('data.messages.0.has_media', true);
+
+        Http::fake([
+            'https://graph.facebook.com/v25.0/MEDIA_998877' => Http::response([
+                'url' => 'https://lookaside.fbsbx.com/whatsapp_business/attachments/?mid=MEDIA_998877',
+                'mime_type' => 'image/jpeg',
+            ], 200),
+            'https://lookaside.fbsbx.com/*' => Http::response("\xFF\xD8\xFF\xE0FAKEJPEG", 200, ['Content-Type' => 'image/jpeg']),
+        ]);
+
+        $res = $this->actingAs($this->owner)
+            ->get("{$root}/messages/{$imgMsgId}/media")
+            ->assertOk()
+            ->assertHeader('Content-Type', 'image/jpeg');
+
+        $this->assertSame("\xFF\xD8\xFF\xE0FAKEJPEG", $res->getContent());
     }
 }

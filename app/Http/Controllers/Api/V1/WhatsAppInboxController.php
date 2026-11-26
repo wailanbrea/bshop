@@ -25,14 +25,14 @@ class WhatsAppInboxController extends Controller
         ]);
     }
 
-    public function show(int $conversation, StoreContext $context, WhatsAppInboxService $inbox)
+    public function show(Request $request, StoreContext $context, WhatsAppInboxService $inbox)
     {
         return response()->json([
-            'data' => $inbox->getThread($context->store()->id, $conversation),
+            'data' => $inbox->getThread($context->store()->id, (int) $request->route('conversation')),
         ]);
     }
 
-    public function send(Request $request, int $conversation, StoreContext $context, WhatsAppInboxService $inbox)
+    public function send(Request $request, StoreContext $context, WhatsAppInboxService $inbox)
     {
         $data = $request->validate([
             'body' => ['nullable', 'string', 'max:4096'],
@@ -41,7 +41,7 @@ class WhatsAppInboxController extends Controller
 
         $msg = $inbox->sendReply(
             $context->store()->id,
-            $conversation,
+            (int) $request->route('conversation'),
             $data['body'] ?? null,
             $request->file('attachment'),
             $request->user(),
@@ -50,9 +50,9 @@ class WhatsAppInboxController extends Controller
         return response()->json(['data' => $msg], 201);
     }
 
-    public function media(int $message, StoreContext $context, WhatsAppInboxService $inbox)
+    public function media(Request $request, StoreContext $context, WhatsAppInboxService $inbox)
     {
-        $file = $inbox->fetchMessageMedia($context->store()->id, $message);
+        $file = $inbox->fetchMessageMedia($context->store()->id, (int) $request->route('message'));
         $isInline = str_starts_with($file['mime'], 'image/') || $file['mime'] === 'application/pdf' || str_starts_with($file['mime'], 'audio/');
 
         return response($file['bytes'], 200, [

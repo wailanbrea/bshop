@@ -454,7 +454,12 @@ defineExpose({ openConversation, reload: loadConversations });
 
                                 <audio v-else-if="m.has_media && m.message_type === 'audio'" controls preload="none" :src="mediaUrl(m.id)" class="wa-audio-player"></audio>
 
-                                <p v-if="m.body" class="wa-bubble-text">{{ m.body }}</p>
+                                <p
+                                    v-if="m.body && !(m.has_media && m.message_type === 'image' && (m.body === '📷 Imagen recibida' || m.body === '📷 Imagen enviada'))"
+                                    class="wa-bubble-text"
+                                >
+                                    {{ m.body }}
+                                </p>
 
                                 <footer class="wa-bubble-foot">
                                     <span v-if="m.sender_user_name && m.direction === 'outbound'">{{ m.sender_user_name }} · </span>
