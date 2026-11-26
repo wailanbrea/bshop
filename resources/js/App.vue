@@ -1,29 +1,63 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, defineAsyncComponent, h, nextTick, onMounted, onUnmounted, ref, watch, type Component } from 'vue';
 import { api, errorMessage } from './api';
 import type { Session, Workspace, Warehouse } from './types';
 import AuthView from './components/AuthView.vue';
-const BusinessSettings = defineAsyncComponent(() => import('./components/BusinessSettings.vue'));
-const TeamView = defineAsyncComponent(() => import('./components/TeamView.vue'));
-const InviteView = defineAsyncComponent(() => import('./components/InviteView.vue'));
-const ProductsHubView = defineAsyncComponent(() => import('./components/ProductsHubView.vue'));
+
+function lazyView(loader: () => Promise<{ default: Component }>) {
+    return defineAsyncComponent({
+        loader: () =>
+            loader().catch((err) => {
+                // Recover seamlessly when a PWA/browser tab stays open across a new Vite deploy
+                try {
+                    const key = 'bshop:chunk-reload-ts';
+                    const last = Number(sessionStorage.getItem(key) || 0);
+                    if (Date.now() - last > 15000) {
+                        sessionStorage.setItem(key, String(Date.now()));
+                        window.location.reload();
+                    }
+                } catch {
+                    /* storage unavailable */
+                }
+                throw err;
+            }),
+        errorComponent: {
+            render: () =>
+                h('section', { class: 'panel', style: 'text-align:center;padding:28px 18px;' }, [
+                    h('strong', 'Hay una versión nueva disponible'),
+                    h('p', { class: 'muted' }, 'Actualiza para cargar la pantalla más reciente.'),
+                    h(
+                        'button',
+                        { type: 'button', class: 'button primary', onClick: () => window.location.reload() },
+                        'Actualizar ahora',
+                    ),
+                ]),
+        },
+        delay: 150,
+    });
+}
+
+const BusinessSettings = lazyView(() => import('./components/BusinessSettings.vue'));
+const TeamView = lazyView(() => import('./components/TeamView.vue'));
+const InviteView = lazyView(() => import('./components/InviteView.vue'));
+const ProductsHubView = lazyView(() => import('./components/ProductsHubView.vue'));
 import AppIcon from './components/AppIcon.vue';
 import SalesWorkspace from './components/SalesWorkspace.vue';
-const CustomersView = defineAsyncComponent(() => import('./components/CustomersView.vue'));
-const CustomerLinkView = defineAsyncComponent(() => import('./components/CustomerLinkView.vue'));
-const EmployeesView = defineAsyncComponent(() => import('./components/EmployeesView.vue'));
-const WeeklyAccountsView = defineAsyncComponent(() => import('./components/WeeklyAccountsView.vue'));
-const WeeklySettings = defineAsyncComponent(() => import('./components/WeeklySettings.vue'));
-const InvoicesView = defineAsyncComponent(() => import('./components/InvoicesView.vue'));
-const ReceivablesView = defineAsyncComponent(() => import('./components/ReceivablesView.vue'));
+const CustomersView = lazyView(() => import('./components/CustomersView.vue'));
+const CustomerLinkView = lazyView(() => import('./components/CustomerLinkView.vue'));
+const EmployeesView = lazyView(() => import('./components/EmployeesView.vue'));
+const WeeklyAccountsView = lazyView(() => import('./components/WeeklyAccountsView.vue'));
+const WeeklySettings = lazyView(() => import('./components/WeeklySettings.vue'));
+const InvoicesView = lazyView(() => import('./components/InvoicesView.vue'));
+const ReceivablesView = lazyView(() => import('./components/ReceivablesView.vue'));
 import BasketBoard from './components/BasketBoard.vue';
-const WhatsAppSettings = defineAsyncComponent(() => import('./components/WhatsAppSettings.vue'));
-const WhatsAppAutomations = defineAsyncComponent(() => import('./components/WhatsAppAutomations.vue'));
-const WhatsAppInboxView = defineAsyncComponent(() => import('./components/WhatsAppInboxView.vue'));
-const PaymentMethodSettings = defineAsyncComponent(() => import('./components/PaymentMethodSettings.vue'));
-const InvoiceSettings = defineAsyncComponent(() => import('./components/InvoiceSettings.vue'));
-const ReservationSettings = defineAsyncComponent(() => import('./components/ReservationSettings.vue'));
-const SalesControlView = defineAsyncComponent(() => import('./components/SalesControlView.vue'));
+const WhatsAppSettings = lazyView(() => import('./components/WhatsAppSettings.vue'));
+const WhatsAppAutomations = lazyView(() => import('./components/WhatsAppAutomations.vue'));
+const WhatsAppInboxView = lazyView(() => import('./components/WhatsAppInboxView.vue'));
+const PaymentMethodSettings = lazyView(() => import('./components/PaymentMethodSettings.vue'));
+const InvoiceSettings = lazyView(() => import('./components/InvoiceSettings.vue'));
+const ReservationSettings = lazyView(() => import('./components/ReservationSettings.vue'));
+const SalesControlView = lazyView(() => import('./components/SalesControlView.vue'));
 import {salesControlText} from './locales/es/salesControl';
 import { useVisualViewport } from './composables/useVisualViewport';
 import { lockPageScroll } from './lib/scrollLock';
