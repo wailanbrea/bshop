@@ -4,6 +4,21 @@ import { amount } from '../catalog';
 import { quantity } from '../inventory';
 defineProps<{ basket: BasketCardData; selected: boolean; disabled: boolean }>();
 const emit = defineEmits<{ select: [number] }>();
+function shortOpenedAt(iso?: string | null): string {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '';
+    try {
+        return new Intl.DateTimeFormat('es', {
+            day: '2-digit',
+            month: 'short',
+            hour: 'numeric',
+            minute: '2-digit',
+        }).format(d);
+    } catch {
+        return '';
+    }
+}
 </script>
 <template>
     <button
@@ -21,10 +36,10 @@ const emit = defineEmits<{ select: [number] }>();
         :aria-pressed="selected"
         @click="emit('select', basket.id)"
     >
-        <small class="basket-deposit"
-            >Depósito: <b>{{ amount(basket.deposit, basket.currency) }}</b></small
-        ><strong class="basket-number">{{ basket.number }}</strong
-        ><strong class="basket-customer-name">{{ basket.customer_name }}</strong
+        <div class="basket-card-top-row">
+            <small v-if="shortOpenedAt(basket.created_at)" class="basket-opened-at">{{ shortOpenedAt(basket.created_at) }}</small>
+            <small class="basket-deposit">Depósito: <b>{{ amount(basket.deposit, basket.currency) }}</b></small>
+        </div><strong class="basket-number">{{ basket.number }}</strong><strong class="basket-customer-name">{{ basket.customer_name }}</strong
         ><span
             >{{ quantity(basket.quantity_count || String(basket.items_count)) }} artículos ·
             {{ amount(basket.total, basket.currency) }}</span
@@ -40,3 +55,24 @@ const emit = defineEmits<{ select: [number] }>();
         <span v-if="selected" class="basket-selection" aria-hidden="true">✓</span>
     </button>
 </template>
+<style scoped>
+.basket-card-top-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    width: 100%;
+    flex-wrap: wrap;
+}
+.basket-opened-at {
+    font-size: 0.72rem;
+    color: #646982;
+    font-weight: 600;
+    white-space: nowrap;
+}
+.basket-card-top-row .basket-deposit {
+    position: static;
+    margin-left: auto;
+    white-space: nowrap;
+}
+</style>

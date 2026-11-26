@@ -1,5 +1,5 @@
 import type { CartLine, SavedOrder } from './sales';
-export interface BasketCardData { id: number; number: string; customer_id: number; customer_name: string; phone: string | null; items_count: number; quantity_count?: string; total: string; deposit: string; pending: string; currency: string; status: string; closed: boolean; invoice_generated: boolean; whatsapp_status: string | null; paid: boolean; shipped: boolean; version: number }
+export interface BasketCardData { id: number; number: string; created_at?: string | null; customer_id: number; customer_name: string; phone: string | null; items_count: number; quantity_count?: string; total: string; deposit: string; pending: string; currency: string; status: string; closed: boolean; invoice_generated: boolean; whatsapp_status: string | null; paid: boolean; shipped: boolean; version: number }
 export interface BasketLine extends CartLine { id?: number }
 export interface BasketDraft { version: number; lines: BasketLine[]; shipping: string; discount: string }
 export interface BasketQuote { quote_hash: string; subtotal: string; shipping_total: string; discount_total: string; tax_total: string; grand_total: string; paid_total: string; pending_total: string; currency: string }
