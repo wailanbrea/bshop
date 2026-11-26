@@ -46,7 +46,7 @@ class WhatsAppWebhookController extends Controller
         return response($challenge, 200, ['Content-Type' => 'text/plain']);
     }
 
-    public function receive(Request $request, WhatsAppConfiguration $configuration)
+    public function receive(Request $request, WhatsAppConfiguration $configuration, \App\Domain\Sales\WhatsAppInboxService $inbox)
     {
         $raw = $request->getContent();
         abort_if(strlen($raw) > 1048576, 413);
@@ -64,9 +64,31 @@ class WhatsAppWebhookController extends Controller
             foreach (($entry['changes'] ?? []) as $change) {
                 $value = $change['value'] ?? [];
                 $sender = (string) ($value['metadata']['phone_number_id'] ?? '');
+                $targetStoreId = $inbox->resolveStoreIdByPhoneNumberId($sender);
+
+                // Process inbound customer messages into isolated store WhatsApp Inbox
+                if ($targetStoreId !== null && ! empty($value['messages']) && is_array($value['messages'])) {
+                    $contactsMap = [];
+                    foreach (($value['contacts'] ?? []) as $contact) {
+                        if (! empty($contact['wa_id']) && ! empty($contact['profile']['name'])) {
+                            $contactsMap[(string) $contact['wa_id']] = (string) $contact['profile']['name'];
+                        }
+                    }
+                    foreach ($value['messages'] as $msg) {
+                        if (! is_array($msg)) {
+                            continue;
+                        }
+                        $fromKey = (string) ($msg['from'] ?? '');
+                        $inbox->recordInboundWebhookMessage($targetStoreId, $msg, $contactsMap[$fromKey] ?? null);
+                    }
+                }
+
                 foreach (($value['statuses'] ?? []) as $status) {
                     if (! in_array($status['status'] ?? '', ['sent', 'delivered', 'read', 'failed'], true) || ! is_string($status['id'] ?? null)) {
                         continue;
+                    }
+                    if ($targetStoreId !== null) {
+                        $inbox->updateMessageStatusFromWebhook($targetStoreId, $status);
                     }
                     DB::transaction(function () use ($status, $sender) {
                         $query = DB::table('invoice_deliveries')->where('sender_phone_id', $sender);

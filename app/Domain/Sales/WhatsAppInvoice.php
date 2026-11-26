@@ -24,9 +24,10 @@ final class WhatsAppInvoice
         abort_unless(preg_match('/^v[0-9]{1,2}\.0$/D', $c['graph_version']) && preg_match('/^[0-9]{5,40}$/D', $c['phone_number_id']), 422, 'Configuración del proveedor no válida.');
         $invoice = DB::table('invoices')->where('store_id', $context->store()->id)->where('id', $invoiceId)->firstOrFail();
         $snapshot = OrderInvoice::customer($invoice);
-        $phone = preg_replace('/[\s().-]+/', '', Customer::withTrashed()->findOrFail($invoice->customer_id)->phone ?? '');
+        $rawCustomerPhone = Customer::withTrashed()->findOrFail($invoice->customer_id)->phone ?? '';
+        $phone = WhatsAppInboxService::normalizePhone($rawCustomerPhone) ?? '';
         if (! preg_match('/^\+[1-9][0-9]{7,14}$/D', $phone)) {
-            throw ValidationException::withMessages(['phone' => 'Registra un teléfono internacional con + y código de país.']);
+            throw ValidationException::withMessages(['phone' => 'Registra un teléfono válido (ej. +1 829-814-4525 o 347-525-6436).']);
         }
         $directory = Storage::disk('private_invoices')->path('_locks');
         if (! is_dir($directory) && ! mkdir($directory, 0770, true) && ! is_dir($directory)) {
@@ -86,8 +87,23 @@ final class WhatsAppInvoice
                 // No automatic HTTP retry: timeout after message submission has an unknown outcome.
                 $this->state($delivery->id, 'sending');
                 $response = Http::withToken($c['access_token'])->acceptJson()->connectTimeout(5)->timeout(30)->post('https://graph.facebook.com/'.$c['graph_version'].'/'.$c['phone_number_id'].'/messages', ['messaging_product' => 'whatsapp', 'recipient_type' => 'individual', 'to' => ltrim($delivery->destination, '+'), 'type' => 'template', 'template' => ['name' => $c['template'], 'language' => ['code' => $c['language']], 'components' => $components], 'biz_opaque_callback_data' => $delivery->id]);
+                // Fallback to direct document message if template is still pending review in Meta and 24h customer window is open
+                if ($response->status() === 400 && in_array((int) $response->json('error.code'), [132000, 132001, 132015], true)) {
+                    $caption = sprintf('Hola %s, adjuntamos tu factura %s por un total de %s. Gracias por comprar en %s, ¡estamos a tu orden!', $values['customer_name'], $values['invoice_number'], $values['total'], $values['business_name']);
+                    $response = Http::withToken($c['access_token'])->acceptJson()->connectTimeout(5)->timeout(30)->post('https://graph.facebook.com/'.$c['graph_version'].'/'.$c['phone_number_id'].'/messages', ['messaging_product' => 'whatsapp', 'recipient_type' => 'individual', 'to' => ltrim($delivery->destination, '+'), 'type' => 'document', 'document' => ['id' => $upload->json('id'), 'filename' => $invoice->invoice_number.'.pdf', 'caption' => $caption], 'biz_opaque_callback_data' => $delivery->id]);
+                }
                 if ($response->successful() && is_string($response->json('messages.0.id'))) {
-                    DB::table('invoice_deliveries')->where('id', $delivery->id)->whereIn('status', ['sending', 'pending'])->update(['status' => 'accepted', 'provider_message_id' => $response->json('messages.0.id'), 'accepted_at' => now(), 'updated_at' => now()]);
+                    $msgId = $response->json('messages.0.id');
+                    DB::table('invoice_deliveries')->where('id', $delivery->id)->whereIn('status', ['sending', 'pending'])->update(['status' => 'accepted', 'provider_message_id' => $msgId, 'accepted_at' => now(), 'updated_at' => now()]);
+                    app(WhatsAppInboxService::class)->recordOutboundSystemMessage(
+                        (int) $invoice->store_id,
+                        $delivery->destination,
+                        $c['template'],
+                        sprintf('📄 Factura %s enviada (%s)', $invoice->invoice_number, $values['total']),
+                        $msgId,
+                        $invoice->invoice_number.'.pdf',
+                        $actor->id,
+                    );
                 } elseif ($response->status() >= 500 || $response->successful()) {
                     $this->state($delivery->id, 'unknown', 'provider_outcome_unknown');
                 } else {

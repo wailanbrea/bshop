@@ -19,6 +19,7 @@ const ReceivablesView = defineAsyncComponent(() => import('./components/Receivab
 import BasketBoard from './components/BasketBoard.vue';
 const WhatsAppSettings = defineAsyncComponent(() => import('./components/WhatsAppSettings.vue'));
 const WhatsAppAutomations = defineAsyncComponent(() => import('./components/WhatsAppAutomations.vue'));
+const WhatsAppInboxView = defineAsyncComponent(() => import('./components/WhatsAppInboxView.vue'));
 const PaymentMethodSettings = defineAsyncComponent(() => import('./components/PaymentMethodSettings.vue'));
 const InvoiceSettings = defineAsyncComponent(() => import('./components/InvoiceSettings.vue'));
 const ReservationSettings = defineAsyncComponent(() => import('./components/ReservationSettings.vue'));
@@ -55,7 +56,7 @@ function trapNavigation(event: KeyboardEvent) {
     if (event.shiftKey && document.activeElement === controls[0]) { event.preventDefault(); controls.at(-1)?.focus(); }
     else if (!event.shiftKey && document.activeElement === controls.at(-1)) { event.preventDefault(); controls[0]?.focus(); }
 }
-const page = ref(location.pathname.includes('/vista-cliente') ? 'customer-links' : location.pathname.includes('/historial-ventas') ? 'history' : location.pathname.includes('/cuentas-semanales') ? 'weekly' : location.pathname.includes('/vendedores') ? 'employees' : location.pathname.includes('/cxc') ? 'receivables' : location.pathname.includes('/apartados') ? 'baskets' : /\/ventas(\/|$)/.test(location.pathname) ? 'sales' : 'overview');
+const page = ref(location.pathname.includes('/mensajes') ? 'whatsapp-inbox' : location.pathname.includes('/vista-cliente') ? 'customer-links' : location.pathname.includes('/historial-ventas') ? 'history' : location.pathname.includes('/cuentas-semanales') ? 'weekly' : location.pathname.includes('/vendedores') ? 'employees' : location.pathname.includes('/cxc') ? 'receivables' : location.pathname.includes('/apartados') ? 'baskets' : /\/ventas(\/|$)/.test(location.pathname) ? 'sales' : 'overview');
 const weeklyContextLocked = ref(false);
 const employeeContextLocked = ref(false);
 const basketBoard = ref<InstanceType<typeof BasketBoard>>(); const basketContextLocked=ref(false);
@@ -63,9 +64,91 @@ const salesVisited = ref(page.value === 'sales'); const salesContextLocked = ref
 const salesTitle = ref(location.pathname.includes('/apartados/') ? 'Nuevo apartado' : 'Venta');
 const salesWorkspace = ref<InstanceType<typeof SalesWorkspace>>();
 const invitationToken = ref(location.pathname.startsWith('/join/') ? location.pathname.split('/').pop() || '' : '');
-const nav = computed(() => [{ id: 'overview', label: 'Vista general', icon: 'home' }, ...(workspace.value?.permissions.includes('sales.view') && workspace.value?.permissions.includes('customers.view') ? [{ id: 'receivables', label: 'Cuentas por cobrar', icon: 'document' },{id:'weekly',label:'Cuentas semanales',icon:'document'}] : []), ...(workspace.value?.permissions.includes('sales.view') ? [{ id: 'sales', label: 'Ventas', icon: 'cart' },{id:'history',label:salesControlText.navigation,icon:'document'},{id:'baskets',label:'Apartados',icon:'bag'}] : []), ...(workspace.value?.permissions.includes('customers.view') && workspace.value?.permissions.includes('sales.view') && workspace.value?.permissions.includes('sales.create') ? [{ id: 'customer-links', label: 'Vista del cliente', icon: 'users' }] : []), ...(workspace.value?.permissions.includes('customers.view') ? [{ id: 'customers', label: 'Clientes', icon: 'users' }] : []), ...(workspace.value?.permissions.includes('catalog.view') || workspace.value?.permissions.includes('inventory.view') ? [{ id: 'catalog', label: 'Productos', icon: 'box' }] : []), ...(workspace.value?.permissions.includes('invoices.view') ? [{ id: 'invoices', label: 'Facturas', icon: 'document' }] : []), { id: 'stores', label: 'Sucursales', icon: 'store' }, { id: 'warehouses', label: 'Almacenes', icon: 'warehouse' }, ...(workspace.value?.permissions.includes('members.manage') ? [{ id: 'employees', label: 'Vendedores', icon: 'users' },{ id: 'team', label: 'Equipo', icon: 'users' }] : []), { id: 'settings', label: 'Configuración', icon: 'settings' }]);
+const waUnreadCount = ref(0);
+const waTargetConversationId = ref<number | null>(null);
+const waToast = ref<{ conversation_id: number; sender_name: string; preview: string } | null>(null);
+let lastSeenInboundMsgId: number | null = null;
+let waToastTimer: ReturnType<typeof setTimeout> | null = null;
+let waPollInterval: ReturnType<typeof setInterval> | null = null;
+const nav = computed(() => [{ id: 'overview', label: 'Vista general', icon: 'home', badge: 0 }, ...(workspace.value?.permissions.includes('sales.view') && workspace.value?.permissions.includes('customers.view') ? [{ id: 'receivables', label: 'Cuentas por cobrar', icon: 'document', badge: 0 },{id:'weekly',label:'Cuentas semanales',icon:'document', badge: 0}] : []), ...(workspace.value?.permissions.includes('sales.view') ? [{ id: 'sales', label: 'Ventas', icon: 'cart', badge: 0 },{id:'history',label:salesControlText.navigation,icon:'document', badge: 0},{id:'baskets',label:'Apartados',icon:'bag', badge: 0},{id:'whatsapp-inbox',label:'Mensajes WhatsApp',icon:'chat', badge: waUnreadCount.value}] : []), ...(workspace.value?.permissions.includes('customers.view') && workspace.value?.permissions.includes('sales.view') && workspace.value?.permissions.includes('sales.create') ? [{ id: 'customer-links', label: 'Vista del cliente', icon: 'users', badge: 0 }] : []), ...(workspace.value?.permissions.includes('customers.view') ? [{ id: 'customers', label: 'Clientes', icon: 'users', badge: 0 }] : []), ...(workspace.value?.permissions.includes('catalog.view') || workspace.value?.permissions.includes('inventory.view') ? [{ id: 'catalog', label: 'Productos', icon: 'box', badge: 0 }] : []), ...(workspace.value?.permissions.includes('invoices.view') ? [{ id: 'invoices', label: 'Facturas', icon: 'document', badge: 0 }] : []), { id: 'stores', label: 'Sucursales', icon: 'store', badge: 0 }, { id: 'warehouses', label: 'Almacenes', icon: 'warehouse', badge: 0 }, ...(workspace.value?.permissions.includes('members.manage') ? [{ id: 'employees', label: 'Vendedores', icon: 'users', badge: 0 },{ id: 'team', label: 'Equipo', icon: 'users', badge: 0 }] : []), { id: 'settings', label: 'Configuración', icon: 'settings', badge: 0 }]);
 const store = computed(() => workspace.value?.stores.find(s => s.id === storeId.value));
-watch(() => store.value?.id, (id) => { loadStorePaymentMethods(id); }, { immediate: true });
+watch(() => store.value?.id, (id) => { loadStorePaymentMethods(id); lastSeenInboundMsgId = null; checkWhatsAppUnread(true); }, { immediate: true });
+
+function playIncomingChime() {
+    try {
+        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+        if (!AudioCtx) return;
+        const ctx = new AudioCtx();
+        const now = ctx.currentTime;
+        for (const [freq, start] of [[587.33, 0], [880, 0.12]] as const) {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.value = freq;
+            gain.gain.setValueAtTime(0.08, now + start);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + start + 0.18);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(now + start);
+            osc.stop(now + start + 0.2);
+        }
+        setTimeout(() => ctx.close().catch(() => {}), 500);
+    } catch {
+        /* Audio blocked until user gesture */
+    }
+}
+
+async function checkWhatsAppUnread(initial = false) {
+    if (!store.value?.id || !workspace.value?.permissions.includes('sales.view')) {
+        waUnreadCount.value = 0;
+        return;
+    }
+    try {
+        const res = (await api.get(`/business/stores/${store.value.id}/whatsapp/inbox/unread`)).data.data;
+        const count = Number(res.unread_messages || 0);
+        waUnreadCount.value = count;
+        if ('setAppBadge' in navigator) {
+            if (count > 0) (navigator as any).setAppBadge(count).catch(() => {});
+            else (navigator as any).clearAppBadge?.().catch(() => {});
+        }
+        const latest = res.latest_inbound;
+        if (latest?.id) {
+            if (!initial && lastSeenInboundMsgId !== null && latest.id > lastSeenInboundMsgId) {
+                playIncomingChime();
+                if (page.value !== 'whatsapp-inbox') {
+                    waToast.value = {
+                        conversation_id: latest.conversation_id,
+                        sender_name: latest.sender_name,
+                        preview: latest.preview,
+                    };
+                    if (waToastTimer) clearTimeout(waToastTimer);
+                    waToastTimer = setTimeout(() => { waToast.value = null; }, 9000);
+                }
+                if (typeof Notification !== 'undefined' && Notification.permission === 'granted' && document.hidden) {
+                    const n = new Notification(`WhatsApp · ${latest.sender_name}`, {
+                        body: latest.preview,
+                        icon: '/pwa-192x192.png',
+                    });
+                    n.onclick = () => {
+                        window.focus();
+                        openWhatsAppConversation(latest.conversation_id);
+                    };
+                }
+            }
+            lastSeenInboundMsgId = latest.id;
+        } else if (initial) {
+            lastSeenInboundMsgId = 0;
+        }
+    } catch {
+        /* Silent background poll */
+    }
+}
+
+function openWhatsAppConversation(conversationId?: number) {
+    waToast.value = null;
+    if (conversationId) waTargetConversationId.value = conversationId;
+    navigate('whatsapp-inbox');
+}
 const activeBrandName = computed(() => store.value?.name || workspace.value?.business.name || session.value?.business.name || 'BShop');
 watch(activeBrandName, name => { if (name) document.title = `${name} · BShop`; }, { immediate: true });
 const title = computed(() => nav.value.find(n => n.id === page.value)?.label || 'Mi negocio');
@@ -96,7 +179,7 @@ async function loadWorkspace() {
         if (version !== workspaceRequest) return;
         workspace.value = result; storeId.value = preferredStore(result);
         if (['team','employees'].includes(page.value) && !result.permissions.includes('members.manage')) page.value = 'overview';
-        if (['sales','baskets','history'].includes(page.value) && !result.permissions.includes('sales.view')) page.value = 'overview';
+        if (['sales','baskets','history','whatsapp-inbox'].includes(page.value) && !result.permissions.includes('sales.view')) page.value = 'overview';
         if (['receivables','weekly'].includes(page.value) && (!result.permissions.includes('sales.view') || !result.permissions.includes('customers.view'))) page.value = 'overview';
         await loadWarehouses();
     } catch (e) { if (version === workspaceRequest) error.value = errorMessage(e); }
@@ -129,12 +212,13 @@ async function logout() {
     try { await api.post('/logout'); session.value = null; workspace.value = null; warehouses.value = []; if (!invitationToken.value) history.replaceState({}, '', '/login'); }
     catch (e) { error.value = errorMessage(e); }
 }
-function navigate(id: string) { page.value = id; if (id === 'sales') { salesVisited.value = true; history.replaceState({}, '', '/app/ventas'); } else if(id==='customer-links')history.replaceState({},'', '/app/vista-cliente');else if(id==='history')history.replaceState({},'', '/app/historial-ventas');else if(id==='weekly')history.replaceState({},'', '/app/cuentas-semanales');else if(id==='employees')history.replaceState({},'', '/app/vendedores');else if(id==='receivables')history.replaceState({},'', '/app/cxc');else if(id==='baskets')history.replaceState({},'', '/app/apartados');else if (!invitationToken.value) history.replaceState({}, '', '/'); menuOpen.value = false; window.scrollTo({ top: 0, behavior: 'auto' }); }
+function navigate(id: string) { page.value = id; if (id === 'sales') { salesVisited.value = true; history.replaceState({}, '', '/app/ventas'); } else if(id==='whatsapp-inbox')history.replaceState({},'', '/app/mensajes'); else if(id==='customer-links')history.replaceState({},'', '/app/vista-cliente');else if(id==='history')history.replaceState({},'', '/app/historial-ventas');else if(id==='weekly')history.replaceState({},'', '/app/cuentas-semanales');else if(id==='employees')history.replaceState({},'', '/app/vendedores');else if(id==='receivables')history.replaceState({},'', '/app/cxc');else if(id==='baskets')history.replaceState({},'', '/app/apartados');else if (!invitationToken.value) history.replaceState({}, '', '/'); menuOpen.value = false; window.scrollTo({ top: 0, behavior: 'auto' }); }
 async function openSavedOrder(id?: number) { navigate('baskets'); await nextTick(); if(id)await basketBoard.value?.select(id); }
 async function invitationAccepted() { invitationToken.value = ''; history.replaceState({}, '', '/'); await loadSession(); }
+function onVisibilityChange() { if (!document.hidden) checkWhatsAppUnread(false); }
 onMounted(loadSession);
-onMounted(() => { drawerQuery.addEventListener('change', syncLayout); phoneQuery.addEventListener('change', syncLayout); });
-onUnmounted(() => { unlockMenu?.(); drawerQuery.removeEventListener('change', syncLayout); phoneQuery.removeEventListener('change', syncLayout); });
+onMounted(() => { drawerQuery.addEventListener('change', syncLayout); phoneQuery.addEventListener('change', syncLayout); document.addEventListener('visibilitychange', onVisibilityChange); waPollInterval = setInterval(() => { if (!document.hidden) checkWhatsAppUnread(false); }, 12000); });
+onUnmounted(() => { unlockMenu?.(); if (waPollInterval) clearInterval(waPollInterval); if (waToastTimer) clearTimeout(waToastTimer); drawerQuery.removeEventListener('change', syncLayout); phoneQuery.removeEventListener('change', syncLayout); document.removeEventListener('visibilitychange', onVisibilityChange); });
 </script>
 
 <template>
@@ -148,15 +232,25 @@ onUnmounted(() => { unlockMenu?.(); drawerQuery.removeEventListener('change', sy
             <button v-if="drawerMode && menuOpen" type="button" class="icon-button drawer-close" aria-label="Cerrar menú" @click="menuOpen = false">×</button>
             <a href="/" class="brand" :aria-label="`${activeBrandName} inicio`"><span class="brand-mark" aria-hidden="true">{{ activeBrandName.slice(0, 1).toUpperCase() }}</span><span class="brand-word"><strong>{{ activeBrandName }}</strong><small>Gestión de tienda</small></span></a>
             <div class="workspace-switch"><span class="eyebrow">TU NEGOCIO</span><strong class="business-name">{{ activeBrandName }}</strong><span class="workspace-subtitle">Tu negocio y sus sucursales</span></div>
-            <span class="nav-caption">PRINCIPAL</span><nav aria-label="Navegación principal"><button v-for="item in nav" :key="item.id" class="nav-item" :class="{ active: page === item.id }" :aria-label="item.label" :aria-current="page === item.id ? 'page' : undefined" @click="navigate(item.id)"><span><AppIcon :name="item.icon" /></span><span class="nav-label">{{ item.label }}</span><span v-if="page === item.id" class="nav-active-dot"></span></button></nav>
+            <span class="nav-caption">PRINCIPAL</span><nav aria-label="Navegación principal"><button v-for="item in nav" :key="item.id" class="nav-item" :class="{ active: page === item.id }" :aria-label="item.label" :aria-current="page === item.id ? 'page' : undefined" @click="navigate(item.id)"><span><AppIcon :name="item.icon" /></span><span class="nav-label">{{ item.label }}</span><span v-if="item.badge" class="wa-nav-badge">{{ item.badge > 99 ? '99+' : item.badge }}</span><span v-else-if="page === item.id" class="nav-active-dot"></span></button></nav>
             <div class="sidebar-bottom"><div class="support-card"><span><AppIcon name="store" /></span><strong>Mi tienda</strong><p>{{ activeBrandName }}</p></div><div class="user-block"><span class="avatar">{{ session.user.name.slice(0, 1) }}</span><div><strong>{{ session.user.name }}</strong><small>{{ roles }}</small></div><button class="icon-button" @click="logout" aria-label="Cerrar sesión" title="Cerrar sesión">↪</button></div></div>
         </aside>
         <div class="main-shell" :inert="menuOpen ? true : undefined">
             <header class="topbar">
                 <div class="breadcrumb"><button ref="menuButton" type="button" class="icon-button menu-toggle" @click="menuOpen = !menuOpen" aria-label="Abrir menú" aria-controls="main-navigation" :aria-expanded="menuOpen">☰</button><div v-if="page === 'sales'" class="sales-header-title"><h1>{{ salesTitle }}</h1><p>Ventas y apartados de tu negocio</p></div><template v-else><span class="breadcrumb-parent">Mi negocio</span><span class="breadcrumb-slash">/</span><strong>{{ title }}</strong></template></div>
                 <label v-if="workspace" class="branch-picker"><span>SUCURSAL ACTIVA</span><select v-model="storeId" :disabled="(page === 'sales' && salesContextLocked)||(page==='baskets'&&basketContextLocked)||(page==='weekly'&&weeklyContextLocked)||(page==='employees'&&employeeContextLocked)" @change="loadWarehouses"><option v-for="branch in workspace.stores" :key="branch.id" :value="branch.id">{{ branch.name }}{{ branch.is_active ? '' : ' · Inactiva' }}</option><option v-if="!workspace.stores.length" value="">Sin acceso a sucursales</option></select></label>
-                <div class="topbar-right"><span class="secure-label"><span class="status-dot"></span> Sesión segura</span><span class="avatar small">{{ session.user.name.slice(0, 1) }}</span><div class="topbar-profile"><strong>{{ session.user.name }}</strong><small>{{ roles }}</small></div></div>
+                <div class="topbar-right"><button v-if="waUnreadCount > 0 && page !== 'whatsapp-inbox'" type="button" class="wa-topbar-pill" @click="openWhatsAppConversation()">💬 {{ waUnreadCount }} nuevo{{ waUnreadCount === 1 ? '' : 's' }}</button><span class="secure-label"><span class="status-dot"></span> Sesión segura</span><span class="avatar small">{{ session.user.name.slice(0, 1) }}</span><div class="topbar-profile"><strong>{{ session.user.name }}</strong><small>{{ roles }}</small></div></div>
             </header>
+            <div v-if="waToast" class="wa-live-toast" role="status" aria-live="polite">
+                <div class="wa-live-toast-body" @click="openWhatsAppConversation(waToast.conversation_id)">
+                    <strong>💬 Nuevo WhatsApp · {{ waToast.sender_name }}</strong>
+                    <p>{{ waToast.preview }}</p>
+                </div>
+                <div class="wa-live-toast-actions">
+                    <button type="button" class="button primary" @click="openWhatsAppConversation(waToast.conversation_id)">Responder</button>
+                    <button type="button" class="icon-button" aria-label="Cerrar aviso" @click="waToast = null">×</button>
+                </div>
+            </div>
             <main class="main-content" :class="{ 'sales-page': page === 'sales' }">
                 <p v-if="error" class="notice error" role="alert">{{ error }} <button class="text-button" @click="loadWorkspace">Reintentar</button></p>
                 <div v-if="switching" class="skeleton-grid" aria-label="Cargando negocio" role="status"><div></div><div></div><div></div></div>
@@ -179,6 +273,7 @@ onUnmounted(() => { unlockMenu?.(); drawerQuery.removeEventListener('change', sy
                     <ReceivablesView v-else-if="page === 'receivables' && workspace.permissions.includes('sales.view') && workspace.permissions.includes('customers.view')" :key="store?.id || 'none'" :store="store" :permissions="workspace.permissions" @open-order="openSavedOrder" />
                     <InvoicesView v-else-if="page === 'invoices' && workspace.permissions.includes('invoices.view')" :key="store?.id || 'none'" :store="store" @open-order="openSavedOrder" />
                     <BasketBoard v-else-if="page==='baskets'&&workspace.permissions.includes('sales.view')" ref="basketBoard" :key="store?.id||'none'" :actor-id="session.user.id" :active="page==='baskets'" :business="workspace.business" :store="store" :warehouses="warehouses" :permissions="workspace.permissions" @context-locked="basketContextLocked=$event" />
+                    <WhatsAppInboxView v-else-if="page==='whatsapp-inbox'&&workspace.permissions.includes('sales.view')" :key="store?.id||'none'" :store="store" :permissions="workspace.permissions" :initial-conversation-id="waTargetConversationId" @open-order="openSavedOrder" @open-settings="navigate('settings')" @read-updated="checkWhatsAppUnread(true)" />
                     <TeamView v-else-if="page === 'team'" :business="workspace.business" @access-changed="refreshAccess" />
                     <BusinessSettings v-else-if="page !== 'sales'" :key="page" :business="workspace.business" :stores="workspace.stores" :warehouses="warehouses" :store="store" :permissions="workspace.permissions" :page="page" @changed="reload" />
                     <KeepAlive :max="5"><SalesWorkspace v-if="salesVisited && workspace.permissions.includes('sales.view')" ref="salesWorkspace" v-show="page === 'sales'" :key="store?.id || 'none'" :actor-id="session.user.id" :active="page === 'sales'" :business="workspace.business" :store="store" :warehouses="warehouses" :permissions="workspace.permissions" @context-locked="salesContextLocked = $event" @title-change="salesTitle = $event" @open-apartados="openSavedOrder" /></KeepAlive>
@@ -194,4 +289,76 @@ onUnmounted(() => { unlockMenu?.(); drawerQuery.removeEventListener('change', sy
         </div>
     </div>
 </template>
+<style scoped>
+.wa-nav-badge {
+    margin-left: auto;
+    background: #dc2626;
+    color: #fff;
+    font-size: 0.72rem;
+    font-weight: 800;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 6px;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+.wa-topbar-pill {
+    background: #dcfce7;
+    color: #166534;
+    border: 1px solid #86efac;
+    border-radius: 999px;
+    padding: 6px 12px;
+    font-size: 0.82rem;
+    font-weight: 700;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.wa-live-toast {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    z-index: 90;
+    max-width: min(400px, calc(100vw - 32px));
+    background: #17152c;
+    color: #fff;
+    border-radius: 14px;
+    padding: 12px 14px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+.wa-live-toast-body {
+    cursor: pointer;
+    min-width: 0;
+    flex: 1;
+}
+.wa-live-toast-body strong {
+    display: block;
+    font-size: 0.9rem;
+}
+.wa-live-toast-body p {
+    margin: 3px 0 0;
+    font-size: 0.82rem;
+    color: #d1d5db;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.wa-live-toast-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+.wa-live-toast-actions .button {
+    min-height: 34px;
+    padding: 4px 12px;
+    font-size: 0.82rem;
+    white-space: nowrap;
+}
+</style>
 

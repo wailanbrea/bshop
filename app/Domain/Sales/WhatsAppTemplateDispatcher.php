@@ -113,7 +113,7 @@ final class WhatsAppTemplateDispatcher
         ?int $entityId = null,
         ?int $cooldownHours = null,
     ): array {
-        $phone = preg_replace('/[\s().-]+/', '', (string) ($rawPhone ?? ''));
+        $phone = WhatsAppInboxService::normalizePhone($rawPhone) ?? '';
         if (! preg_match('/^\+[1-9][0-9]{7,14}$/D', $phone)) {
             return $this->recordLog($storeId, $eventType, $entityType, $entityId, $phone ?: 'invalid', $templateName, 'skipped', null, 'invalid_phone', $bodyParams);
         }
@@ -184,7 +184,17 @@ final class WhatsAppTemplateDispatcher
                 ]);
 
             if ($response->successful() && is_string($response->json('messages.0.id'))) {
-                return $this->recordLog($storeId, $eventType, $entityType, $entityId, $phone, $templateName, 'sent', $response->json('messages.0.id'), null, $bodyParams);
+                $providerMsgId = $response->json('messages.0.id');
+                app(WhatsAppInboxService::class)->recordOutboundSystemMessage(
+                    $storeId,
+                    $phone,
+                    $templateName,
+                    '🔔 Plantilla '.$templateName.': '.implode(' · ', array_map('strval', $bodyParams)),
+                    $providerMsgId,
+                    $pdfFilename,
+                );
+
+                return $this->recordLog($storeId, $eventType, $entityType, $entityId, $phone, $templateName, 'sent', $providerMsgId, null, $bodyParams);
             }
 
             return $this->recordLog($storeId, $eventType, $entityType, $entityId, $phone, $templateName, 'failed', null, 'provider_rejected_'.$response->status(), $bodyParams);
