@@ -87,10 +87,10 @@ class WhatsAppAutoApartadoTest extends TestCase
             'status' => 'active',
         ]);
 
-        $attr = ProductAttribute::create([
-            'name' => 'Talla',
-            'is_active' => true,
-        ]);
+        $attr = ProductAttribute::firstOrCreate(
+            ['name' => 'Talla'],
+            ['is_active' => true],
+        );
 
         foreach ($variantsSpec as $spec) {
             $v = ProductVariant::create([
@@ -238,5 +238,36 @@ class WhatsAppAutoApartadoTest extends TestCase
             'body' => '🚫 El cliente eliminó un mensaje',
             'status' => 'deleted',
         ]);
+    }
+
+    public function test_public_catalog_page_and_multi_code_auto_apartado(): void
+    {
+        Http::fake([
+            'https://graph.facebook.com/*' => Http::response(['messages' => [['id' => 'wamid.MULTI_BOT']]], 200),
+        ]);
+
+        $p1 = $this->createProductWithStock('Collar Perla', [['sku' => 'COL-01', 'price' => '20.0000', 'stock' => 4]]);
+        $p2 = $this->createProductWithStock('Aretes Oro', [['sku' => 'ARE-01', 'price' => '15.0000', 'stock' => 4]]);
+
+        // Public catalog renders without auth and never exposes cost_price
+        $this->get('/catalogo/'.$this->store->id)
+            ->assertOk()
+            ->assertSee('Collar Perla')
+            ->assertSee('K-'.$p1->id)
+            ->assertDontSee('cost_price');
+
+        // Multi-code message from Public Catalog cart reserves both products into one Apartado ($35.00)
+        $this->postWebhook([[
+            'id' => 'wamid.CART_1',
+            'from' => '18298144525',
+            'timestamp' => (string) now()->timestamp,
+            'type' => 'text',
+            'text' => ['body' => "K-{$p1->id}\nK-{$p2->id}"],
+        ]])->assertOk();
+
+        $order = SalesOrder::where('store_id', $this->store->id)->first();
+        $this->assertNotNull($order);
+        $this->assertSame('35.0000', (string) $order->grand_total);
+        $this->assertSame(2, $order->items()->count());
     }
 }

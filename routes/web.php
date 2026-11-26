@@ -1,12 +1,14 @@
 <?php
 
 use App\Http\Controllers\CatalogImageController;
+use App\Http\Controllers\PublicCatalogController;
 use App\Http\Controllers\SharedOrderController;
 use App\Http\Controllers\WhatsAppWebhookController;
 use App\Http\Middleware\ProtectPublicOrder;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('api/v1')->group(__DIR__.'/api.php');
+Route::get('/catalogo/{store}', [PublicCatalogController::class, 'show'])->where('store', '[A-Za-z0-9_-]{1,40}');
 Route::get('/s/order/{token}', [SharedOrderController::class, 'show'])->middleware('throttle:order-view-links');
 Route::view('/s/{token}', 'app')->where('token', '[a-f0-9]{64}')->middleware(ProtectPublicOrder::class);
 Route::get('/webhooks/whatsapp', [WhatsAppWebhookController::class, 'verify']);

@@ -120,13 +120,69 @@ async function savedProduct(id: number, openDetail = true) {
     }
 }
 const copiedWaProductId = ref<number | null>(null);
+const storeWaDigits = ref('');
+async function loadStoreWhatsApp() {
+    if (!props.store?.id) { storeWaDigits.value = ''; return; }
+    try {
+        const res = (await api.get('/business/integrations/whatsapp/status', { params: { store_id: props.store.id } })).data.data;
+        storeWaDigits.value = String(res?.display_phone || '').replace(/\D+/g, '');
+    } catch {
+        storeWaDigits.value = '';
+    }
+}
+function publicCatalogUrl(): string {
+    return props.store?.id ? `${window.location.origin}/catalogo/${props.store.id}` : window.location.origin;
+}
+function productWaLink(productId: number): string {
+    return storeWaDigits.value ? `https://wa.me/${storeWaDigits.value}?text=${encodeURIComponent('K-' + productId)}` : '';
+}
+async function copyPublicCatalogLink() {
+    const url = publicCatalogUrl();
+    const text = [
+        `🛍️ *Catálogo disponible · ${props.store?.name || props.business.name}*`,
+        `Mira todas las prendas con fotos, precios y disponibilidad en vivo aquí:`,
+        `👉 ${url}`,
+        `Toca cualquier prenda para apartarla al instante por WhatsApp ✨`,
+    ].join('\n');
+    try {
+        await navigator.clipboard.writeText(text);
+        notice.value = `Enlace del Catálogo Público (${url}) copiado para pegar en tu grupo.`;
+    } catch {
+        error.value = 'No se pudo copiar al portapapeles en este navegador.';
+    }
+}
+async function copyGroupList() {
+    const available = products.value.filter((p) => {
+        const st = cardAvailableStock(p);
+        return st === null || Number(st) > 0;
+    });
+    if (!available.length) {
+        error.value = 'No hay productos con stock disponible en esta vista para copiar.';
+        return;
+    }
+    const header = `🛍️ *DISPONIBLES HOY · ${props.store?.name || props.business.name}*`;
+    const body = available.map((p, i) => {
+        const link = productWaLink(p.id);
+        const line1 = `${i + 1}. *${p.name}* — ${cardDisplayPrice(p)} (Código: *K-${p.id}*)`;
+        return link ? `${line1}\n🔗 ${link}` : line1;
+    }).join('\n\n');
+    const footer = `\n\n🌐 Ver catálogo completo con fotos:\n${publicCatalogUrl()}`;
+    try {
+        await navigator.clipboard.writeText(`${header}\n\n${body}${footer}`);
+        notice.value = `Lista de ${available.length} productos con enlaces directos copiada para WhatsApp.`;
+    } catch {
+        error.value = 'No se pudo copiar al portapapeles en este navegador.';
+    }
+}
 async function copyWhatsAppPost(product: CatalogProduct) {
     const code = `K-${product.id}`;
     const price = cardDisplayPrice(product);
-    const activeVars = variants.value.data
-        .filter((v) => v.is_active && (!product.track_stock || Number(v.available_stock ?? 1) > 0))
-        .map((v) => v.attribute_values.map((a) => a.value).filter(Boolean).join(' / '))
-        .filter(Boolean);
+    const activeVars = selected.value?.id === product.id
+        ? variants.value.data
+            .filter((v) => v.is_active && (!product.track_stock || Number(v.available_stock ?? 1) > 0))
+            .map((v) => v.attribute_values.map((a) => a.value).filter(Boolean).join(' / '))
+            .filter(Boolean)
+        : [];
     const lines = [
         `✨ *${product.name}*`,
         `💰 ${price}`,
@@ -135,11 +191,16 @@ async function copyWhatsAppPost(product: CatalogProduct) {
         lines.push(`📏 Opciones: ${Array.from(new Set(activeVars)).join(', ')}`);
     }
     lines.push(`🏷️ Código: *${code}*`);
-    lines.push(`📲 Para apartarlo automáticamente escribe *${code}* a nuestro WhatsApp.`);
+    const link = productWaLink(product.id);
+    if (link) {
+        lines.push(`🔗 Toca aquí para apartarla al instante:\n${link}`);
+    } else {
+        lines.push(`📲 Para apartarlo automáticamente escribe *${code}* a nuestro WhatsApp.`);
+    }
     try {
         await navigator.clipboard.writeText(lines.join('\n'));
         copiedWaProductId.value = product.id;
-        notice.value = `Texto de ${product.name} (${code}) copiado para pegar en tu grupo de WhatsApp.`;
+        notice.value = `Enlace directo de ${product.name} (${code}) copiado para pegar en tu grupo.`;
         setTimeout(() => {
             if (copiedWaProductId.value === product.id) copiedWaProductId.value = null;
         }, 2500);
@@ -269,8 +330,8 @@ watch(() => props.store?.id, (newId, oldId) => {
         loadProducts(1);
     }
 });
-watch(() => props.store?.id, () => { loadProducts(page.value); if (selected.value) detail(selected.value.id, variants.value.current_page, true); });
-onMounted(() => { loadOptions(); loadProducts(); });
+watch(() => props.store?.id, () => { loadStoreWhatsApp(); loadProducts(page.value); if (selected.value) detail(selected.value.id, variants.value.current_page, true); });
+onMounted(() => { loadStoreWhatsApp(); loadOptions(); loadProducts(); });
 onUnmounted(() => { ++request; ++detailRequest; controller?.abort(); clearTimeout(searchTimer); });
 </script>
 <template>
@@ -290,6 +351,8 @@ onUnmounted(() => { ++request; ++detailRequest; controller?.abort(); clearTimeou
                 <button type="button" class="button soft-purple" @click="editProduct(null, $event, 'batch')">+ Varias fotos</button>
             </div>
             <div class="cat-secondary-tools">
+                <button v-if="store" type="button" class="tool-pill" @click="copyPublicCatalogLink">🌐 Catálogo con fotos</button>
+                <button v-if="store" type="button" class="tool-pill" :disabled="loading || !products.length" @click="copyGroupList">📋 Lista para grupo</button>
                 <button type="button" class="tool-pill" :disabled="loading || detailLoading" @click="refreshCatalog">Actualizar</button>
                 <button v-if="manage" type="button" class="tool-pill" @click="organizing = true">Organizar catálogo</button>
                 <button v-if="manage" type="button" class="tool-pill" @click="openImport">Importar CSV</button>
@@ -487,6 +550,14 @@ onUnmounted(() => { ++request; ++detailRequest; controller?.abort(); clearTimeou
                                     <span v-if="product.active_variants_count > 1" class="muted product-vars-count">{{ product.active_variants_count }} variantes</span>
                                 </div>
                             </button>
+                            <button
+                                type="button"
+                                class="card-delete-btn"
+                                :aria-label="`Copiar enlace directo de ${product.name}`"
+                                :title="`Copiar enlace WhatsApp K-${product.id}`"
+                                style="color: #4c1d95; border-color: #ddd6fe; background: #f5f3ff;"
+                                @click.stop="copyWhatsAppPost(product)"
+                            >{{ copiedWaProductId === product.id ? '✓' : '🔗' }}</button>
                             <button
                                 v-if="manage"
                                 type="button"

@@ -131,6 +131,35 @@ final class WhatsAppAutoApartadoService
             return;
         }
 
+        // Support multi-code messages from Public Catalog cart (e.g. "K-222, K-215 M" or newline-separated)
+        if (($msg['type'] ?? '') === 'text') {
+            $rawText = trim((string) ($msg['text']['body'] ?? ''));
+            if (preg_match('/[,\n;]/', $rawText)) {
+                $segments = array_values(array_filter(array_map('trim', preg_split('/[,\n;]+/', $rawText) ?: [])));
+                if (count($segments) >= 2 && count($segments) <= 10) {
+                    $parsedMulti = array_values(array_filter(array_map(
+                        fn ($seg) => self::parseInboundCommand(['type' => 'text', 'text' => ['body' => $seg]]),
+                        $segments
+                    )));
+                    if (count($parsedMulti) >= 2) {
+                        foreach ($segments as $idx => $seg) {
+                            $subMsg = $msg;
+                            $subMsg['id'] = (string) ($msg['id'] ?? 'multi').':'.$idx;
+                            $subMsg['text'] = ['body' => $seg];
+                            $this->handleSingleCommand($storeId, $subMsg, $recorded);
+                        }
+
+                        return;
+                    }
+                }
+            }
+        }
+
+        $this->handleSingleCommand($storeId, $msg, $recorded);
+    }
+
+    private function handleSingleCommand(int $storeId, array $msg, array $recorded): void
+    {
         $cmd = self::parseInboundCommand($msg);
         if (! $cmd) {
             return;

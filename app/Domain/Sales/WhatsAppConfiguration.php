@@ -18,6 +18,7 @@ final class WhatsAppConfiguration
             if ($row) {
                 $config['enabled'] = (bool) $row->enabled;
                 $config['phone_number_id'] = $row->phone_number_id;
+                $config['display_phone'] = $row->display_phone ?? null;
                 $config['template'] = $row->template;
                 $config['language'] = $row->language ?: ($config['language'] ?? 'es');
                 $config['graph_version'] = $row->graph_version ?: ($config['graph_version'] ?? 'v23.0');
@@ -76,7 +77,7 @@ final class WhatsAppConfiguration
                 $missing[] = $key;
             }
         }
-        $result = ['enabled' => (bool) $c['enabled'], 'ready' => (bool) $c['enabled'] && ! $missing, 'provider' => 'meta', 'store_id' => $storeId, 'reason' => ! $c['enabled'] ? 'WhatsApp está desactivado; es opcional.' : ($missing ? 'Falta completar la configuración de WhatsApp.' : 'Configuración completa; el resultado real se confirma al enviar y por webhook.')];
+        $result = ['enabled' => (bool) $c['enabled'], 'ready' => (bool) $c['enabled'] && ! $missing, 'provider' => 'meta', 'store_id' => $storeId, 'display_phone' => $c['display_phone'] ?? null, 'reason' => ! $c['enabled'] ? 'WhatsApp está desactivado; es opcional.' : ($missing ? 'Falta completar la configuración de WhatsApp.' : 'Configuración completa; el resultado real se confirma al enviar y por webhook.')];
         if ($admin) {
             $result += collect($c)->except(self::SECRETS)->all();
             $result['missing'] = $missing;
