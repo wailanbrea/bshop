@@ -25,6 +25,7 @@ final class WhatsAppTemplateDispatcher
     public static function defaultRules(): array
     {
         return [
+            'auto_apartado' => ['enabled' => false, 'template' => 'auto_apartado'],
             'payment_receipt' => ['enabled' => false, 'template' => 'recibo_abono'],
             'order_dispatched' => ['enabled' => false, 'template' => 'pedido_despachado'],
             'receivables_reminder' => ['enabled' => false, 'template' => 'recordatorio_saldo'],

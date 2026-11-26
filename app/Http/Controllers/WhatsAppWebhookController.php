@@ -46,8 +46,12 @@ class WhatsAppWebhookController extends Controller
         return response($challenge, 200, ['Content-Type' => 'text/plain']);
     }
 
-    public function receive(Request $request, WhatsAppConfiguration $configuration, \App\Domain\Sales\WhatsAppInboxService $inbox)
-    {
+    public function receive(
+        Request $request,
+        WhatsAppConfiguration $configuration,
+        \App\Domain\Sales\WhatsAppInboxService $inbox,
+        \App\Domain\Sales\WhatsAppAutoApartadoService $autoApartado,
+    ) {
         $raw = $request->getContent();
         abort_if(strlen($raw) > 1048576, 413);
         $signature = (string) $request->header('X-Hub-Signature-256');
@@ -79,7 +83,10 @@ class WhatsAppWebhookController extends Controller
                             continue;
                         }
                         $fromKey = (string) ($msg['from'] ?? '');
-                        $inbox->recordInboundWebhookMessage($targetStoreId, $msg, $contactsMap[$fromKey] ?? null);
+                        $recorded = $inbox->recordInboundWebhookMessage($targetStoreId, $msg, $contactsMap[$fromKey] ?? null);
+                        if ($recorded !== null && ($recorded['inserted'] ?? false)) {
+                            $autoApartado->handleInbound($targetStoreId, $msg, $recorded);
+                        }
                     }
                 }
 

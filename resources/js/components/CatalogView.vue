@@ -119,6 +119,34 @@ async function savedProduct(id: number, openDetail = true) {
         await loadProducts(1);
     }
 }
+const copiedWaProductId = ref<number | null>(null);
+async function copyWhatsAppPost(product: CatalogProduct) {
+    const code = `K-${product.id}`;
+    const price = cardDisplayPrice(product);
+    const activeVars = variants.value.data
+        .filter((v) => v.is_active && (!product.track_stock || Number(v.available_stock ?? 1) > 0))
+        .map((v) => v.attribute_values.map((a) => a.value).filter(Boolean).join(' / '))
+        .filter(Boolean);
+    const lines = [
+        `✨ *${product.name}*`,
+        `💰 ${price}`,
+    ];
+    if (activeVars.length > 0) {
+        lines.push(`📏 Opciones: ${Array.from(new Set(activeVars)).join(', ')}`);
+    }
+    lines.push(`🏷️ Código: *${code}*`);
+    lines.push(`📲 Para apartarlo automáticamente escribe *${code}* a nuestro WhatsApp.`);
+    try {
+        await navigator.clipboard.writeText(lines.join('\n'));
+        copiedWaProductId.value = product.id;
+        notice.value = `Texto de ${product.name} (${code}) copiado para pegar en tu grupo de WhatsApp.`;
+        setTimeout(() => {
+            if (copiedWaProductId.value === product.id) copiedWaProductId.value = null;
+        }, 2500);
+    } catch {
+        error.value = 'No se pudo copiar al portapapeles en este navegador.';
+    }
+}
 const cardImageIndex = ref<Record<number, number>>({});
 const detailImageIndex = ref(0);
 const selectedVariantId = ref<number | null>(null);
@@ -320,6 +348,13 @@ onUnmounted(() => { ++request; ++detailRequest; controller?.abort(); clearTimeou
                             </div>
                             <div class="detail-actions">
                                 <button
+                                    type="button"
+                                    class="button secondary"
+                                    @click="copyWhatsAppPost(selected)"
+                                >
+                                    {{ copiedWaProductId === selected.id ? '✓ Copiado' : `Copiar código K-${selected.id}` }}
+                                </button>
+                                <button
                                     v-if="store && permissions.includes('sales.view') && permissions.includes('customers.view')"
                                     type="button"
                                     class="button secondary"
@@ -443,6 +478,7 @@ onUnmounted(() => { ++request; ++detailRequest; controller?.abort(); clearTimeou
                                 <p v-if="cardDisplayVariantLabel(product)" class="product-variant-tag">{{ cardDisplayVariantLabel(product) }}</p>
                                 <strong class="product-price">{{ cardDisplayPrice(product) }}</strong>
                                 <div class="product-meta-row">
+                                    <span class="badge" style="font-size: 0.72rem; padding: 2px 7px;">K-{{ product.id }}</span>
                                     <span
                                         v-if="cardAvailableStock(product) !== null"
                                         class="cat-stock-pill"

@@ -38,6 +38,7 @@ const form = reactive<{
     owner_phone: '',
     daily_summary_time: '21:00',
     rules: {
+        auto_apartado: { enabled: false, template: 'auto_apartado' },
         payment_receipt: { enabled: false, template: 'recibo_abono' },
         order_dispatched: { enabled: false, template: 'pedido_despachado' },
         receivables_reminder: { enabled: false, template: 'recordatorio_saldo' },
@@ -50,6 +51,7 @@ const form = reactive<{
 });
 
 const catalog = [
+    { key: 'auto_apartado', title: 'Auto-apartado por código en WhatsApp', desc: 'Cuando una clienta envía el código (ej. K-42 o SKU), agrega la prenda a su apartado, reserva stock y confirma gratis (ventana 24h).', noTemplate: true },
     { key: 'payment_receipt', title: 'Recibo automático de abono / pago', desc: 'Envía confirmación al cliente cada vez que registras un abono.' },
     { key: 'order_dispatched', title: 'Aviso de pedido listo / despachado', desc: 'Notifica al cliente al marcar un pedido o apartado como entregado.' },
     { key: 'receivables_reminder', title: 'Recordatorio de saldo pendiente (CxC)', desc: 'Habilita envío con plantilla oficial desde Cuentas por cobrar.' },
@@ -161,7 +163,10 @@ watch(() => props.store?.id, () => load(), { immediate: true });
                         <input v-model="form.rules[item.key].enabled" type="checkbox" />
                     </label>
                     <div class="wa-auto-fields">
-                        <label>
+                        <span v-if="item.noTemplate" class="muted" style="font-size: 0.82rem;">
+                            Funciona en ventana gratis de 24h · no requiere plantilla Meta.
+                        </span>
+                        <label v-else>
                             Plantilla Meta
                             <input v-model="form.rules[item.key].template" maxlength="120" pattern="[a-z0-9_]+" required />
                         </label>

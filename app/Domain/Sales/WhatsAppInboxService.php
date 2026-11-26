@@ -90,16 +90,19 @@ final class WhatsAppInboxService
         return null;
     }
 
-    public function recordInboundWebhookMessage(int $storeId, array $msg, ?string $profileName = null): void
+    /**
+     * @return array{inserted: bool, conversation_id: int, wa_phone: string, profile_name: ?string, message_id: ?int}|null
+     */
+    public function recordInboundWebhookMessage(int $storeId, array $msg, ?string $profileName = null): ?array
     {
         if (! Schema::hasTable('whatsapp_conversations') || ! Schema::hasTable('whatsapp_messages')) {
-            return;
+            return null;
         }
 
         $providerId = isset($msg['id']) && is_string($msg['id']) ? $msg['id'] : null;
         $waPhone = self::normalizePhone((string) ($msg['from'] ?? ''));
         if (! $providerId || ! $waPhone) {
-            return;
+            return null;
         }
 
         $ts = isset($msg['timestamp']) && ctype_digit((string) $msg['timestamp'])
@@ -112,6 +115,7 @@ final class WhatsAppInboxService
         $mediaId = null;
         $mediaMime = null;
         $mediaFilename = null;
+        $isDeletionEvent = false;
 
         if ($type === 'text') {
             $body = trim((string) ($msg['text']['body'] ?? ''));
@@ -128,6 +132,14 @@ final class WhatsAppInboxService
             $mediaId = $msg['audio']['id'] ?? null;
             $mediaMime = $msg['audio']['mime_type'] ?? 'audio/ogg';
             $body = '🎤 Nota de voz';
+        } elseif ($type === 'video') {
+            $body = trim((string) ($msg['video']['caption'] ?? '')) ?: '🎥 Video recibido';
+        } elseif ($type === 'sticker') {
+            $body = '🏷️ Sticker';
+        } elseif ($type === 'location') {
+            $body = '📍 Ubicación compartida';
+        } elseif ($type === 'contacts') {
+            $body = '👤 Contacto compartido';
         } elseif ($type === 'button') {
             $mappedType = 'text';
             $body = trim((string) ($msg['button']['text'] ?? 'Respuesta de botón'));
@@ -137,19 +149,68 @@ final class WhatsAppInboxService
         } elseif ($type === 'reaction') {
             $emoji = (string) ($msg['reaction']['emoji'] ?? '👍');
             $body = "Reacción: {$emoji}";
+        } elseif ($type === 'unsupported') {
+            $isDeletionEvent = true;
+            $body = '🚫 El cliente eliminó un mensaje';
         } else {
             $body = 'Mensaje recibido ('.$type.')';
         }
 
         $preview = Str::limit(preg_replace('/\s+/', ' ', (string) $body), 180);
+        $contextMsgId = isset($msg['context']['id']) && is_string($msg['context']['id']) ? $msg['context']['id'] : null;
 
-        DB::transaction(function () use ($storeId, $waPhone, $profileName, $providerId, $mappedType, $body, $mediaId, $mediaMime, $mediaFilename, $ts, $preview) {
+        return DB::transaction(function () use ($storeId, $waPhone, $profileName, $providerId, $contextMsgId, $isDeletionEvent, $mappedType, $body, $mediaId, $mediaMime, $mediaFilename, $ts, $preview) {
+            // If Meta sends a revoke/unsupported referencing an existing message, redact it in-place
+            if ($isDeletionEvent) {
+                $targetRef = $contextMsgId ?: $providerId;
+                $existing = DB::table('whatsapp_messages')
+                    ->where('store_id', $storeId)
+                    ->where('provider_message_id', $targetRef)
+                    ->first(['id', 'conversation_id']);
+                if ($existing) {
+                    DB::table('whatsapp_messages')->where('id', $existing->id)->update([
+                        'message_type' => 'other',
+                        'body' => '🚫 Este mensaje fue eliminado por el cliente',
+                        'media_id' => null,
+                        'media_mime' => null,
+                        'media_filename' => null,
+                        'status' => 'deleted',
+                        'updated_at' => now(),
+                    ]);
+                    $latestId = DB::table('whatsapp_messages')
+                        ->where('conversation_id', $existing->conversation_id)
+                        ->orderByDesc('occurred_at')
+                        ->orderByDesc('id')
+                        ->value('id');
+                    if ((int) $latestId === (int) $existing->id) {
+                        DB::table('whatsapp_conversations')->where('id', $existing->conversation_id)->update([
+                            'last_message_preview' => '🚫 Mensaje eliminado',
+                            'updated_at' => now(),
+                        ]);
+                    }
+
+                    return [
+                        'inserted' => false,
+                        'conversation_id' => (int) $existing->conversation_id,
+                        'wa_phone' => $waPhone,
+                        'profile_name' => $profileName,
+                        'message_id' => (int) $existing->id,
+                    ];
+                }
+            }
+
             $already = DB::table('whatsapp_messages')
                 ->where('store_id', $storeId)
                 ->where('provider_message_id', $providerId)
-                ->exists();
+                ->first(['id', 'conversation_id']);
             if ($already) {
-                return;
+                return [
+                    'inserted' => false,
+                    'conversation_id' => (int) $already->conversation_id,
+                    'wa_phone' => $waPhone,
+                    'profile_name' => $profileName,
+                    'message_id' => (int) $already->id,
+                ];
             }
 
             $conv = DB::table('whatsapp_conversations')
@@ -160,6 +221,7 @@ final class WhatsAppInboxService
 
             $customerId = $conv?->customer_id ?: $this->matchCustomerId($storeId, $waPhone);
             $cleanProfile = $profileName ? trim($profileName) : null;
+            $unreadDelta = $isDeletionEvent ? 0 : 1;
 
             if (! $conv) {
                 $convId = DB::table('whatsapp_conversations')->insertGetId([
@@ -167,7 +229,7 @@ final class WhatsAppInboxService
                     'customer_id' => $customerId,
                     'wa_phone' => $waPhone,
                     'contact_name' => $cleanProfile,
-                    'unread_count' => 1,
+                    'unread_count' => $unreadDelta,
                     'last_inbound_at' => $ts,
                     'last_message_at' => $ts,
                     'last_message_preview' => $preview,
@@ -185,7 +247,7 @@ final class WhatsAppInboxService
                 DB::table('whatsapp_conversations')->where('id', $convId)->update([
                     'customer_id' => $customerId ?: $conv->customer_id,
                     'contact_name' => $cleanProfile ?: $conv->contact_name,
-                    'unread_count' => (int) $conv->unread_count + 1,
+                    'unread_count' => (int) $conv->unread_count + $unreadDelta,
                     'last_inbound_at' => $newLastIn,
                     'last_message_at' => $isNewer ? $ts : $conv->last_message_at,
                     'last_message_preview' => $isNewer ? $preview : $conv->last_message_preview,
@@ -194,7 +256,7 @@ final class WhatsAppInboxService
                 ]);
             }
 
-            DB::table('whatsapp_messages')->insert([
+            $msgId = DB::table('whatsapp_messages')->insertGetId([
                 'conversation_id' => $convId,
                 'store_id' => $storeId,
                 'direction' => 'inbound',
@@ -204,11 +266,19 @@ final class WhatsAppInboxService
                 'media_mime' => $mediaMime,
                 'media_filename' => $mediaFilename,
                 'provider_message_id' => $providerId,
-                'status' => 'received',
+                'status' => $isDeletionEvent ? 'deleted' : 'received',
                 'occurred_at' => $ts,
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
+
+            return [
+                'inserted' => true,
+                'conversation_id' => $convId,
+                'wa_phone' => $waPhone,
+                'profile_name' => $cleanProfile,
+                'message_id' => (int) $msgId,
+            ];
         });
     }
 
@@ -736,5 +806,76 @@ final class WhatsAppInboxService
             'mime' => $msg->media_mime ?: ($meta->json('mime_type') ?: 'application/octet-stream'),
             'filename' => preg_replace('/[^A-Za-z0-9._-]+/', '_', (string) ($msg->media_filename ?: ('whatsapp-'.$msg->id))),
         ];
+    }
+
+    /**
+     * Sends an automated text or interactive (buttons/list) reply inside the free 24h window
+     * and logs it into whatsapp_messages so the store team sees the complete conversation.
+     */
+    public function sendAutomatedReply(
+        int $storeId,
+        int $conversationId,
+        string $waPhone,
+        string $text,
+        ?array $interactive = null,
+    ): bool {
+        try {
+            $status = $this->configuration->status(false, $storeId);
+            if (! $status['ready']) {
+                return false;
+            }
+            $c = $this->configuration->resolve($storeId);
+            $payload = [
+                'messaging_product' => 'whatsapp',
+                'recipient_type' => 'individual',
+                'to' => ltrim($waPhone, '+'),
+            ];
+            if ($interactive !== null) {
+                $payload['type'] = 'interactive';
+                $payload['interactive'] = $interactive;
+            } else {
+                $payload['type'] = 'text';
+                $payload['text'] = ['preview_url' => false, 'body' => $text];
+            }
+
+            $res = Http::withToken($c['access_token'])
+                ->acceptJson()
+                ->connectTimeout(5)
+                ->timeout(20)
+                ->post('https://graph.facebook.com/'.($c['graph_version'] ?: 'v25.0').'/'.$c['phone_number_id'].'/messages', $payload);
+
+            if (! $res->successful()) {
+                return false;
+            }
+
+            $providerId = $res->json('messages.0.id');
+            $now = CarbonImmutable::now('UTC');
+            $preview = Str::limit(preg_replace('/\s+/', ' ', $text), 180);
+
+            DB::transaction(function () use ($storeId, $conversationId, $text, $providerId, $now, $preview) {
+                DB::table('whatsapp_conversations')->where('id', $conversationId)->update([
+                    'last_message_at' => $now,
+                    'last_message_preview' => $preview,
+                    'last_message_direction' => 'outbound',
+                    'updated_at' => now(),
+                ]);
+                DB::table('whatsapp_messages')->insert([
+                    'conversation_id' => $conversationId,
+                    'store_id' => $storeId,
+                    'direction' => 'outbound',
+                    'message_type' => 'text',
+                    'body' => $text,
+                    'provider_message_id' => is_string($providerId) ? $providerId : null,
+                    'status' => 'sent',
+                    'occurred_at' => $now,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+            });
+
+            return true;
+        } catch (\Throwable) {
+            return false;
+        }
     }
 }
