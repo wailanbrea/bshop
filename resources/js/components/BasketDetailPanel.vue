@@ -43,6 +43,23 @@ const emit = defineEmits<{
     creditApplied: [SavedOrder];
 }>();
 function editable(order: SavedOrder) { return props.permissions.includes('sales.create') && domainEditable(order); }
+function formatOpenedAt(iso?: string | null): string {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '';
+    try {
+        return new Intl.DateTimeFormat('es', {
+            timeZone: props.timezone || 'America/Santo_Domingo',
+            day: '2-digit',
+            month: 'short',
+            year: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit',
+        }).format(d);
+    } catch {
+        return d.toLocaleString('es');
+    }
+}
 const query = ref('');
 const catalogOpen = ref(false);
 const products = ref<SalesProduct[]>([]);
@@ -147,6 +164,9 @@ onUnmounted(() => {
                 <div>
                     <h2>{{ order.customer_live?.full_name || order.customer_snapshot.full_name }}</h2>
                     <p>{{ order.customer_live?.phone || order.customer_snapshot.phone || 'Sin teléfono' }}<template v-if="order.seller_name"> · Vendedor: <strong>{{ order.seller_name }}</strong></template></p>
+                    <p v-if="formatOpenedAt(order.created_at)" class="muted" style="font-size: 0.82rem; margin-top: 2px;">
+                        Abierto: <strong>{{ formatOpenedAt(order.created_at) }}</strong>
+                    </p>
                 </div>
             </div>
             <div class="actions">

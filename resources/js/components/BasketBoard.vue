@@ -73,6 +73,7 @@ const contact = ref({ full_name: '', phone: '', email: '', address: '', notes: '
 const filters = [
     ['without_deposit', 'Sin depósito'],
     ['open', 'Abierto'],
+    ['invoiced', 'Facturado'],
     ['invoice_sent', 'Factura enviada'],
     ['paid', 'Pagado'],
     ['shipped', 'Enviado'],
@@ -130,6 +131,12 @@ async function load(target = 1) {
         page.value = r.data.meta.current_page;
         lastPage.value = r.data.meta.last_page;
         total.value = r.data.meta.total;
+        if (!dirty.value && selectedId.value !== null && !cards.value.some((c) => c.id === selectedId.value)) {
+            selectedId.value = null;
+            selected.value = null;
+            draft.value = null;
+            quote.value = null;
+        }
     } catch (e) {
         if (token === listSequence && !axios.isCancel(e)) error.value = errorMessage(e);
     } finally {

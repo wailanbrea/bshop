@@ -15,7 +15,7 @@ class BasketController extends Controller
 {
     public function index(Request $request, StoreContext $context)
     {
-        $data = $request->validate(['q' => ['nullable', 'string', 'max:120'], 'filter' => ['nullable', 'in:all,open,without_deposit,invoice_sent,paid,shipped'], 'page' => ['nullable', 'integer', 'min:1'], 'per_page' => ['nullable', 'integer', 'in:4,16,36']]);
+        $data = $request->validate(['q' => ['nullable', 'string', 'max:120'], 'filter' => ['nullable', 'in:all,open,without_deposit,invoiced,invoice_sent,paid,shipped'], 'page' => ['nullable', 'integer', 'min:1'], 'per_page' => ['nullable', 'integer', 'in:4,16,36']]);
         $paid = "(SELECT COALESCE(SUM(p.amount),0) FROM order_payments op JOIN payments p ON p.id=op.payment_id WHERE op.order_id=orders.id AND p.status='confirmed')";
         $paid = "(CASE WHEN source.invoice_id IS NULL THEN $paid ELSE (SELECT COALESCE(SUM(a.amount),0) FROM payment_allocations a JOIN payments p ON p.id=a.payment_id LEFT JOIN order_payments op ON op.payment_id=p.id LEFT JOIN credit_applications ca ON ca.payment_allocation_id=a.id WHERE (ca.target_order_id=orders.id OR (ca.id IS NULL AND op.order_id=orders.id)) AND NOT EXISTS(SELECT 1 FROM credit_application_reversals cv WHERE cv.credit_application_id=ca.id) AND a.invoice_id=source.invoice_id AND p.status='confirmed')-(SELECT COALESCE(SUM(r.amount),0) FROM payment_allocation_releases r JOIN payments p ON p.id=r.payment_id WHERE r.order_id=orders.id AND p.status='confirmed' AND NOT EXISTS(SELECT 1 FROM return_adjustment_reversals av WHERE av.adjustment_id=r.adjustment_id)) END)";
         $net = '(orders.grand_total-(SELECT COALESCE(SUM(c.amount),0) FROM return_adjustments c WHERE c.order_id=orders.id AND NOT EXISTS(SELECT 1 FROM return_adjustment_reversals av WHERE av.adjustment_id=c.id)))';
@@ -41,6 +41,9 @@ class BasketController extends Controller
         }
         if ($filter === 'shipped') {
             $query->whereNotNull('shipped_at');
+        }
+        if ($filter === 'invoiced') {
+            $query->whereNotNull('i.id');
         }
         if ($filter === 'invoice_sent') {
             $query->whereExists(fn ($q) => $q->selectRaw('1')->from('invoice_deliveries')->whereColumn('invoice_id', 'i.id')->whereIn('status', ['sent', 'delivered', 'read']));
