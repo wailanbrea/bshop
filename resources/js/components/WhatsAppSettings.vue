@@ -69,7 +69,7 @@ async function save() {
 }
 </script>
 <template>
-    <section class="panel whatsapp-settings" aria-label="Configuración opcional de WhatsApp">
+    <section id="whatsapp-settings" class="panel whatsapp-settings" aria-label="Configuración opcional de WhatsApp">
         <h2>WhatsApp · Opcional</h2>
         <p class="muted">
             Al habilitar la integración oficial, el botón del apartado enviará el PDF sin salir de la
@@ -124,15 +124,19 @@ async function save() {
                 ><label
                     ><span class="wa-secret-head"
                         ><span>App Secret</span>
-                        <span v-if="status?.has_app_secret" class="badge wa-secret-saved">✓ Guardado (oculto)</span>
+                        <span v-if="status?.app_secret_is_placeholder" class="badge wa-secret-temp">⚠ Temporal · pega el real de Meta</span>
+                        <span v-else-if="status?.has_app_secret" class="badge wa-secret-saved">✓ Guardado (oculto)</span>
                         <span v-else class="badge inactive">Sin configurar</span></span
                     ><input
+                        id="whatsapp-app-secret-input"
                         v-model="form.app_secret"
                         type="password"
                         :placeholder="
-                            status?.has_app_secret
-                                ? '•••••••••••••••••••••••••••• (guardado · dejar vacío para conservar)'
-                                : 'Pega aquí el App Secret de Meta'
+                            status?.app_secret_is_placeholder
+                                ? 'Pega aquí la Clave secreta real de Meta (Configuración → Básica)'
+                                : status?.has_app_secret
+                                  ? '•••••••••••••••••••••••••••• (guardado · dejar vacío para conservar)'
+                                  : 'Pega aquí el App Secret de Meta'
                         "
                         autocomplete="new-password" /></label
                 ><label
@@ -173,6 +177,12 @@ async function save() {
     background: #dcfce7;
     color: #166534;
     border: 1px solid #86efac;
+    white-space: nowrap;
+}
+.wa-secret-temp {
+    background: #fef3c7;
+    color: #92400e;
+    border: 1px solid #fcd34d;
     white-space: nowrap;
 }
 </style>

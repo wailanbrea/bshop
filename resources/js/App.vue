@@ -149,6 +149,19 @@ function openWhatsAppConversation(conversationId?: number) {
     if (conversationId) waTargetConversationId.value = conversationId;
     navigate('whatsapp-inbox');
 }
+async function openWhatsAppSettings() {
+    navigate('settings');
+    for (let i = 0; i < 15; i++) {
+        await nextTick();
+        const el = document.getElementById('whatsapp-app-secret-input') || document.getElementById('whatsapp-settings');
+        if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            if (el instanceof HTMLInputElement) el.focus({ preventScroll: true });
+            return;
+        }
+        await new Promise((r) => setTimeout(r, 120));
+    }
+}
 const activeBrandName = computed(() => store.value?.name || workspace.value?.business.name || session.value?.business.name || 'BShop');
 watch(activeBrandName, name => { if (name) document.title = `${name} · BShop`; }, { immediate: true });
 const title = computed(() => nav.value.find(n => n.id === page.value)?.label || 'Mi negocio');
@@ -273,7 +286,7 @@ onUnmounted(() => { unlockMenu?.(); if (waPollInterval) clearInterval(waPollInte
                     <ReceivablesView v-else-if="page === 'receivables' && workspace.permissions.includes('sales.view') && workspace.permissions.includes('customers.view')" :key="store?.id || 'none'" :store="store" :permissions="workspace.permissions" @open-order="openSavedOrder" />
                     <InvoicesView v-else-if="page === 'invoices' && workspace.permissions.includes('invoices.view')" :key="store?.id || 'none'" :store="store" @open-order="openSavedOrder" />
                     <BasketBoard v-else-if="page==='baskets'&&workspace.permissions.includes('sales.view')" ref="basketBoard" :key="store?.id||'none'" :actor-id="session.user.id" :active="page==='baskets'" :business="workspace.business" :store="store" :warehouses="warehouses" :permissions="workspace.permissions" @context-locked="basketContextLocked=$event" />
-                    <WhatsAppInboxView v-else-if="page==='whatsapp-inbox'&&workspace.permissions.includes('sales.view')" :key="store?.id||'none'" :store="store" :permissions="workspace.permissions" :initial-conversation-id="waTargetConversationId" @open-order="openSavedOrder" @open-settings="navigate('settings')" @read-updated="checkWhatsAppUnread(true)" />
+                    <WhatsAppInboxView v-else-if="page==='whatsapp-inbox'&&workspace.permissions.includes('sales.view')" :key="store?.id||'none'" :store="store" :permissions="workspace.permissions" :initial-conversation-id="waTargetConversationId" @open-order="openSavedOrder" @open-settings="openWhatsAppSettings" @read-updated="checkWhatsAppUnread(true)" />
                     <TeamView v-else-if="page === 'team'" :business="workspace.business" @access-changed="refreshAccess" />
                     <BusinessSettings v-else-if="page !== 'sales'" :key="page" :business="workspace.business" :stores="workspace.stores" :warehouses="warehouses" :store="store" :permissions="workspace.permissions" :page="page" @changed="reload" />
                     <KeepAlive :max="5"><SalesWorkspace v-if="salesVisited && workspace.permissions.includes('sales.view')" ref="salesWorkspace" v-show="page === 'sales'" :key="store?.id || 'none'" :actor-id="session.user.id" :active="page === 'sales'" :business="workspace.business" :store="store" :warehouses="warehouses" :permissions="workspace.permissions" @context-locked="salesContextLocked = $event" @title-change="salesTitle = $event" @open-apartados="openSavedOrder" /></KeepAlive>

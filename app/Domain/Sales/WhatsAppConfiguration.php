@@ -83,6 +83,7 @@ final class WhatsAppConfiguration
             foreach (self::SECRETS as $key) {
                 $result['has_'.$key] = filled($c[$key] ?? null);
             }
+            $result['app_secret_is_placeholder'] = str_starts_with((string) ($c['app_secret'] ?? ''), 'temp_');
             $result['webhook_url'] = url('/webhooks/whatsapp');
         }
 
