@@ -152,8 +152,14 @@ final class BasketWhatsAppDispatchService
             $grouped[$cid]['orders_count']++;
             $grouped[$cid]['order_refs'][] = $order->basket_number ?: ('#'.$order->id);
             if ($invoice) {
-                $grouped[$cid]['invoice_ids'][$invoice->id] = (int) $invoice->id;
-                $grouped[$cid]['invoice_numbers'][$invoice->id] = $invoice->invoice_number;
+                $alreadySent = DB::table('invoice_deliveries')
+                    ->where('invoice_id', $invoice->id)
+                    ->whereIn('status', ['accepted', 'sent', 'delivered', 'read'])
+                    ->exists();
+                if (! $alreadySent) {
+                    $grouped[$cid]['invoice_ids'][$invoice->id] = (int) $invoice->id;
+                    $grouped[$cid]['invoice_numbers'][$invoice->id] = $invoice->invoice_number;
+                }
             }
             $grouped[$cid]['grand_total'] = bcadd($grouped[$cid]['grand_total'], $position['net_total'], 4);
             $grouped[$cid]['paid_total'] = bcadd($grouped[$cid]['paid_total'], $position['paid_total'], 4);
@@ -229,6 +235,15 @@ final class BasketWhatsAppDispatchService
             }
 
             foreach ($recipient['invoice_ids'] as $invoiceId) {
+                $alreadySent = DB::table('invoice_deliveries')
+                    ->where('invoice_id', (int) $invoiceId)
+                    ->whereIn('status', ['accepted', 'sent', 'delivered', 'read'])
+                    ->exists();
+                if ($alreadySent) {
+                    $skipped++;
+                    $details[] = ['customer_id' => $recipient['customer_id'], 'customer_name' => $recipient['customer_name'], 'invoice_id' => $invoiceId, 'status' => 'skipped', 'reason' => 'Factura ya enviada anteriormente'];
+                    continue;
+                }
                 try {
                     $delivery = $this->whatsappInvoice->send($context, (int) $invoiceId, (string) Str::uuid(), $effectiveActor);
                     if (in_array($delivery['status'], ['accepted', 'sent', 'delivered', 'read'], true)) {
