@@ -8,7 +8,7 @@ const hours = ref('24');
 const previous = ref<number | null>(null);
 const requireDeposit = ref(true);
 const depositMode = ref<'fixed' | 'percent'>('fixed');
-const depositValue = ref('10.00');
+const depositValue = ref('30.00');
 const depositInstructions = ref('');
 const loading = ref(true);
 const busy = ref(false);
@@ -26,10 +26,10 @@ async function load() {
         previous.value = data.data.hours;
         enabled.value = previous.value !== null;
         hours.value = String(previous.value || 24);
-        const dep = data.data.deposit || {};
+        const dep = data.data.deposit || data.data || {};
         requireDeposit.value = dep.require_deposit_for_new !== undefined ? Boolean(dep.require_deposit_for_new) : true;
         depositMode.value = dep.deposit_mode === 'percent' ? 'percent' : 'fixed';
-        depositValue.value = String(dep.deposit_value ?? '10.00');
+        depositValue.value = String(dep.deposit_value ?? '30.00');
         depositInstructions.value = String(dep.deposit_instructions ?? '');
         loaded.value = true;
     } catch (e) {
@@ -67,11 +67,11 @@ async function save() {
             { signal: controller.signal },
         );
         previous.value = data.data.hours;
-        const dep = data.data.deposit || {};
-        requireDeposit.value = Boolean(dep.require_deposit_for_new);
+        const dep = data.data.deposit || data.data || {};
+        requireDeposit.value = dep.require_deposit_for_new !== undefined ? Boolean(dep.require_deposit_for_new) : requireDeposit.value;
         depositMode.value = dep.deposit_mode === 'percent' ? 'percent' : 'fixed';
-        depositValue.value = String(dep.deposit_value ?? '10.00');
-        depositInstructions.value = String(dep.deposit_instructions ?? '');
+        depositValue.value = String(dep.deposit_value ?? parsedDep.toFixed(2));
+        depositInstructions.value = String(dep.deposit_instructions ?? depositInstructions.value);
         notice.value = 'Configuración de reservas y depósito guardada.';
     } catch (e) {
         if (!axios.isCancel(e)) error.value = errorMessage(e);

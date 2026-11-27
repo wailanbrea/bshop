@@ -14,7 +14,7 @@ class ReservationSettingsController extends Controller
     public const DEPOSIT_DEFAULTS = [
         'require_deposit_for_new' => true,
         'deposit_mode' => 'fixed',
-        'deposit_value' => '10.00',
+        'deposit_value' => '30.00',
         'deposit_instructions' => 'Envía tu depósito por Zelle / transferencia y mándanos la captura por aquí mismo para confirmar tu apartado.',
     ];
 
