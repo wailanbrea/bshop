@@ -114,6 +114,42 @@ class WhatsAppInboxController extends Controller
         return response()->json(['data' => ['deleted' => true]]);
     }
 
+    public function pendingRequests(Request $request, StoreContext $context, \App\Domain\Sales\WhatsAppAutoApartadoService $autoApartado)
+    {
+        $convId = $request->filled('conversation_id') ? $request->integer('conversation_id') : null;
+
+        return response()->json([
+            'data' => $autoApartado->listPendingRequests($context->store()->id, $convId),
+        ]);
+    }
+
+    public function confirmRequest(Request $request, StoreContext $context, \App\Domain\Sales\WhatsAppAutoApartadoService $autoApartado)
+    {
+        $data = $request->validate([
+            'deposit_amount' => ['nullable', 'numeric', 'min:0', 'max:1000000'],
+            'payment_method' => ['nullable', 'string', 'max:40'],
+            'mark_trusted' => ['nullable', 'boolean'],
+        ]);
+
+        return response()->json([
+            'data' => $autoApartado->confirmPendingRequest(
+                $context,
+                (int) $request->route('reservationRequest'),
+                $request->user(),
+                isset($data['deposit_amount']) ? (string) $data['deposit_amount'] : null,
+                (string) ($data['payment_method'] ?? 'zelle'),
+                (bool) ($data['mark_trusted'] ?? false),
+            ),
+        ]);
+    }
+
+    public function cancelRequest(Request $request, StoreContext $context, \App\Domain\Sales\WhatsAppAutoApartadoService $autoApartado)
+    {
+        $autoApartado->cancelPendingRequest($context->store()->id, (int) $request->route('reservationRequest'));
+
+        return response()->json(['data' => ['cancelled' => true]]);
+    }
+
     public function destroy(Request $request, StoreContext $context, WhatsAppInboxService $inbox)
     {
         $inbox->deleteConversation($context->store()->id, (int) $request->route('conversation'));

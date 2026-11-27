@@ -46,7 +46,7 @@ class CustomerController extends Controller
 
     public function update(Request $request, StoreContext $context, IdempotentAction $once, AuditTrailService $audit)
     {
-        $data = $request->validate(['request_key' => ['required', 'uuid'], 'version' => ['required', 'integer', 'min:0'], 'full_name' => ['required', 'string', 'max:180'], 'phone' => ['nullable', 'string', 'max:40'], 'email' => ['nullable', 'email', 'max:190'], 'address' => ['nullable', 'string', 'max:255'], 'notes' => ['nullable', 'string', 'max:4000']]);
+        $data = $request->validate(['request_key' => ['required', 'uuid'], 'version' => ['required', 'integer', 'min:0'], 'full_name' => ['required', 'string', 'max:180'], 'phone' => ['nullable', 'string', 'max:40'], 'email' => ['nullable', 'email', 'max:190'], 'address' => ['nullable', 'string', 'max:255'], 'notes' => ['nullable', 'string', 'max:4000'], 'allow_reservation_without_deposit' => ['sometimes', 'boolean']]);
         $id = (int) $request->route('customer');
         $result = $once->run('customers.update', $data['request_key'], [$request->user()->id, $context->store()->id, $id], $data, function () use ($request, $context) {
             abort_unless(User::whereKey($request->user()->id)->sharedLock()->firstOrFail()->permits('customers.manage'), 403);
@@ -94,7 +94,7 @@ class CustomerController extends Controller
 
     public function create(Request $request, StoreContext $context, IdempotentAction $idempotency, AuditTrailService $audit)
     {
-        $data = $request->validate(['request_key' => ['required', 'uuid'], 'full_name' => ['required', 'string', 'max:180'], 'phone' => ['nullable', 'string', 'max:40'], 'email' => ['nullable', 'email', 'max:190'], 'address' => ['nullable', 'string', 'max:255'], 'notes' => ['nullable', 'string', 'max:4000']]);
+        $data = $request->validate(['request_key' => ['required', 'uuid'], 'full_name' => ['required', 'string', 'max:180'], 'phone' => ['nullable', 'string', 'max:40'], 'email' => ['nullable', 'email', 'max:190'], 'address' => ['nullable', 'string', 'max:255'], 'notes' => ['nullable', 'string', 'max:4000'], 'allow_reservation_without_deposit' => ['sometimes', 'boolean']]);
         $key = $data['request_key'];
         unset($data['request_key']);
         $result = $idempotency->run('customers.create', $key, [$request->user()->id, $context->store()->id], $data,

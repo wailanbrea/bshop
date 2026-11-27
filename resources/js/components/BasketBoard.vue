@@ -61,6 +61,25 @@ const whatsappOpen = ref(false);
 const whatsappOpener = ref<HTMLElement | null>(null);
 const newCustomer = ref<SalesCustomer | null>(null);
 const warehouse = ref<number | ''>('');
+type PendingDepositItem = {
+    id: number;
+    customer_id: number;
+    customer_name: string;
+    customer_phone: string | null;
+    product_name: string;
+    variant_sku: string;
+    variant_label: string;
+    unit_price: string;
+    required_deposit: string;
+    available_stock: string | null;
+    in_stock: boolean;
+    created_at: string | null;
+};
+const pendingDepositRequests = ref<PendingDepositItem[]>([]);
+const depositBannerOpen = ref(false);
+const depositBusyId = ref<number | null>(null);
+const depositAmountById = ref<Record<number, string>>({});
+const depositTrustById = ref<Record<number, boolean>>({});
 const modal = ref('');
 const opener = ref<HTMLElement | null>(null);
 const formId = `${useId()}-basket-action`;
@@ -196,7 +215,60 @@ async function select(id: number, discard = false) {
     }
 }
 defineExpose({ select });
-async function refreshStates(){await load(page.value);try{whatsapp.value=(await api.get('/business/integrations/whatsapp/status')).data.data;}catch{}if(selected.value&&!dirty.value)await select(selected.value.id,true);}
+async function loadPendingDepositRequests() {
+    if (!props.store) return;
+    try {
+        const rows: PendingDepositItem[] = (await api.get(`${root.value}/whatsapp/inbox/reservation-requests`)).data.data || [];
+        pendingDepositRequests.value = rows;
+        for (const r of rows) {
+            if (depositAmountById.value[r.id] === undefined) {
+                depositAmountById.value[r.id] = r.required_deposit;
+            }
+        }
+    } catch {
+        // Non-blocking
+    }
+}
+async function confirmDepositItem(req: PendingDepositItem) {
+    if (!props.store || depositBusyId.value !== null) return;
+    depositBusyId.value = req.id;
+    error.value = '';
+    notice.value = '';
+    try {
+        const rawAmt = (depositAmountById.value[req.id] ?? '').trim();
+        const res = (
+            await api.post(`${root.value}/whatsapp/inbox/reservation-requests/${req.id}/confirm`, {
+                deposit_amount: rawAmt !== '' ? rawAmt : null,
+                payment_method: 'zelle',
+                mark_trusted: Boolean(depositTrustById.value[req.id]),
+            })
+        ).data.data;
+        pendingDepositRequests.value = pendingDepositRequests.value.filter((x) => x.id !== req.id);
+        notice.value = `Depósito confirmado: se creó el Apartado #${res.order_id} para ${req.customer_name}.`;
+        await load(1);
+        if (res.order_id) await select(res.order_id, true);
+    } catch (e) {
+        error.value = errorMessage(e);
+    } finally {
+        depositBusyId.value = null;
+    }
+}
+async function cancelDepositItem(req: PendingDepositItem) {
+    if (!props.store || depositBusyId.value !== null) return;
+    depositBusyId.value = req.id;
+    error.value = '';
+    notice.value = '';
+    try {
+        await api.post(`${root.value}/whatsapp/inbox/reservation-requests/${req.id}/cancel`);
+        pendingDepositRequests.value = pendingDepositRequests.value.filter((x) => x.id !== req.id);
+        notice.value = `Solicitud de ${req.customer_name} descartada.`;
+    } catch (e) {
+        error.value = errorMessage(e);
+    } finally {
+        depositBusyId.value = null;
+    }
+}
+async function refreshStates(){await Promise.all([load(page.value), loadPendingDepositRequests()]);try{whatsapp.value=(await api.get('/business/integrations/whatsapp/status')).data.data;}catch{}if(selected.value&&!dirty.value)await select(selected.value.id,true);}
 async function activityChanged(order:SavedOrder){if(selected.value?.id===order.id){if(dirty.value){selected.value=order;quote.value=null;error.value='El pedido se actualizó. Tu borrador se conserva; actualiza antes de guardarlo.';}else apply(order);}await load(page.value);}
 watch(
     payload,
@@ -424,7 +496,7 @@ async function create() {
     });
 }
 onMounted(async () => {
-    await load();
+    await Promise.all([load(), loadPendingDepositRequests()]);
     try {
         whatsapp.value = (await api.get('/business/integrations/whatsapp/status')).data.data;
     } catch {
@@ -512,6 +584,48 @@ onUnmounted(() => {
             @close="whatsappOpen = false"
         />
         <p v-if="notice" class="notice success" role="status">{{ notice }}</p>
+        <section v-if="pendingDepositRequests.length" class="pending-deposit-banner" aria-label="Solicitudes pendientes de depósito">
+            <div class="pending-deposit-top">
+                <div>
+                    <strong>⏳ {{ pendingDepositRequests.length }} {{ pendingDepositRequests.length === 1 ? 'solicitud pendiente de depósito' : 'solicitudes pendientes de depósito' }}</strong>
+                    <p class="muted">Estas solicitudes de clientas nuevas NO retienen stock hasta que confirmes el pago.</p>
+                </div>
+                <button type="button" class="button secondary" @click="depositBannerOpen = !depositBannerOpen">
+                    {{ depositBannerOpen ? 'Ocultar solicitudes' : 'Revisar y confirmar' }}
+                </button>
+            </div>
+            <div v-if="depositBannerOpen" class="pending-deposit-list">
+                <article v-for="req in pendingDepositRequests" :key="req.id" class="pending-deposit-row">
+                    <div class="pending-deposit-info">
+                        <strong>{{ req.customer_name }} <span v-if="req.customer_phone" class="muted">({{ req.customer_phone }})</span></strong>
+                        <span>{{ req.product_name }} <template v-if="req.variant_label">· {{ req.variant_label }}</template> · SKU {{ req.variant_sku }}</span>
+                        <div class="pending-deposit-meta">
+                            <span style="white-space:nowrap;">Precio: US$ {{ req.unit_price }}</span>
+                            <span style="white-space:nowrap;">Depósito: <strong>US$ {{ req.required_deposit }}</strong></span>
+                            <span :style="{ color: req.in_stock ? '#15803d' : '#b91c1c', fontWeight: 700, whiteSpace: 'nowrap' }">
+                                {{ req.in_stock ? (req.available_stock !== null ? `Stock libre: ${req.available_stock}` : 'Disponible') : 'Sin stock ahora' }}
+                            </span>
+                        </div>
+                    </div>
+                    <div v-if="permissions.includes('sales.create')" class="pending-deposit-actions">
+                        <label class="pending-deposit-input">
+                            <span>Depósito (US$)</span>
+                            <input v-model="depositAmountById[req.id]" type="number" min="0" step="0.01" inputmode="decimal" :disabled="depositBusyId === req.id" />
+                        </label>
+                        <label class="pending-deposit-trust">
+                            <input v-model="depositTrustById[req.id]" type="checkbox" :disabled="depositBusyId === req.id" />
+                            <span>Clienta de confianza</span>
+                        </label>
+                        <button type="button" class="button primary" :disabled="depositBusyId === req.id || !req.in_stock" @click="confirmDepositItem(req)">
+                            {{ depositBusyId === req.id ? 'Confirmando…' : '✓ Confirmar y apartar' }}
+                        </button>
+                        <button type="button" class="button secondary" :disabled="depositBusyId === req.id" @click="cancelDepositItem(req)">
+                            Descartar
+                        </button>
+                    </div>
+                </article>
+            </div>
+        </section>
         <p v-if="pending && !busy" class="notice error" role="alert">
             Hay una operación sin confirmación.
             <button type="button" class="button secondary" @click="commit(pending!)">Reintentar operación</button>
@@ -775,5 +889,76 @@ onUnmounted(() => {
         font-size: 0.84rem;
         white-space: nowrap;
     }
+}
+.pending-deposit-banner {
+    background: #fffbeb;
+    border: 1px solid #fde68a;
+    border-radius: 14px;
+    padding: 14px 16px;
+    display: grid;
+    gap: 12px;
+}
+.pending-deposit-top {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+.pending-deposit-top strong { color: #92400e; }
+.pending-deposit-top p { margin: 2px 0 0; font-size: 0.84rem; }
+.pending-deposit-list {
+    display: grid;
+    gap: 10px;
+}
+.pending-deposit-row {
+    background: #fff;
+    border: 1px solid #f3e4b2;
+    border-radius: 12px;
+    padding: 12px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+.pending-deposit-info {
+    display: grid;
+    gap: 4px;
+    font-size: 0.88rem;
+}
+.pending-deposit-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 14px;
+    font-size: 0.8rem;
+    color: #5b556e;
+}
+.pending-deposit-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 8px 10px;
+}
+.pending-deposit-input {
+    display: grid;
+    gap: 3px;
+    font-size: 0.75rem;
+    color: #6b7280;
+}
+.pending-deposit-input input {
+    width: 110px;
+    padding: 6px 8px;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    font-size: 0.86rem;
+}
+.pending-deposit-trust {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.8rem;
+    min-height: 36px;
+    cursor: pointer;
 }
 </style>

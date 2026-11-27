@@ -64,6 +64,8 @@
         .btn-clear { background: transparent; color: #cbd5e1; border: 1px solid #475569; border-radius: 10px; padding: 9px 12px; font-size: 0.82rem; font-weight: 600; cursor: pointer; }
         .btn-wa-all { background: #22c55e; color: #fff; border: 0; border-radius: 10px; padding: 10px 16px; font-size: 0.88rem; font-weight: 800; text-decoration: none; white-space: nowrap; }
         .empty { text-align: center; padding: 40px 16px; color: var(--muted); }
+        .deposit-banner { background: #fffbeb; border: 1px solid #fde68a; color: #78350f; border-radius: 12px; padding: 10px 14px; font-size: 0.84rem; line-height: 1.45; margin-bottom: 12px; }
+        .deposit-banner strong { color: #92400e; }
     </style>
 </head>
 <body>
@@ -87,6 +89,16 @@
 </header>
 
 <main class="wrap">
+    @if(!empty($depositPolicy['require_deposit_for_new']))
+        @php
+            $depLabel = ($depositPolicy['deposit_mode'] ?? 'fixed') === 'percent'
+                ? rtrim(rtrim(number_format((float) ($depositPolicy['deposit_value'] ?? 0), 2, '.', ''), '0'), '.') . '% del total'
+                : $currencyPrefix . ' ' . number_format((float) ($depositPolicy['deposit_value'] ?? 0), 2, '.', ',');
+        @endphp
+        <div class="deposit-banner" role="note">
+            <strong>¿Cómo funciona el apartado?</strong> Clientas nuevas confirman su apartado con un depósito de <strong style="white-space:nowrap;">{{ $depLabel }}</strong>. Los artículos siguen disponibles hasta confirmar el pago. Clientas habituales pueden apartar directo.
+        </div>
+    @endif
     <section class="controls">
         <div class="search-row">
             <input id="q" type="search" placeholder="Buscar prenda o código (ej. K-222)..." autocomplete="off">
@@ -114,7 +126,7 @@
         </div>
         <div class="cart-btns">
             <button type="button" id="clearCart" class="btn-clear">Limpiar</button>
-            <a id="waCartLink" class="btn-wa-all" href="#" target="_blank" rel="noopener">Apartar todo por WhatsApp →</a>
+            <a id="waCartLink" class="btn-wa-all" href="#" target="_blank" rel="noopener">{{ !empty($depositPolicy['require_deposit_for_new']) ? 'Solicitar apartado por WhatsApp →' : 'Apartar todo por WhatsApp →' }}</a>
         </div>
     </div>
 </div>
@@ -123,6 +135,7 @@
 const ITEMS = @json($items);
 const WA_DIGITS = @json($waDigits);
 const CURRENCY = @json($currencyPrefix);
+const REQUIRE_DEPOSIT = @json(!empty($depositPolicy['require_deposit_for_new']));
 
 let activeCat = '';
 let selectedVariantByProduct = {};
@@ -208,7 +221,7 @@ function renderGrid() {
 
         const actions = it.in_stock && WA_DIGITS
             ? `<div class="card-actions">
-                    <a class="btn-wa" href="${waUrl(cmd)}" target="_blank" rel="noopener">Apartar ahora</a>
+                    <a class="btn-wa" href="${waUrl(cmd)}" target="_blank" rel="noopener">${REQUIRE_DEPOSIT ? 'Solicitar apartado' : 'Apartar ahora'}</a>
                     <button type="button" class="btn-add ${inCart ? 'added' : ''}" onclick="toggleCart(${it.id})">${inCart ? '✓ Lista' : '+ Lista'}</button>
                </div>`
             : `<div class="card-actions"><span style="font-size:0.78rem;color:#646982;">${it.in_stock ? 'Código: ' + escapeHtml(it.code) : 'Sin disponibilidad'}</span></div>`;

@@ -1,5 +1,5 @@
 import type { ProductImage } from './catalog';
-export interface SalesCustomer { status?: 'active' | 'archived'; lock_version?: number; id: number; full_name: string; phone: string | null; email: string | null; address: string | null; notes: string | null }
+export interface SalesCustomer { status?: 'active' | 'archived'; lock_version?: number; id: number; full_name: string; phone: string | null; email: string | null; address: string | null; notes: string | null; allow_reservation_without_deposit?: boolean }
 export interface CustomerSummary { customer?:SalesCustomer; currency?:string; pending_total:string; purchase_count:number; last_purchase_at:string|null; open_baskets:{id:number;total:string;status:string}[]; pending_returns?:number;credit_available?:string;refunded_total?:string }
 export interface SalesVariant { id: number; sku: string; price: string; available: string | null; description?: string | null; image_url?: string | null; thumb_url?: string | null; attributes: { name: string; value: string }[] }
 export interface SalesProduct { id: number; name: string; category_id: number | null; track_stock: boolean; unit_code: string; image: ProductImage | null; variants: SalesVariant[] }

@@ -19,13 +19,13 @@ const formId = `${useId()}-customer-edit`;
 const modal = ref<'update'|'status'|null>(null); const target = ref<SalesCustomer|null>(null);
 const busy = ref(false); const pending = ref<Operation|null>(null); const error = ref(''); const notice = ref('');
 const opener = ref<HTMLElement|null>(null); const errorNotice = ref<HTMLElement|null>(null);
-const form = ref({full_name:'',phone:'',email:'',address:'',notes:''});
+const form = ref({full_name:'',phone:'',email:'',address:'',notes:'',allow_reservation_without_deposit:false});
 const status = computed(() => target.value?.status === 'archived' ? 'active' : 'archived');
 const title = computed(() => modal.value === 'update' ? 'Editar cliente' : status.value === 'active' ? 'Reactivar cliente' : 'Archivar cliente');
 const canChange = computed(() => props.manage && !busy.value && !pending.value && Number.isInteger(props.customer?.lock_version));
 function fill(customer:SalesCustomer) {
     target.value = {...customer};
-    form.value = {full_name:customer.full_name,phone:customer.phone || '',email:customer.email || '',address:customer.address || '',notes:customer.notes || ''};
+    form.value = {full_name:customer.full_name,phone:customer.phone || '',email:customer.email || '',address:customer.address || '',notes:customer.notes || '',allow_reservation_without_deposit:Boolean(customer.allow_reservation_without_deposit)};
 }
 function open(kind:'update'|'status', event:Event) {
     if (!props.customer || !canChange.value) return;
@@ -70,6 +70,7 @@ async function recover() {
     fill(operation.customer);
     if (operation.kind === 'update') {
         for (const key of ['full_name','phone','email','address','notes'] as const) form.value[key] = String(operation.payload[key] || '');
+        form.value.allow_reservation_without_deposit = Boolean(operation.payload.allow_reservation_without_deposit);
     }
     modal.value = operation.kind; busy.value = true; error.value = '';
     try {
@@ -97,7 +98,14 @@ onMounted(() => {
         <template v-if="customer">
             <header class="profile-hero">
                 <span class="profile-avatar" aria-hidden="true">{{ initials }}</span>
-                <div class="profile-identity"><span class="profile-eyebrow">CLIENTE</span><h3>{{ customer.full_name }}</h3><span class="profile-status" :class="{'is-archived':customer.status === 'archived'}"><i aria-hidden="true"></i>{{ customer.status === 'archived' ? 'Archivado' : 'Activo' }}</span></div>
+                <div class="profile-identity">
+                    <span class="profile-eyebrow">CLIENTE</span>
+                    <h3>{{ customer.full_name }}</h3>
+                    <div class="profile-badges-row">
+                        <span class="profile-status" :class="{'is-archived':customer.status === 'archived'}"><i aria-hidden="true"></i>{{ customer.status === 'archived' ? 'Archivado' : 'Activo' }}</span>
+                        <span v-if="customer.allow_reservation_without_deposit" class="profile-trust-badge">✓ Clienta de confianza (sin depósito)</span>
+                    </div>
+                </div>
                 <button v-if="manage" type="button" class="button primary profile-edit" :disabled="!canChange" @click="open('update',$event)"><AppIcon name="edit" :size="18" />Editar cliente</button>
             </header>
             <div class="profile-body">
@@ -135,7 +143,20 @@ onMounted(() => {
         <p v-if="pending" class="notice" role="status">Los cambios están pendientes de confirmación. Reintentar conserva la misma operación.</p>
         <form :id="formId" class="form-stack" @submit.prevent="send">
             <fieldset class="form-fields" :disabled="busy || !!pending || !manage">
-                <template v-if="modal === 'update'"><label>Nombre completo<input v-model="form.full_name" required maxlength="180" autocomplete="name"></label><label>Teléfono<input v-model="form.phone" type="tel" maxlength="40" autocomplete="tel"></label><label>Correo electrónico<input v-model="form.email" type="email" maxlength="190" autocomplete="email"></label><label>Dirección<input v-model="form.address" maxlength="255" autocomplete="street-address"></label><label>Notas del cliente<textarea v-model="form.notes" rows="3" maxlength="4000"></textarea></label></template>
+                <template v-if="modal === 'update'">
+                    <label>Nombre completo<input v-model="form.full_name" required maxlength="180" autocomplete="name"></label>
+                    <label>Teléfono<input v-model="form.phone" type="tel" maxlength="40" autocomplete="tel"></label>
+                    <label>Correo electrónico<input v-model="form.email" type="email" maxlength="190" autocomplete="email"></label>
+                    <label>Dirección<input v-model="form.address" maxlength="255" autocomplete="street-address"></label>
+                    <label>Notas del cliente<textarea v-model="form.notes" rows="3" maxlength="4000"></textarea></label>
+                    <label class="trust-check-label">
+                        <input v-model="form.allow_reservation_without_deposit" type="checkbox">
+                        <span>
+                            <strong>Permitir apartado sin depósito (clienta de confianza)</strong>
+                            <small>Sus solicitudes por WhatsApp apartan inventario de inmediato sin esperar confirmación de depósito.</small>
+                        </span>
+                    </label>
+                </template>
                 <template v-else><p><strong>{{ target?.full_name }}</strong></p><p v-if="status === 'archived'">Se retirará de la selección para nuevas ventas en todas las sucursales. Sus deudas, pedidos y documentos se conservan, y se podrán seguir registrando abonos en pedidos existentes.</p><p v-else>Volverá a estar disponible para nuevas ventas en todas las sucursales. Sus saldos y documentos se conservan.</p></template>
             </fieldset>
         </form>
@@ -155,6 +176,13 @@ onMounted(() => {
 .profile-eyebrow { font-size:10px; letter-spacing:1.6px; font-weight:700; color:#756b84; }
 .profile-identity h3 { font-size:28px; line-height:1.2; margin:4px 0 10px; color:#252038; font-weight:750; overflow-wrap:anywhere; }
 .profile-status { display:inline-flex; align-items:center; gap:6px; border:1px solid #cfebdf; background:#f0faf5; padding:3px 9px; border-radius:20px; font-size:12px; font-weight:600; color:#27734e; }
+.profile-badges-row { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.profile-trust-badge { display:inline-flex; align-items:center; gap:5px; border:1px solid #ddd6fe; background:#f5f3ff; padding:3px 10px; border-radius:20px; font-size:12px; font-weight:650; color:#5b21b6; }
+.trust-check-label { display:flex; align-items:flex-start; gap:10px; padding:12px; border:1px solid #e7e1f7; border-radius:12px; background:#faf8ff; cursor:pointer; }
+.trust-check-label input { margin-top:3px; width:18px; height:18px; flex-shrink:0; }
+.trust-check-label span { display:grid; gap:3px; }
+.trust-check-label strong { font-size:13.5px; color:#2b2342; }
+.trust-check-label small { font-size:12px; color:#6b627d; line-height:1.4; }
 .profile-status i { width:6px; height:6px; border-radius:50%; background:#3e9b6b; }
 .profile-status.is-archived { color:#7b6570; background:#f5f1f3; border-color:#e6dde2; }
 .profile-status.is-archived i { background:#9b8490; }

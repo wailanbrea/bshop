@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Domain\Business\InstallBusiness;
 use App\Models\AttributeValue;
+use App\Models\Customer;
 use App\Models\Product;
 use App\Models\ProductAttribute;
 use App\Models\ProductVariant;
@@ -131,11 +132,20 @@ class WhatsAppAutoApartadoTest extends TestCase
             'https://graph.facebook.com/*' => Http::response(['messages' => [['id' => 'wamid.BOT_REPLY']]], 200),
         ]);
 
+        // Trusted customer reserves immediately without deposit
+        Customer::create([
+            'store_id' => $this->store->id,
+            'full_name' => 'Laura Diaz',
+            'phone' => '+18298144525',
+            'status' => 'active',
+            'allow_reservation_without_deposit' => true,
+        ]);
+
         $product = $this->createProductWithStock('Brazalete Dorado', [
             ['sku' => 'BRZ-01', 'price' => '14.0000', 'stock' => 5],
         ]);
 
-        // Customer not registered yet sends short code K-{id}
+        // Trusted customer sends short code K-{id}
         $this->postWebhook([[
             'id' => 'wamid.IN_1',
             'from' => '18298144525',
@@ -172,6 +182,14 @@ class WhatsAppAutoApartadoTest extends TestCase
     {
         Http::fake([
             'https://graph.facebook.com/*' => Http::response(['messages' => [['id' => 'wamid.BOT_BTN']]], 200),
+        ]);
+
+        Customer::create([
+            'store_id' => $this->store->id,
+            'full_name' => 'Ana Perez',
+            'phone' => '+18095551111',
+            'status' => 'active',
+            'allow_reservation_without_deposit' => true,
         ]);
 
         $product = $this->createProductWithStock('Vestido Verano', [
@@ -246,6 +264,14 @@ class WhatsAppAutoApartadoTest extends TestCase
             'https://graph.facebook.com/*' => Http::response(['messages' => [['id' => 'wamid.MULTI_BOT']]], 200),
         ]);
 
+        Customer::create([
+            'store_id' => $this->store->id,
+            'full_name' => 'Laura Diaz',
+            'phone' => '+18298144525',
+            'status' => 'active',
+            'allow_reservation_without_deposit' => true,
+        ]);
+
         $p1 = $this->createProductWithStock('Collar Perla', [['sku' => 'COL-01', 'price' => '20.0000', 'stock' => 4]]);
         $p2 = $this->createProductWithStock('Aretes Oro', [['sku' => 'ARE-01', 'price' => '15.0000', 'stock' => 4]]);
 
@@ -269,5 +295,114 @@ class WhatsAppAutoApartadoTest extends TestCase
         $this->assertNotNull($order);
         $this->assertSame('35.0000', (string) $order->grand_total);
         $this->assertSame(2, $order->items()->count());
+    }
+
+    public function test_new_customer_creates_pending_deposit_request_without_locking_stock_and_confirms_later(): void
+    {
+        Http::fake([
+            'https://graph.facebook.com/*' => Http::response(['messages' => [['id' => 'wamid.DEP_BOT']]], 200),
+        ]);
+
+        $product = $this->createProductWithStock('Correa Negra', [
+            ['sku' => 'COR-01', 'price' => '30.0000', 'stock' => 1],
+        ]);
+        $variant = ProductVariant::where('sku', 'COR-01')->firstOrFail();
+
+        // New (untrusted) customer requests last belt via WhatsApp
+        $this->postWebhook([[
+            'id' => 'wamid.NEW_1',
+            'from' => '18097778888',
+            'timestamp' => (string) now()->timestamp,
+            'type' => 'text',
+            'text' => ['body' => 'K-'.$product->id],
+        ]], '18097778888', 'Cliente Nueva')->assertOk();
+
+        // Stock is NOT locked and no SalesOrder is created yet
+        $this->assertSame(0, SalesOrder::count());
+        $this->assertSame(0, bccomp((string) DB::table('stock_balances')->where('variant_id', $variant->id)->value('reserved'), '0', 4));
+        $this->assertDatabaseHas('whatsapp_reservation_requests', [
+            'store_id' => $this->store->id,
+            'variant_id' => $variant->id,
+            'status' => 'pending_deposit',
+        ]);
+        Http::assertSent(fn ($req) => str_contains((string) ($req['text']['body'] ?? ''), 'pendiente de depósito'));
+
+        // Owner lists pending requests and confirms deposit + marks customer trusted
+        $listRes = $this->actingAs($this->owner)
+            ->getJson('/api/v1/business/stores/'.$this->store->id.'/whatsapp/inbox/reservation-requests')
+            ->assertOk();
+        $requestId = $listRes->json('data.0.id');
+        $this->assertNotNull($requestId);
+        $this->assertTrue($listRes->json('data.0.in_stock'));
+
+        $confirmRes = $this->actingAs($this->owner)
+            ->postJson('/api/v1/business/stores/'.$this->store->id.'/whatsapp/inbox/reservation-requests/'.$requestId.'/confirm', [
+                'deposit_amount' => '10.00',
+                'payment_method' => 'zelle',
+                'mark_trusted' => true,
+            ])
+            ->assertOk();
+
+        $orderId = $confirmRes->json('data.order_id');
+        $order = SalesOrder::findOrFail($orderId);
+        $this->assertSame('30.0000', (string) $order->grand_total);
+        $this->assertSame(0, bccomp((string) DB::table('payments')->where('store_id', $this->store->id)->sum('amount'), '10', 4));
+        $this->assertSame(0, bccomp((string) DB::table('stock_balances')->where('variant_id', $variant->id)->value('reserved'), '1', 4));
+        $this->assertDatabaseHas('customers', [
+            'phone' => '+18097778888',
+            'allow_reservation_without_deposit' => true,
+        ]);
+        $this->assertDatabaseHas('whatsapp_reservation_requests', [
+            'id' => $requestId,
+            'status' => 'confirmed',
+            'confirmed_order_id' => $orderId,
+        ]);
+    }
+
+    public function test_confirming_pending_deposit_request_fails_409_when_last_unit_was_taken_by_trusted_buyer(): void
+    {
+        Http::fake([
+            'https://graph.facebook.com/*' => Http::response(['messages' => [['id' => 'wamid.RACE_BOT']]], 200),
+        ]);
+
+        Customer::create([
+            'store_id' => $this->store->id,
+            'full_name' => 'Clienta Fiel',
+            'phone' => '+18099990000',
+            'status' => 'active',
+            'allow_reservation_without_deposit' => true,
+        ]);
+
+        $product = $this->createProductWithStock('Correa Unica', [
+            ['sku' => 'COR-U1', 'price' => '25.0000', 'stock' => 1],
+        ]);
+
+        // 1. Untrusted buyer requests the last unit -> pending_deposit, stock still available!
+        $this->postWebhook([[
+            'id' => 'wamid.RACE_1',
+            'from' => '18091112222',
+            'timestamp' => (string) now()->timestamp,
+            'type' => 'text',
+            'text' => ['body' => 'K-'.$product->id],
+        ]], '18091112222', 'Compradora Nueva')->assertOk();
+
+        // 2. Trusted buyer requests the same unit -> reserves immediately because it wasn't locked
+        $this->postWebhook([[
+            'id' => 'wamid.RACE_2',
+            'from' => '18099990000',
+            'timestamp' => (string) now()->timestamp,
+            'type' => 'text',
+            'text' => ['body' => 'K-'.$product->id],
+        ]], '18099990000', 'Clienta Fiel')->assertOk();
+
+        $this->assertSame(1, SalesOrder::count());
+
+        // 3. Trying to confirm the untrusted buyer's request now returns 409 (no overselling)
+        $requestId = DB::table('whatsapp_reservation_requests')->value('id');
+        $this->actingAs($this->owner)
+            ->postJson('/api/v1/business/stores/'.$this->store->id.'/whatsapp/inbox/reservation-requests/'.$requestId.'/confirm', [
+                'deposit_amount' => '10.00',
+            ])
+            ->assertStatus(409);
     }
 }

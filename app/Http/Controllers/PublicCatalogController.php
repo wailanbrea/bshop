@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Domain\Media\ObjectStorage;
 use App\Domain\Sales\InvoiceSettingsService;
 use App\Domain\Sales\WhatsAppConfiguration;
+use App\Http\Controllers\Api\V1\ReservationSettingsController;
 use App\Models\BusinessProfile;
 use App\Models\Product;
 use App\Models\Store;
@@ -131,6 +132,7 @@ class PublicCatalogController extends Controller
             'categories' => array_values($categoriesMap),
             'items' => $items,
             'ogImage' => $ogImage,
+            'depositPolicy' => ReservationSettingsController::depositPolicy(),
         ]);
     }
 }

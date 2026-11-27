@@ -3,6 +3,8 @@
 namespace App\Domain\Sales;
 
 use App\Domain\Business\StoreContext;
+use App\Http\Controllers\Api\V1\ReservationSettingsController;
+use App\Models\BusinessProfile;
 use App\Models\Customer;
 use App\Models\Product;
 use App\Models\ProductVariant;
@@ -12,6 +14,7 @@ use App\Models\User;
 use App\Models\Warehouse;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 
@@ -335,6 +338,61 @@ final class WhatsAppAutoApartadoService
         }
 
         $customer = $this->findOrCreateCustomer($storeId, $conversationId, $waPhone, $profileName);
+
+        // Option 1: Untrusted/new customer -> create pending deposit request WITHOUT locking stock!
+        $depositPolicy = ReservationSettingsController::depositPolicy();
+        $isTrusted = (bool) ($customer->allow_reservation_without_deposit ?? false);
+        if ($depositPolicy['require_deposit_for_new'] && ! $isTrusted && Schema::hasTable('whatsapp_reservation_requests')) {
+            $unitPriceFloat = (float) $resolvedVariant->sale_price;
+            $lineTotalFloat = round($unitPriceFloat * $qty, 2);
+            $policyVal = (float) $depositPolicy['deposit_value'];
+            $requiredDeposit = $depositPolicy['deposit_mode'] === 'percent'
+                ? round($lineTotalFloat * ($policyVal / 100), 2)
+                : min($lineTotalFloat, $policyVal);
+            $currencyCode = BusinessProfile::current()->default_currency ?: 'USD';
+            $currencyPrefix = $currencyCode === 'USD' ? 'US$' : $currencyCode;
+            $vLabel = $this->variantLabel($resolvedVariant);
+
+            DB::table('whatsapp_reservation_requests')->insert([
+                'store_id' => $storeId,
+                'customer_id' => $customer->id,
+                'conversation_id' => $conversationId,
+                'wa_phone' => $waPhone,
+                'customer_name' => $customer->full_name,
+                'product_id' => $product->id,
+                'variant_id' => $resolvedVariant->id,
+                'product_name' => $product->name,
+                'variant_label' => $vLabel !== '' ? $vLabel : null,
+                'quantity' => $qty,
+                'unit_price' => number_format($unitPriceFloat, 4, '.', ''),
+                'line_total' => number_format($lineTotalFloat, 4, '.', ''),
+                'required_deposit' => number_format($requiredDeposit, 4, '.', ''),
+                'currency' => $currencyCode,
+                'status' => 'pending_deposit',
+                'provider_message_id' => $providerMsgId,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            if (Schema::hasColumn('whatsapp_conversations', 'crm_stage')) {
+                DB::table('whatsapp_conversations')
+                    ->where('id', $conversationId)
+                    ->where('crm_stage', 'new')
+                    ->update(['crm_stage' => 'quoting', 'updated_at' => now()]);
+            }
+
+            $itemTitle = $product->name.($vLabel !== '' ? " ({$vLabel})" : '');
+            $pendingReply = "⏳ *Tu solicitud está pendiente de depósito.*\n"
+                ."• {$itemTitle} × {$qty} — {$currencyPrefix} ".number_format($lineTotalFloat, 2, '.', ',')."\n\n"
+                ."💳 Para confirmar tu apartado, deposita *{$currencyPrefix} ".number_format($requiredDeposit, 2, '.', ',')."*.\n"
+                ."⚠️ Los artículos siguen disponibles para otras clientas hasta que confirmemos tu pago.\n\n"
+                .$depositPolicy['deposit_instructions'];
+
+            $this->inbox->sendAutomatedReply($storeId, $conversationId, $waPhone, $pendingReply);
+
+            return;
+        }
+
         $context = new StoreContext;
         $context->useStore($store);
 
@@ -618,6 +676,175 @@ final class WhatsAppAutoApartadoService
     private function normalizeText(string $s): string
     {
         return mb_strtolower(trim(preg_replace('/\s+/u', ' ', $s) ?? $s));
+    }
+
+    /**
+     * Lists pending deposit reservation requests for $storeId with live stock availability.
+     */
+    public function listPendingRequests(int $storeId, ?int $conversationId = null): array
+    {
+        if (! Schema::hasTable('whatsapp_reservation_requests')) {
+            return [];
+        }
+
+        $q = DB::table('whatsapp_reservation_requests as r')
+            ->leftJoin('customers as c', 'c.id', '=', 'r.customer_id')
+            ->where('r.store_id', $storeId)
+            ->where('r.status', 'pending_deposit')
+            ->orderByDesc('r.id')
+            ->limit(100);
+
+        if ($conversationId !== null) {
+            $q->where('r.conversation_id', $conversationId);
+        }
+
+        $rows = $q->get([
+            'r.*',
+            'c.allow_reservation_without_deposit',
+        ]);
+
+        $warehouse = Warehouse::where('store_id', $storeId)->where('is_active', true)->orderBy('id')->first();
+        $variantIds = $rows->pluck('variant_id')->unique()->values()->all();
+        $stockRows = ($warehouse && $variantIds)
+            ? DB::table('stock_balances')->where('warehouse_id', $warehouse->id)->whereIn('variant_id', $variantIds)->get(['variant_id', 'on_hand', 'reserved'])->keyBy('variant_id')
+            : collect();
+
+        return $rows->map(function ($r) use ($stockRows) {
+            $b = $stockRows->get($r->variant_id);
+            $avail = $b ? max(0, (int) floor((float) bcsub((string) $b->on_hand, (string) $b->reserved, 4))) : 0;
+
+            return [
+                'id' => (int) $r->id,
+                'customer_id' => $r->customer_id ? (int) $r->customer_id : null,
+                'conversation_id' => $r->conversation_id ? (int) $r->conversation_id : null,
+                'wa_phone' => $r->wa_phone,
+                'customer_name' => $r->customer_name,
+                'customer_trusted' => (bool) ($r->allow_reservation_without_deposit ?? false),
+                'product_id' => (int) $r->product_id,
+                'variant_id' => (int) $r->variant_id,
+                'product_name' => $r->product_name,
+                'variant_label' => $r->variant_label,
+                'quantity' => (int) $r->quantity,
+                'unit_price' => bcadd((string) $r->unit_price, '0', 2),
+                'line_total' => bcadd((string) $r->line_total, '0', 2),
+                'required_deposit' => bcadd((string) $r->required_deposit, '0', 2),
+                'currency' => $r->currency ?: 'USD',
+                'available_stock' => $avail,
+                'in_stock' => $avail >= (int) $r->quantity,
+                'created_at' => $r->created_at ? \Carbon\CarbonImmutable::parse($r->created_at, 'UTC')->toIso8601String() : null,
+            ];
+        })->all();
+    }
+
+    /**
+     * Confirms a pending deposit request: re-verifies stock atomically via BasketService,
+     * optionally records the deposit payment, optionally marks customer as trusted, and notifies via WhatsApp.
+     */
+    public function confirmPendingRequest(
+        StoreContext $context,
+        int $requestId,
+        User $actor,
+        ?string $depositAmount = null,
+        string $paymentMethod = 'zelle',
+        bool $markTrusted = false,
+    ): array {
+        $storeId = $context->store()->id;
+        $req = DB::table('whatsapp_reservation_requests')
+            ->where('store_id', $storeId)
+            ->where('id', $requestId)
+            ->first();
+        abort_unless($req !== null, 404);
+        abort_unless($req->status === 'pending_deposit', 409, 'Esta solicitud ya fue procesada.');
+
+        $warehouse = Warehouse::where('store_id', $storeId)->where('is_active', true)->orderBy('id')->first();
+        abort_unless($warehouse !== null, 409, 'No hay almacén activo en esta sucursal.');
+
+        $variant = ProductVariant::with('product')->where('id', $req->variant_id)->where('is_active', true)->first();
+        abort_unless($variant && $variant->product && $variant->product->status === 'active', 409, 'El artículo ya no está activo en el catálogo.');
+
+        $avail = $this->availableStockMap($warehouse->id, collect([$variant]), (bool) $variant->product->track_stock)[$variant->id] ?? 0;
+        if ($variant->product->track_stock && $avail < (int) $req->quantity) {
+            DB::table('whatsapp_reservation_requests')->where('id', $req->id)->update([
+                'status' => 'out_of_stock',
+                'updated_at' => now(),
+            ]);
+            abort(409, 'Stock insuficiente: esta prenda ya fue apartada por otra clienta.');
+        }
+
+        $customer = $req->customer_id
+            ? Customer::where('store_id', $storeId)->find($req->customer_id)
+            : null;
+        if (! $customer) {
+            $customer = $this->findOrCreateCustomer($storeId, (int) $req->conversation_id, $req->wa_phone, $req->customer_name);
+        }
+
+        if ($markTrusted && ! $customer->allow_reservation_without_deposit) {
+            $customer->allow_reservation_without_deposit = true;
+            $customer->lock_version++;
+            $customer->save();
+        }
+
+        $seed = 'confirm-req:'.$req->id;
+        $order = $this->findOrCreateOpenBasket($context, $storeId, $warehouse->id, $customer->id, $actor, $seed);
+        $updated = $this->addVariantToBasket($context, $order, (int) $req->variant_id, (int) $req->quantity, $actor, $seed);
+
+        // Record deposit payment if store confirmed a deposit amount > 0
+        $paidFloat = $depositAmount !== null ? (float) $depositAmount : 0.0;
+        if ($paidFloat > 0) {
+            $normalizedMethod = $paymentMethod === 'transfer' ? 'bank_transfer' : ($paymentMethod ?: 'zelle');
+            try {
+                app(SalesService::class)->change($context, (int) $updated['id'], 'payment', [
+                    'request_key' => $this->deterministicUuid('confirm-req-pay:'.$req->id),
+                    'version' => (int) $updated['lock_version'],
+                    'amount' => number_format($paidFloat, 2, '.', ''),
+                    'payment_method' => $normalizedMethod,
+                ], $actor);
+            } catch (\Throwable) {
+                // Reservation already succeeded; payment can be adjusted manually if needed.
+            }
+        }
+
+        DB::table('whatsapp_reservation_requests')->where('id', $req->id)->update([
+            'status' => 'confirmed',
+            'confirmed_order_id' => (int) $updated['id'],
+            'confirmed_by_user_id' => $actor->id,
+            'confirmed_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        if ($req->conversation_id && Schema::hasColumn('whatsapp_conversations', 'crm_stage')) {
+            DB::table('whatsapp_conversations')
+                ->where('id', $req->conversation_id)
+                ->whereIn('crm_stage', ['new', 'quoting'])
+                ->update(['crm_stage' => 'reserved', 'updated_at' => now()]);
+        }
+
+        if ($req->conversation_id) {
+            $currency = ($updated['currency'] ?? 'USD') === 'USD' ? 'US$' : (string) ($updated['currency'] ?? 'USD');
+            $grandTotal = number_format((float) ($updated['grand_total'] ?? 0), 2, '.', ',');
+            $basketNo = $updated['basket_number'] ?: ('#'.$updated['id']);
+            $itemTitle = $req->product_name.($req->variant_label ? " ({$req->variant_label})" : '');
+            $confirmMsg = "✅ *¡Depósito confirmado!* Tu artículo ya quedó reservado en tu *Apartado #{$basketNo}*:\n"
+                ."• {$itemTitle} × {$req->quantity}\n\n"
+                ."🧾 Total de tu apartado: *{$currency} {$grandTotal}*";
+            $this->inbox->sendAutomatedReply($storeId, (int) $req->conversation_id, $req->wa_phone, $confirmMsg);
+        }
+
+        return [
+            'request_id' => (int) $req->id,
+            'order_id' => (int) $updated['id'],
+            'basket_number' => $updated['basket_number'] ?: (string) $updated['id'],
+        ];
+    }
+
+    public function cancelPendingRequest(int $storeId, int $requestId): void
+    {
+        $updated = DB::table('whatsapp_reservation_requests')
+            ->where('store_id', $storeId)
+            ->where('id', $requestId)
+            ->where('status', 'pending_deposit')
+            ->update(['status' => 'cancelled', 'updated_at' => now()]);
+        abort_unless($updated > 0, 404);
     }
 
     private function deterministicUuid(string $seed): string

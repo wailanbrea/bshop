@@ -76,6 +76,24 @@ type CustomerContext = {
     }>;
 };
 
+type PendingDepositRequest = {
+    id: number;
+    conversation_id: number | null;
+    customer_id: number;
+    customer_name: string;
+    customer_phone: string | null;
+    product_name: string;
+    variant_sku: string;
+    variant_label: string;
+    quantity: string;
+    unit_price: string;
+    required_deposit: string;
+    available_stock: string | null;
+    in_stock: boolean;
+    requested_text: string | null;
+    created_at: string | null;
+};
+
 const props = defineProps<{
     store?: Store;
     permissions: string[];
@@ -132,6 +150,11 @@ const selectedId = ref<number | null>(props.initialConversationId || null);
 const activeConversation = ref<any>(null);
 const customerContext = ref<CustomerContext | null>(null);
 const messages = ref<ChatMessage[]>([]);
+const pendingRequests = ref<PendingDepositRequest[]>([]);
+const reqBusyId = ref<number | null>(null);
+const reqDepositById = ref<Record<number, string>>({});
+const reqTrustById = ref<Record<number, boolean>>({});
+const reqNotice = ref('');
 const composerMode = ref<'whatsapp' | 'note'>('whatsapp');
 const draftText = ref('');
 const attachment = ref<File | null>(null);
@@ -277,6 +300,7 @@ async function openConversation(id: number, silent = false) {
             local.unread_count = 0;
         }
         emit('read-updated');
+        await loadPendingRequests(id);
         const newLastId = messages.value.at(-1)?.id || 0;
         if (!silent || newLastId !== prevLastId) {
             await scrollToBottom();
@@ -285,6 +309,66 @@ async function openConversation(id: number, silent = false) {
         if (!silent) error.value = errorMessage(e);
     } finally {
         if (!silent) loadingThread.value = false;
+    }
+}
+
+async function loadPendingRequests(conversationId: number) {
+    if (!root.value) return;
+    try {
+        const rows: PendingDepositRequest[] = (
+            await api.get(`${root.value}/reservation-requests`, { params: { conversation_id: conversationId } })
+        ).data.data || [];
+        pendingRequests.value = rows;
+        for (const r of rows) {
+            if (reqDepositById.value[r.id] === undefined) {
+                reqDepositById.value[r.id] = r.required_deposit;
+            }
+        }
+    } catch {
+        // Non-blocking
+    }
+}
+
+async function confirmDepositRequest(req: PendingDepositRequest) {
+    if (!root.value || reqBusyId.value !== null || !canSend.value) return;
+    reqBusyId.value = req.id;
+    error.value = '';
+    reqNotice.value = '';
+    try {
+        const rawAmt = (reqDepositById.value[req.id] ?? '').trim();
+        const res = (
+            await api.post(`${root.value}/reservation-requests/${req.id}/confirm`, {
+                deposit_amount: rawAmt !== '' ? rawAmt : null,
+                payment_method: 'zelle',
+                mark_trusted: Boolean(reqTrustById.value[req.id]),
+            })
+        ).data.data;
+        pendingRequests.value = pendingRequests.value.filter((x) => x.id !== req.id);
+        reqNotice.value = `✓ Depósito confirmado: se creó el Apartado #${res.order_id} para ${req.customer_name}.`;
+        if (selectedId.value) {
+            await openConversation(selectedId.value, true);
+        }
+        await loadConversations(true);
+    } catch (e) {
+        error.value = errorMessage(e);
+    } finally {
+        reqBusyId.value = null;
+    }
+}
+
+async function cancelDepositRequest(req: PendingDepositRequest) {
+    if (!root.value || reqBusyId.value !== null || !canSend.value) return;
+    reqBusyId.value = req.id;
+    error.value = '';
+    reqNotice.value = '';
+    try {
+        await api.post(`${root.value}/reservation-requests/${req.id}/cancel`);
+        pendingRequests.value = pendingRequests.value.filter((x) => x.id !== req.id);
+        reqNotice.value = `Solicitud de ${req.product_name} descartada (el stock nunca se bloqueó).`;
+    } catch (e) {
+        error.value = errorMessage(e);
+    } finally {
+        reqBusyId.value = null;
     }
 }
 
@@ -971,6 +1055,56 @@ defineExpose({ openConversation, reload: loadConversations });
                             <em class="wa-order-status">{{ orderStatusLabel(ord.status) }}</em>
                             <strong>{{ ord.currency === 'USD' ? 'US$' : ord.currency }} {{ ord.grand_total }}</strong>
                         </button>
+                    </div>
+
+                    <!-- Solicitudes pendientes de depósito (no reservan stock hasta confirmar) -->
+                    <div v-if="reqNotice" class="wa-deposit-notice" role="status">{{ reqNotice }}</div>
+                    <div v-if="pendingRequests.length && canSend" class="wa-deposit-strip" aria-label="Solicitudes pendientes de depósito">
+                        <div class="wa-deposit-head">
+                            <strong>⏳ {{ pendingRequests.length }} {{ pendingRequests.length === 1 ? 'solicitud pendiente de depósito' : 'solicitudes pendientes de depósito' }}</strong>
+                            <span>El inventario sigue disponible hasta que confirmes el pago</span>
+                        </div>
+                        <div v-for="req in pendingRequests" :key="req.id" class="wa-deposit-card">
+                            <div class="wa-deposit-info">
+                                <strong>{{ req.product_name }} <span v-if="req.variant_label">({{ req.variant_label }})</span></strong>
+                                <div class="wa-deposit-meta">
+                                    <span>SKU: {{ req.variant_sku }}</span>
+                                    <span class="wa-nowrap">Precio: US$ {{ req.unit_price }}</span>
+                                    <span class="wa-nowrap">Depósito: <strong>US$ {{ req.required_deposit }}</strong></span>
+                                    <span :class="req.in_stock ? 'wa-stock-ok' : 'wa-stock-out'">
+                                        {{ req.in_stock ? (req.available_stock !== null ? `Disponible: ${req.available_stock}` : 'Disponible') : 'Sin stock ahora' }}
+                                    </span>
+                                </div>
+                            </div>
+                            <div class="wa-deposit-controls">
+                                <label class="wa-deposit-amt">
+                                    <span>Abono recibido (US$)</span>
+                                    <input v-model="reqDepositById[req.id]" type="number" min="0" step="0.01" inputmode="decimal" :disabled="reqBusyId === req.id" />
+                                </label>
+                                <label class="wa-deposit-trust">
+                                    <input v-model="reqTrustById[req.id]" type="checkbox" :disabled="reqBusyId === req.id" />
+                                    <span>Clienta de confianza</span>
+                                </label>
+                                <div class="wa-deposit-btns">
+                                    <button
+                                        type="button"
+                                        class="button primary wa-deposit-confirm"
+                                        :disabled="reqBusyId === req.id || !req.in_stock"
+                                        @click="confirmDepositRequest(req)"
+                                    >
+                                        {{ reqBusyId === req.id ? 'Confirmando…' : '✓ Confirmar y apartar' }}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        class="button secondary wa-deposit-cancel"
+                                        :disabled="reqBusyId === req.id"
+                                        @click="cancelDepositRequest(req)"
+                                    >
+                                        Descartar
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
 
                     <!-- Mensajes -->
@@ -2067,5 +2201,98 @@ defineExpose({ openConversation, reload: loadConversations });
     .wa-bubble {
         max-width: 88%;
     }
+}
+.wa-deposit-notice {
+    margin: 6px 14px 0;
+    padding: 8px 12px;
+    border-radius: 10px;
+    background: #ecfdf5;
+    border: 1px solid #a7f3d0;
+    color: #065f46;
+    font-size: 0.84rem;
+    font-weight: 600;
+}
+.wa-deposit-strip {
+    margin: 8px 14px 4px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    background: #fffbeb;
+    border: 1px solid #fde68a;
+    display: grid;
+    gap: 8px;
+}
+.wa-deposit-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    font-size: 0.82rem;
+    color: #92400e;
+}
+.wa-deposit-card {
+    background: #fff;
+    border: 1px solid #f3e4b2;
+    border-radius: 10px;
+    padding: 10px;
+    display: grid;
+    gap: 8px;
+}
+.wa-deposit-info {
+    display: grid;
+    gap: 4px;
+    font-size: 0.84rem;
+    color: #1f2937;
+}
+.wa-deposit-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    font-size: 0.78rem;
+    color: #5b556e;
+}
+.wa-nowrap { white-space: nowrap; }
+.wa-stock-ok { color: #15803d; font-weight: 700; white-space: nowrap; }
+.wa-stock-out { color: #b91c1c; font-weight: 700; white-space: nowrap; }
+.wa-deposit-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 8px 12px;
+}
+.wa-deposit-amt {
+    display: grid;
+    gap: 3px;
+    font-size: 0.74rem;
+    color: #6b7280;
+}
+.wa-deposit-amt input {
+    width: 110px;
+    padding: 6px 8px;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    font-size: 0.85rem;
+}
+.wa-deposit-trust {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.78rem;
+    color: #374151;
+    min-height: 34px;
+    cursor: pointer;
+}
+.wa-deposit-btns {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-left: auto;
+}
+.wa-deposit-confirm,
+.wa-deposit-cancel {
+    min-height: 36px;
+    padding: 6px 12px;
+    font-size: 0.82rem;
+    white-space: nowrap;
 }
 </style>

@@ -10,12 +10,12 @@ class Customer extends Model
 {
     use HasFactory, SoftDeletes;
 
-    protected $fillable = ['store_id', 'full_name', 'email', 'phone', 'address', 'notes', 'status'];
+    protected $fillable = ['store_id', 'full_name', 'email', 'phone', 'address', 'notes', 'status', 'allow_reservation_without_deposit'];
 
-    protected $attributes = ['status' => 'active', 'lock_version' => 0];
+    protected $attributes = ['status' => 'active', 'allow_reservation_without_deposit' => false, 'lock_version' => 0];
 
     protected function casts(): array
     {
-        return ['store_id' => 'integer', 'lock_version' => 'integer'];
+        return ['store_id' => 'integer', 'allow_reservation_without_deposit' => 'boolean', 'lock_version' => 'integer'];
     }
 }
