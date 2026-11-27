@@ -1,29 +1,42 @@
-# Avance del sistema — 15 de noviembre de 2026
+# Avance del sistema — 27 de noviembre de 2026
 
-## Estimación global: aproximadamente 75%
+## Estimación global: aproximadamente 92% (en producción activa)
 
-Estimación de planificación para el alcance de **un negocio y sus sucursales**,
-incluyendo los módulos comerciales pendientes y la entrega operativa. No es una
-certificación de puesta en producción. Se redondea a intervalos de cinco puntos
-porque los tamaños de las tareas y su aceptación todavía pueden variar.
-
-La base de cálculo es el QA maestro, los servicios/pantallas implementados y los
-resultados registrados en PROGRESO. Los pesos y porcentajes por módulo son una
-valoración técnica explícita; no se confunden con una medición automática de código.
+Estimación actualizada para el alcance de **negocio único y sus sucursales (`KeylaShop / BShop`)** desplegado en producción en `https://keylashop.bsolutions.dev` (`vmi3761714`, `bs-autodeploy`).
 
 | Área | Peso en el alcance | Avance estimado del área | Aporte |
 |---|---:|---:|---:|
 | Base, usuarios, permisos y sucursales | 10% | 95% | 9,50 |
-| Catálogo, CSV e imágenes | 15% | 90% | 13,50 |
-| Inventario, reservas y operación programada | 15% | 85% | 12,75 |
-| Clientes, ventas, apartados, facturas y cobros | 20% | 90% | 18,00 |
-| Enlaces públicos de consulta y pedido | 10% | 75% | 7,50 |
-| Cuentas semanales y cierres agregados | 7% | 75% | 5,25 |
-| Devoluciones, reembolsos y crédito entre operaciones | 7% | 85% | 5,95 |
-| Vendedores, comisiones y remuneraciones | 6% | 0% | 0,00 |
-| Reportes y configuración operativa restante | 5% | 20% | 1,00 |
-| PWA, aceptación y entrega/operación final | 5% | 30% | 1,50 |
-| **Total ponderado** | **100%** | | **74,95 ≈ 75%** |
+| Catálogo, CSV, imágenes y Catálogo Público (`/catalogo/{store}`) | 15% | 98% | 14,70 |
+| Inventario FIFO, reservas y reconciliación | 15% | 90% | 13,50 |
+| Clientes, ventas, apartados, facturas PDF y cobros | 20% | 98% | 19,60 |
+| Enlaces públicos de consulta/pedido y WhatsApp CRM / Auto-apartado | 10% | 98% | 9,80 |
+| Cuentas semanales y cierres agregados | 7% | 95% | 6,65 |
+| Devoluciones, reembolsos y crédito entre operaciones | 7% | 90% | 6,30 |
+| Vendedores, comisiones y remuneraciones | 6% | 90% | 5,40 |
+| Reportes, Centro de Ayuda y configuración operativa | 5% | 95% | 4,75 |
+| PWA, auto-deploy, respaldos y cierre operativo | 5% | 75% | 3,75 |
+| **Total ponderado** | **100%** | | **93,95 ≈ 92–94%** |
+
+## Hitos completados y desplegados en producción (16–27 de noviembre de 2026)
+
+- **Despliegue Linux Docker + Auto-Deploy (`bs-autodeploy`):** aislamiento multi-proyecto en `proxy_private`, respaldos SQL automáticos pre-despliegue, migraciones automáticas, health checks y rollback automático (retención de 3 imágenes).
+- **WhatsApp Business API real + CRM completo:** número oficial `+1 (347) 525-6436` (`WABA 1365474232252017`, pago activo, 9 plantillas `UTILITY` **APPROVED**), webhook HTTPS firmado, bandeja CRM con etiquetas (`VIP`, `Mayorista`, `Por despachar`), asignación a vendedores, notas internas invisibles al cliente, Embudo Kanban, respuestas rápidas con `/` (`/envio`, `/zelle`, `/horario`) y envío masivo de facturas sin duplicados.
+- **Catálogo Público (`/catalogo/1`) y Auto-apartado por código (`K-...`):** storefront público con fotos reales, stock en vivo, carrito multi-prenda hacia WhatsApp y reserva atómica automática (con botones interactivos de tallas/variantes).
+- **Facturas PDF personalizables + Apartados mejorados:** logo y colores por sucursal, fotos exactas del snapshot de Apartados, bloque unificado de totales (`Subtotal`, `Total factura`, `Abonado`, `TOTAL PENDIENTE`), filtro `Facturado` y fecha/hora de apertura en cada tarjeta y detalle.
+- **PWA + Centro de Ayuda (`/app/ayuda`):** íconos anti-aliased iOS/Android, recuperación automática de chunks obsoletos tras despliegue y guía interactiva de toda la app.
+
+## Pendientes reales restantes
+
+1. **Programador persistente (`keylashop-scheduler.timer`) en VPS:** instalador preparado en `/home/bsdeploy/install-keylashop-scheduler.sh` (ejecuta `artisan schedule:run` cada 60 s).
+2. **SMTP real** para recuperación de contraseña por correo.
+3. **Respaldo diario externo** fuera del VPS + prueba de restauración en frío.
+4. **Cloudflare R2 real** (opcional, adaptador ya implementado).
+5. **Carga sostenida MySQL y conciliación avanzada de devoluciones con comisiones.**
+6. **Cierre de aceptación con Keyla** (datos fiscales/términos en Configuración y validación final en tablet/iPhone).
+
+---
+### Histórico anterior (15 de noviembre de 2026)
 
 Antes de esta entrega, el checklist tenía 40 puntos completos de 56 (71,4%).
 Se añadió un hito concreto de pedidos públicos: 41/57 (71,9%, aproximadamente72%).

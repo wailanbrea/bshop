@@ -74,12 +74,13 @@ Decisión vigente: una instalación para KeylaShop y sus sucursales. Ver
 - [x] Tablero Apartados único (grid/detalle), edición con depósitos, alias y estados separados.
 - [x] Selector 2×2/4×4/6×6 persistente, páginas de 4/16/36 y adaptación al giro conservando selección/borradores.
 - [x] Integración opcional Meta WhatsApp con PDF privado, claves cifradas y webhook; sin reenvío ciego de resultados desconocidos.
-- [ ] Activar/validar cuenta real WhatsApp y webhook HTTPS cuando se configure; SMTP y colas según despliegue.
+- [x] Activar/validar cuenta real WhatsApp (`+1 347-525-6436`, WABA `1365474232252017`), webhook HTTPS firmado, las 9 plantillas `UTILITY` aprobadas, envío masivo sin duplicados, auto-apartado por código (`K-...`), Catálogo Público (`/catalogo/1`) y WhatsApp CRM (Kanban, etiquetas, notas internas, respuestas rápidas `/`).
 - [x] Vendedores, contratos versionados, comisiones y remuneraciones.
 - [x] Dashboard comercial real e historial por sucursal/fechas, gráficos interactivos SVG, textos centralizados, títulos únicos, tabla/tarjetas, actividad financiera y CSV; sin repetir crédito/cobros/factura semanal.
-- [x] Reportes y configuración operativa del negocio/sucursales.
-- [x] PWA/tablet, accesibilidad, Safari/iPad y QA de flujos completos.
-- [ ] Respaldo/restauración, instalación entregable y puesta en servicio autorizada.
+- [x] Reportes, centro de ayuda (`/app/ayuda`), facturas PDF personalizables con fotos y totales unificados, y configuración operativa del negocio/sucursales.
+- [x] PWA/tablet/móvil (con recuperación automática de chunks tras despliegue), accesibilidad, Safari/iPad y QA de flujos completos.
+- [x] Despliegue automatizado en producción Linux Docker (`bs-autodeploy`, respaldos SQL previos, retención de 3 versiones y rollback automático).
+- [ ] Respaldo diario externo fuera del VPS y prueba completa de restauración en frío.
 
 No se incluyen suscripciones SaaS, gestión de otros negocios ni administrador de
 plataforma. Los resultados previos al cambio de arquitectura se conservan como
