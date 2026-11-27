@@ -36,7 +36,7 @@ Decisión vigente: una instalación para KeylaShop y sus sucursales. Ver
 - [x] Galería tablet, principal/orden/variante, idempotencia y cuota del negocio con retención.
 - [x] Almacenamiento local y adaptador R2 configurable; migración, HTTP y concurrencia MySQL verificados.
 - [ ] Activar/verificar bucket, dominio y permisos R2 reales con autorización.
-- [ ] Instalar y verificar tarea persistente de reconciliación/limpieza en el destino de entrega.
+- [x] Instalar y verificar tarea persistente de reconciliación/limpieza en el destino de entrega (`keylashop-scheduler.timer` activo cada 60 s en `vmi3761714`).
 - [x] Inventario, kardex, reservas, entrega parcial y transferencias con locks/idempotencia.
 - [x] Alta/búsqueda/consulta de clientes, venta rápida y apartados reabribles con referencia visual.
 - [x] Facturación individual idempotente, snapshots y PDF privado; compartir manualmente.
@@ -46,10 +46,10 @@ Decisión vigente: una instalación para KeylaShop y sus sucursales. Ver
 - [x] Demo USD coherente creada mediante formularios; conciliación de stock/dinero/PDF y recorridos reales.
 - [x] F5.07: diagnóstico de inventario por almacén en pantalla/API/CLI, comparando saldos, reservas y kardex sin escrituras; programación horaria declarada.
 - [x] Validar reconciliación con concurrencia y rango extremo en MySQL aislado (ver `docs/VERIFICACION_RESERVAS_MYSQL.md`).
-- [ ] Instalar/verificar programador de reconciliación en el destino.
+- [x] Instalar/verificar programador de reconciliación en el destino (`keylashop-scheduler.timer`).
 - [x] F5.04: plazo configurable para nuevas reservas y vencimiento idempotente de apartados sin pagos/factura/entregas; conservando fechas históricas, con diagnóstico y programación declarada.
 - [x] Validar vencimientos concurrentes con cobro/edición/entrega en MySQL aislado (ver `docs/VERIFICACION_RESERVAS_MYSQL.md`).
-- [ ] Activar/verificar ejecución persistente de vencimientos; política de cancelación con abonos por fase de devoluciones.
+- [x] Activar/verificar ejecución persistente de vencimientos (`keylashop-scheduler.timer` activo cada 60 s); política de cancelación con abonos por fase de devoluciones.
 - [x] Ejecutor del programador con estado privado, protección de solapamiento y fallo persistente por tarea; consulta sin ejecutar tareas.
 - [x] Preparados plan/instalador Windows y verificador MySQL de carreras/rango extremo; verificador ejecutado en MySQL aislado. Instalación real pendiente.
 - [x] Gestión interna de clientes: editar, archivar/reactivar con confirmación, filtros, versiones, auditoría y recuperación; conservar deuda/documentos y sincronizar la venta en memoria.
