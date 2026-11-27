@@ -190,7 +190,7 @@ final class WhatsAppTemplateDispatcher
                     $storeId,
                     $phone,
                     $templateName,
-                    '🔔 Plantilla '.$templateName.': '.implode(' · ', array_map('strval', $bodyParams)),
+                    self::renderHumanBody($templateName, array_values(array_map('strval', $bodyParams))),
                     $providerMsgId,
                     $pdfFilename,
                 );
@@ -202,6 +202,82 @@ final class WhatsAppTemplateDispatcher
         } catch (\Throwable $e) {
             return $this->recordLog($storeId, $eventType, $entityType, $entityId, $phone, $templateName, 'failed', null, 'exception', $bodyParams);
         }
+    }
+
+    /**
+     * Renders a natural, human-readable Spanish version of the sent Meta template
+     * for display inside the WhatsApp Inbox thread.
+     *
+     * @param  list<string>  $params
+     */
+    public static function renderHumanBody(string $templateName, array $params): string
+    {
+        $p = array_values($params);
+        $get = fn (int $i, string $fallback = ''): string => $p[$i] ?? $fallback;
+
+        return match ($templateName) {
+            'recibo_abono' => sprintf(
+                'Hola %s, registramos tu abono de %s en %s para el pedido #%s. Saldo pendiente actual: %s.',
+                $get(0),
+                $get(1),
+                $get(2),
+                ltrim($get(3), '#'),
+                $get(4),
+            ),
+            'pedido_despachado' => sprintf(
+                'Hola %s, tu pedido #%s en %s ya fue despachado/entregado. ¡Gracias por tu compra!',
+                $get(0),
+                ltrim($get(1), '#'),
+                $get(2),
+            ),
+            'recordatorio_saldo' => sprintf(
+                'Hola %s, te recordamos que tienes un saldo pendiente de %s en %s (ref. %s).',
+                $get(0),
+                $get(1),
+                $get(2),
+                $get(3),
+            ),
+            'apartado_por_vencer' => sprintf(
+                'Hola %s, tu apartado #%s en %s está próximo a vencer (%s). Saldo pendiente: %s.',
+                $get(0),
+                ltrim($get(1), '#'),
+                $get(2),
+                $get(3),
+                $get(4),
+            ),
+            'cuenta_semanal_pdf' => sprintf(
+                'Hola %s, adjuntamos el estado de tu cuenta semanal (%s) en %s. Total: %s · Pendiente: %s.',
+                $get(0),
+                $get(1),
+                $get(2),
+                $get(3),
+                $get(4),
+            ),
+            'enlace_catalogo_cliente' => sprintf(
+                'Hola %s, aquí tienes tu catálogo personalizado de %s: %s (válido hasta %s).',
+                $get(0),
+                $get(1),
+                $get(2),
+                $get(3),
+            ),
+            'resumen_diario_dueno' => sprintf(
+                '📊 Resumen diario de %s (%s): Ventas %s · Cobros %s · Apartados %s · CxC %s.',
+                $get(0),
+                $get(1),
+                $get(2),
+                $get(3),
+                $get(4),
+                $get(5),
+            ),
+            'alerta_stock_bajo' => sprintf(
+                '⚠️ Stock bajo en %s: %s (SKU %s) quedó con %s disponible(s).',
+                $get(0),
+                $get(1),
+                $get(2),
+                $get(3),
+            ),
+            default => implode(' · ', $p),
+        };
     }
 
     public function notifyPaymentReceipt(SalesOrder $order, string $paidAmount, string $pendingTotal): void
